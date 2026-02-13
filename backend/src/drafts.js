@@ -83,8 +83,15 @@ function buildSnakeOrder(teams, rounds) {
 exports.handler = async (event) => {
   const table = process.env.DRAFTS_TABLE;
   const method = event.requestContext?.http?.method;
-  const path = event.rawPath || "";
+  const path =
+    event.rawPath ||
+    event.requestContext?.http?.path ||
+    event.path ||
+    "";
   const draftId = event.pathParameters?.draftId;
+
+  console.log("method", method, "path", path, "draftId", draftId);
+  console.log("env DRAFTS_TABLE", process.env.DRAFTS_TABLE);
 
   try {
     // POST /drafts
