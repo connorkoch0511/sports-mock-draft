@@ -87,6 +87,13 @@ Resources:
               Ref: HttpApi
             Path: /drafts/{draftId}/auto-pick
             Method: POST
+        SimToEnd:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /drafts/{draftId}/sim-to-end
+            Method: POST
     Metadata:
       SamResourceId: DraftsFunction
 Outputs:
