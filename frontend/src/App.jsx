@@ -4,7 +4,7 @@ import Draft from "./pages/Draft.jsx";
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen bg-zinc-950 text-white">
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/draft/:draftId" element={<Draft />} />
