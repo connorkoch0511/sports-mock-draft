@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Mist Mock Draft - serverless API
+
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 10
+    MemorySize: 256
+
+Resources:
+  DraftsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: mist-mock-drafts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: draftId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: draftId
+          KeyType: HASH
+
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods: ["GET", "POST", "OPTIONS"]
+        AllowHeaders: ["content-type"]
+        AllowOrigins: ["*"]
+
+  PlayersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: players.handler
+      Events:
+        GetPlayers:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /players
+            Method: GET
+
+  DraftsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: drafts.handler
+      Environment:
+        Variables:
+          DRAFTS_TABLE: !Ref DraftsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DraftsTable
+      Events:
+        CreateDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts
+            Method: POST
+        GetDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}
+            Method: GET
+        Pick:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/pick
+            Method: POST
+        AutoPick:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/auto-pick
+            Method: POST
+
+
+Outputs:
+  ApiBaseUrl:
+    Description: Base URL for HTTP API
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
