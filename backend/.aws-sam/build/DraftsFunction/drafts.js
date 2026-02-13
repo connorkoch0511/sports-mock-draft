@@ -1,7 +1,7 @@
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } = require("@aws-sdk/lib-dynamodb");
-const { v4: uuidv4 } = require("uuid");
-const { PLAYERS } = require("./data/players");
+const { randomUUID } = require("crypto");
+const { PLAYERS } = require("./players");
 const PLAYER_MAP = Object.fromEntries(PLAYERS.map((p) => [p.id, p]));
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -93,7 +93,7 @@ exports.handler = async (event) => {
       const teams = Math.max(2, Math.min(32, Number(body.teams || 12)));
       const rounds = Math.max(1, Math.min(30, Number(body.rounds || 15)));
 
-      const id = uuidv4();
+      const id = randomUUID();
       const picks = buildSnakeOrder(teams, rounds);
 
       const item = {
