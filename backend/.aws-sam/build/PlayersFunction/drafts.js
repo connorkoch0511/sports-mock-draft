@@ -1,7 +1,7 @@
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
-const { PLAYERS } = require("./players");
+const { PLAYERS } = require("./data/players");
 const PLAYER_MAP = Object.fromEntries(PLAYERS.map((p) => [p.id, p]));
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));

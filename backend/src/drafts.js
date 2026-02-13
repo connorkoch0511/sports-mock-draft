@@ -1,9 +1,7 @@
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
-const mod = require("./data/players");
-const PLAYERS = mod.PLAYERS || mod.players || mod.default || [];
-if (!Array.isArray(PLAYERS)) throw new Error("PLAYERS is not an array — check src/data/players export");
+const { PLAYERS } = require("./data/players");
 const PLAYER_MAP = Object.fromEntries(PLAYERS.map((p) => [p.id, p]));
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));

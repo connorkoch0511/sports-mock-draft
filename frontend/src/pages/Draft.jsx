@@ -32,19 +32,21 @@ export default function Draft() {
   }, [draftId]);
 
   const filtered = useMemo(() => {
+    if (!draft) return [];
     const q = query.trim().toLowerCase();
     return players
-      .filter((p) => !draft?.picked?.includes(p.id))
+      .filter((p) => !draft.picked?.includes(p.id))
       .filter((p) => (pos ? p.position === pos : true))
       .filter((p) => (q ? p.name.toLowerCase().includes(q) : true))
       .slice(0, 200);
   }, [players, draft, query, pos]);
 
   const rosters = useMemo(() => {
+    if (!draft) return {};
     const map = {};
-    for (let t = 1; t <= draft.teams; t++) map[t] = [];
+    for (let t = 1; t <= (draft.teams || 0); t++) map[t] = [];
 
-    for (const pk of draft.picks) {
+    for (const pk of draft.picks || []) {
       if (pk.player) {
         map[pk.team].push({ overall: pk.overall, round: pk.round, player: pk.player });
       }

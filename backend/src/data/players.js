@@ -1,7 +1,6 @@
 // backend/src/data/players.js
-// Keep it simple: start with a small seed list, expand later.
 
-exports.PLAYERS = [
+const PLAYERS = [
   { id: "p1", rank: 1, name: "Christian McCaffrey", position: "RB", team: "SF", adp: 1.2, tier: 1 },
   { id: "p2", rank: 2, name: "CeeDee Lamb", position: "WR", team: "DAL", adp: 2.8, tier: 1 },
   { id: "p3", rank: 3, name: "Tyreek Hill", position: "WR", team: "MIA", adp: 3.1, tier: 1 },
@@ -19,3 +18,5 @@ exports.PLAYERS = [
   { id: "p12", rank: 12, name: "Josh Allen", position: "QB", team: "BUF", adp: 28.0, tier: 3 },
   { id: "p13", rank: 13, name: "Jalen Hurts", position: "QB", team: "PHI", adp: 32.0, tier: 3 },
 ];
+
+module.exports = { PLAYERS };
