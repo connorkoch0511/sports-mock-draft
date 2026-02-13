@@ -40,6 +40,18 @@ export default function Draft() {
       .slice(0, 200);
   }, [players, draft, query, pos]);
 
+  const rosters = useMemo(() => {
+    const map = {};
+    for (let t = 1; t <= draft.teams; t++) map[t] = [];
+
+    for (const pk of draft.picks) {
+      if (pk.player) {
+        map[pk.team].push({ overall: pk.overall, round: pk.round, player: pk.player });
+      }
+    }
+    return map;
+  }, [draft]);
+
   const currentPickLabel = draft
     ? `R${draft.currentRound} P${draft.currentPick} • Team ${draft.currentTeam}`
     : "";
@@ -173,6 +185,31 @@ export default function Draft() {
                 ))}
               </tbody>
             </table>
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: draft.teams }, (_, i) => i + 1).map((teamNum) => (
+                <div key={teamNum} className="rounded-2xl border border-zinc-900 bg-black p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">Team {teamNum}</div>
+                    <div className="text-xs text-zinc-500">{rosters[teamNum]?.length || 0} picks</div>
+                  </div>
+
+                  <div className="mt-2 space-y-2">
+                    {(rosters[teamNum] || []).length ? (
+                      rosters[teamNum].map((r) => (
+                        <div key={r.overall} className="text-sm text-zinc-200 flex items-center justify-between">
+                          <span className="text-zinc-500">#{r.overall}</span>
+                          <span className="mx-2 flex-1 truncate">{r.player.name}</span>
+                          <span className="text-zinc-500">{r.player.position}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-sm text-zinc-600">No picks yet</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
           {draft.completed ? (

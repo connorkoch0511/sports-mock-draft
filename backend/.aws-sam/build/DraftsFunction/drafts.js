@@ -81,6 +81,7 @@ exports.handler = async (event) => {
           completed: d.currentIndex >= d.picks.length,
           picks: d.picks.map((p) => ({
             overall: p.overall,
+            round: p.round,
             team: p.team,
             player: p.playerId ? (PLAYER_MAP[p.playerId] || { id: p.playerId, name: p.playerId, position: "—" }) : null,
           })),
