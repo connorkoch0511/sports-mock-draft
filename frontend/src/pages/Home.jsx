@@ -46,7 +46,7 @@ export default function Home() {
           <div className="space-y-6">
             <div className="inline-flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300 backdrop-blur">
               <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.6)]" />
-              Mist • Mock Draft Simulator
+              PerfectPick • Mock Draft Simulator
             </div>
 
             <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">
@@ -57,8 +57,8 @@ export default function Home() {
             </h1>
 
             <p className="max-w-2xl text-zinc-300">
-              A clean, fast mock draft app with a Big Board, snake draft logic, auto-picks, and DynamoDB persistence.
-              Next up: real rankings import + multi-sport support.
+              PerfectPick is a modern mock draft simulator with a live Big Board, snake draft engine,
+              smart auto-picks, and serverless persistence.
             </p>
 
             {/* Controls */}
@@ -120,13 +120,9 @@ export default function Home() {
               desc="Round-by-round snake ordering with picks persisted to DynamoDB."
             />
             <Card
-              title="Auto Pick + Sim to End"
-              desc="Auto-pick uses roster needs + rank/tier weighting (upgradeable)."
+              title="Smart Auto Picks"
+              desc="Roster-aware auto picks using position needs, rank, and tier weighting."
             />
-
-            <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-5 text-xs text-zinc-400 backdrop-blur">
-              Next: replace hardcoded players with real rankings import (CSV → S3 → DynamoDB).
-            </div>
           </div>
         </div>
       </div>

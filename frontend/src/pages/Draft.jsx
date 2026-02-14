@@ -88,109 +88,163 @@ export default function Draft() {
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
 
   return (
-    <div className="mx-auto max-w-7xl p-6 space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <Link to="/" className="text-zinc-300 hover:text-white">← Home</Link>
-        <div className="flex flex-wrap gap-2 items-center justify-end">
-          <button
-            onClick={autoPick}
-            disabled={busy || draft.completed}
-            className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
-          >
-            Auto Pick
-          </button>
-          <Pill>Draft: {draftId}</Pill>
-          <Pill>{currentPickLabel}</Pill>
-          <Pill>{draft.teams} teams • {draft.rounds} rounds</Pill>
-        </div>
+    <div className="relative min-h-[calc(100vh)] w-full overflow-hidden">
+      {/* Background (same feel as Home) */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
+        <div className="absolute inset-0 opacity-[0.10] [background-image:linear-gradient(to_right,rgba(255,255,255,0.10)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.10)_1px,transparent_1px)] [background-size:64px_64px]" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
-        {/* Big Board */}
-        <div className="rounded-3xl border border-zinc-900 bg-zinc-950 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Big Board</h2>
-            <div className="text-xs text-zinc-400">Click a player to draft</div>
-          </div>
+      {/* Content */}
+      <div className="relative mx-auto max-w-7xl px-6 py-10 space-y-4">
+        {/* Top bar */}
+        <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-center gap-3">
+              <Link to="/" className="text-zinc-300 hover:text-white">
+                ← Home
+              </Link>
 
-          <div className="flex gap-2">
-            <input
-              className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2 text-sm text-zinc-200"
-              placeholder="Search player…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <select
-              className="rounded-xl border border-zinc-800 bg-black px-3 py-2 text-sm text-zinc-200"
-              value={pos}
-              onChange={(e) => setPos(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="QB">QB</option>
-              <option value="RB">RB</option>
-              <option value="WR">WR</option>
-              <option value="TE">TE</option>
-            </select>
-          </div>
+              <div className="hidden sm:flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300">
+                <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.5)]" />
+                PerfectPick • Live Draft
+              </div>
+            </div>
 
-          <div className="max-h-[70vh] overflow-auto space-y-2 pr-1">
-            {filtered.map((p) => (
+            <div className="flex flex-wrap gap-2 items-center justify-start lg:justify-end">
               <button
-                key={p.id}
-                disabled={busy}
-                onClick={() => makePick(p.id)}
-                className="w-full text-left rounded-2xl border border-zinc-900 bg-black p-3 hover:border-zinc-700 disabled:opacity-50"
+                onClick={autoPick}
+                disabled={busy || draft.completed}
+                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="font-medium">{p.rank}. {p.name}</div>
-                  <div className="text-xs text-zinc-400">ADP {p.adp}</div>
-                </div>
-                <div className="mt-1 flex gap-2 text-xs text-zinc-300">
-                  <Pill>{p.position}</Pill>
-                  <Pill>{p.team}</Pill>
-                  <Pill>Tier {p.tier}</Pill>
-                </div>
+                Auto Pick
               </button>
-            ))}
+
+              <Pill>Draft: {draftId}</Pill>
+              <Pill>{currentPickLabel}</Pill>
+              <Pill>{draft.teams} teams • {draft.rounds} rounds</Pill>
+            </div>
           </div>
         </div>
 
-        {/* Draft Board */}
-        <div className="rounded-3xl border border-zinc-900 bg-zinc-950 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Draft Board</h2>
-            <div className="text-xs text-zinc-400">Snake draft • saved in DynamoDB</div>
+        {/* 3-column app layout */}
+        <div className="grid gap-4 xl:grid-cols-[420px_1fr_360px]">
+          {/* Big Board */}
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Big Board</h2>
+              <div className="text-xs text-zinc-400">Click a player to draft</div>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-cyan-300/60 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.10)]"
+                placeholder="Search player…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+              <select
+                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-sky-300/60 focus:shadow-[0_0_0_4px_rgba(59,130,246,0.10)]"
+                value={pos}
+                onChange={(e) => setPos(e.target.value)}
+              >
+                <option value="">All</option>
+                <option value="QB">QB</option>
+                <option value="RB">RB</option>
+                <option value="WR">WR</option>
+                <option value="TE">TE</option>
+              </select>
+            </div>
+
+            <div className="max-h-[72vh] overflow-auto space-y-2 pr-1">
+              {filtered.map((p) => (
+                <button
+                  key={p.id}
+                  disabled={busy}
+                  onClick={() => makePick(p.id)}
+                  className="w-full text-left rounded-2xl border border-zinc-900 bg-black/60 p-3 hover:border-zinc-700 disabled:opacity-50"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="font-medium">
+                      {p.rank}. {p.name}
+                    </div>
+                    <div className="text-xs text-zinc-400">ADP {p.adp}</div>
+                  </div>
+                  <div className="mt-1 flex gap-2 text-xs text-zinc-300 flex-wrap">
+                    <Pill>{p.position}</Pill>
+                    <Pill>{p.team}</Pill>
+                    <Pill>Tier {p.tier}</Pill>
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="overflow-auto rounded-2xl border border-zinc-900">
-            <table className="min-w-[900px] w-full text-sm">
-              <thead className="bg-black">
-                <tr className="text-left">
-                  <th className="p-3 text-zinc-400">Pick</th>
-                  <th className="p-3 text-zinc-400">Team</th>
-                  <th className="p-3 text-zinc-400">Player</th>
-                </tr>
-              </thead>
-              <tbody>
-                {draft.picks.map((pk) => (
-                  <tr key={pk.overall} className="border-t border-zinc-900">
-                    <td className="p-3">#{pk.overall}</td>
-                    <td className="p-3">Team {pk.team}</td>
-                    <td className="p-3">
-                      {pk.player ? (
-                        <span className="text-zinc-200">{pk.player.name} <span className="text-zinc-500">({pk.player.position})</span></span>
-                      ) : (
-                        <span className="text-zinc-600">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          {/* Draft Board */}
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Draft Board</h2>
+              <div className="text-xs text-zinc-400">Snake draft • saved in DynamoDB</div>
+            </div>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="overflow-auto rounded-2xl border border-zinc-900">
+              <table className="min-w-[900px] w-full text-sm">
+                <thead className="bg-black/70">
+                  <tr className="text-left">
+                    <th className="p-3 text-zinc-400">Pick</th>
+                    <th className="p-3 text-zinc-400">Team</th>
+                    <th className="p-3 text-zinc-400">Player</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {draft.picks.map((pk, idx) => {
+                    const isNow = idx === draft.currentIndex && !draft.completed;
+                    return (
+                      <tr
+                        key={pk.overall}
+                        className={[
+                          "border-t border-zinc-900",
+                          isNow ? "bg-cyan-300/10" : "",
+                        ].join(" ")}
+                      >
+                        <td className="p-3">#{pk.overall}</td>
+                        <td className="p-3">Team {pk.team}</td>
+                        <td className="p-3">
+                          {pk.player ? (
+                            <span className="text-zinc-200">
+                              {pk.player.name}{" "}
+                              <span className="text-zinc-500">({pk.player.position})</span>
+                            </span>
+                          ) : isNow ? (
+                            <span className="text-cyan-200">On the clock</span>
+                          ) : (
+                            <span className="text-zinc-600">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {draft.completed ? (
+              <div className="rounded-2xl border border-emerald-900/50 bg-emerald-950/30 p-4 text-emerald-200 text-sm">
+                Draft complete ✅
+              </div>
+            ) : null}
+          </div>
+
+          {/* Team Rosters (sticky right rail) */}
+          <div className="xl:sticky xl:top-6 h-fit rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Team Rosters</h2>
+              <div className="text-xs text-zinc-400">Live</div>
+            </div>
+
+            <div className="mt-3 max-h-[76vh] overflow-auto space-y-3 pr-1">
               {Array.from({ length: draft.teams }, (_, i) => i + 1).map((teamNum) => (
-                <div key={teamNum} className="rounded-2xl border border-zinc-900 bg-black p-3">
+                <div key={teamNum} className="rounded-2xl border border-zinc-900 bg-black/60 p-3">
                   <div className="flex items-center justify-between">
                     <div className="font-medium">Team {teamNum}</div>
                     <div className="text-xs text-zinc-500">{rosters[teamNum]?.length || 0} picks</div>
@@ -213,12 +267,6 @@ export default function Draft() {
               ))}
             </div>
           </div>
-
-          {draft.completed ? (
-            <div className="rounded-2xl border border-emerald-900/50 bg-emerald-950/30 p-4 text-emerald-200 text-sm">
-              Draft complete ✅
-            </div>
-          ) : null}
         </div>
       </div>
     </div>
