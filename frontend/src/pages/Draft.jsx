@@ -18,7 +18,10 @@ export default function Draft() {
   const load = async () => {
     setErr("");
     try {
-      const [d, p] = await Promise.all([apiGet(`/drafts/${draftId}`), apiGet(`/players?sport=nfl`)]);
+      const [d, p] = await Promise.all([
+        apiGet(`/drafts/${draftId}`),
+        apiGet(`/players?sport=${d.sport || "nfl"}&format=${d.format || "standard"}`)
+      ]);
       setDraft(d);
       setPlayers(p.players || []);
     } catch (e) {

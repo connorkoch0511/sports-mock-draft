@@ -17,6 +17,8 @@ export default function Home() {
   const [rounds, setRounds] = useState(15);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [format, setFormat] = useState("standard"); // "standard" | "half-ppr" | "ppr"
+  const [year, setYear] = useState(2025);
 
   const createDraft = async () => {
     setLoading(true);
@@ -87,6 +89,19 @@ export default function Home() {
                 />
               </label>
             </div>
+
+            <label className="space-y-1">
+              <div className="text-sm text-zinc-300">ADP Format</div>
+              <select
+                className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-zinc-100 outline-none"
+                value={format}
+                onChange={(e) => setFormat(e.target.value)}
+              >
+                <option value="standard">Standard</option>
+                <option value="half-ppr">Half PPR</option>
+                <option value="ppr">PPR</option>
+              </select>
+            </label>
 
             {err ? (
               <div className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-red-200 text-sm">

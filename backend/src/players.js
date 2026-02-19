@@ -29,12 +29,12 @@ exports.handler = async (event) => {
       status: p.status,
       updatedAt: p.updatedAt,
       // Optional fields if you later add them:
-      rank: p.rank ?? null,
-      adp: p.adp ?? null,
-      tier: p.tier ?? null,
+      rank: p.rank?.[format] ?? null,
+      adp: p.adp?.[format] ?? null,
+      tier: p.tier?.[format] ?? null,
     }))
     // Optional: stable sort (name); you can later add rank/adp sorting when you have it
-    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    .sort((a, b) => (a.rank ?? 999999) - (b.rank ?? 999999));
 
   return {
     statusCode: 200,
