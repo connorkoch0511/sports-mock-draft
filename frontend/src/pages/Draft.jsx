@@ -18,7 +18,7 @@ export default function Draft() {
   const load = async () => {
     setErr("");
     try {
-      const [d, p] = await Promise.all([apiGet(`/drafts/${draftId}`), apiGet(`/players`)]);
+      const [d, p] = await Promise.all([apiGet(`/drafts/${draftId}`), apiGet(`/players?sport=nfl`)]);
       setDraft(d);
       setPlayers(p.players || []);
     } catch (e) {
@@ -40,6 +40,12 @@ export default function Draft() {
       .filter((p) => (q ? p.name.toLowerCase().includes(q) : true))
       .slice(0, 200);
   }, [players, draft, query, pos]);
+
+  const playersById = useMemo(() => {
+    const m = new Map();
+    for (const p of players) m.set(p.id, p);
+    return m;
+  }, [players]);
 
   const rosters = useMemo(() => {
     if (!draft) return {};
@@ -88,7 +94,7 @@ export default function Draft() {
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
 
   return (
-    <div className="relative min-h-[calc(100vh)] w-full overflow-hidden">
+    <div className="relative min-h-screen w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -96,7 +102,7 @@ export default function Draft() {
       </div>
 
       {/* Content */}
-      <div className="relative mx-auto max-w-7xl px-6 py-10 space-y-4">
+      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-screen flex flex-col gap-4">
         {/* Top bar */}
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -128,9 +134,9 @@ export default function Draft() {
         </div>
 
         {/* 3-column app layout */}
-        <div className="grid gap-4 xl:grid-cols-[420px_1fr_360px]">
+        <div className="grid gap-4 xl:grid-cols-[420px_1fr_360px] flex-1 min-h-0">
           {/* Big Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 flex flex-col">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Big Board</h2>
               <div className="text-xs text-zinc-400">Click a player to draft</div>
@@ -153,10 +159,12 @@ export default function Draft() {
                 <option value="RB">RB</option>
                 <option value="WR">WR</option>
                 <option value="TE">TE</option>
+                <option value="K">K</option>
+                <option value="DEF">DEF</option>
               </select>
             </div>
 
-            <div className="max-h-[72vh] overflow-auto space-y-2 pr-1">
+            <div className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
               {filtered.map((p) => (
                 <button
                   key={p.id}
@@ -181,15 +189,16 @@ export default function Draft() {
           </div>
 
           {/* Draft Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 flex flex-col">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Draft Board</h2>
-              <div className="text-xs text-zinc-400">Snake draft • saved in DynamoDB</div>
+              <div className="text-xs text-zinc-400">Snake draft</div>
             </div>
 
-            <div className="overflow-auto rounded-2xl border border-zinc-900">
+            {/* Table (horizontal scroll only) */}
+            <div className="flex-1 min-h-0 overflow-auto rounded-2xl border border-zinc-900">
               <table className="min-w-[900px] w-full text-sm">
-                <thead className="bg-black/70">
+                <thead className="bg-black/70 sticky top-0 z-10">
                   <tr className="text-left">
                     <th className="p-3 text-zinc-400">Pick</th>
                     <th className="p-3 text-zinc-400">Team</th>
@@ -199,6 +208,7 @@ export default function Draft() {
                 <tbody>
                   {draft.picks.map((pk, idx) => {
                     const isNow = idx === draft.currentIndex && !draft.completed;
+                    const pl = pk.playerId ? playersById.get(pk.playerId) : null;
                     return (
                       <tr
                         key={pk.overall}
@@ -210,13 +220,14 @@ export default function Draft() {
                         <td className="p-3">#{pk.overall}</td>
                         <td className="p-3">Team {pk.team}</td>
                         <td className="p-3">
-                          {pk.player ? (
+                          {pl ? (
                             <span className="text-zinc-200">
-                              {pk.player.name}{" "}
-                              <span className="text-zinc-500">({pk.player.position})</span>
+                              {pl.name} <span className="text-zinc-500">({pl.position})</span>
                             </span>
                           ) : isNow ? (
                             <span className="text-cyan-200">On the clock</span>
+                          ) : pk.playerId ? (
+                            <span className="text-zinc-500">{pk.playerId}</span> // fallback if not loaded yet
                           ) : (
                             <span className="text-zinc-600">—</span>
                           )}
@@ -242,7 +253,7 @@ export default function Draft() {
               <div className="text-xs text-zinc-400">Live</div>
             </div>
 
-            <div className="mt-3 max-h-[76vh] overflow-auto space-y-3 pr-1">
+            <div className="mt-3 flex-1 min-h-0 overflow-auto space-y-3 pr-1">
               {Array.from({ length: draft.teams }, (_, i) => i + 1).map((teamNum) => (
                 <div key={teamNum} className="rounded-2xl border border-zinc-900 bg-black/60 p-3">
                   <div className="flex items-center justify-between">

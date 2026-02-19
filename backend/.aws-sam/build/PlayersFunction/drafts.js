@@ -1,58 +1,93 @@
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } = require("@aws-sdk/lib-dynamodb");
+const {
+  DynamoDBDocumentClient,
+  GetCommand,
+  PutCommand,
+  UpdateCommand,
+  QueryCommand,
+} = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
-const { PLAYERS } = require("./data/players");
-const PLAYER_MAP = Object.fromEntries(PLAYERS.map((p) => [p.id, p]));
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-function getRosterCounts(draft, teamNum) {
-  const counts = { QB: 0, RB: 0, WR: 0, TE: 0 };
+const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
+
+async function loadPlayersForSport(table, sport) {
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName: table,
+      KeyConditionExpression: "#s = :sport",
+      ExpressionAttributeNames: { "#s": "sport" },
+      ExpressionAttributeValues: { ":sport": sport },
+    })
+  );
+
+  const players = (res.Items || [])
+    .filter((p) => p && ALLOWED_POS.has(p.position))
+    .map((p) => ({
+      id: p.id || p.playerId,
+      name: p.name,
+      position: p.position,
+      team: p.team,
+    }));
+
+  const byId = Object.fromEntries(players.map((p) => [p.id, p]));
+  return { players, byId };
+}
+
+function getRosterCounts(draft, teamNum, playerById) {
+  const counts = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
   for (const pk of draft.picks) {
     if (pk.team !== teamNum || !pk.playerId) continue;
-    const pl = PLAYER_MAP[pk.playerId];
+    const pl = playerById[pk.playerId];
     if (!pl) continue;
     if (counts[pl.position] !== undefined) counts[pl.position] += 1;
   }
   return counts;
 }
 
-// Simple “needs” targets for fantasy-style roster building
+// Targets by end of draft (you can tune later)
 function needScore(counts, pos, round) {
-  // targets by end of draft (rough default)
-  const target = { QB: 1, RB: 2, WR: 2, TE: 1 };
+  const target = { QB: 1, RB: 2, WR: 2, TE: 1, K: 1, DEF: 1 };
 
-  // early-round strategy: prioritize RB/WR more
-  const earlyBoost = round <= 3 ? { RB: 2, WR: 2, QB: 0.5, TE: 0.5 } : { RB: 1, WR: 1, QB: 1, TE: 1 };
+  // early-round strategy: prioritize RB/WR more; push K/DEF late
+  const earlyBoost =
+    round <= 6
+      ? { RB: 2, WR: 2, QB: 0.7, TE: 0.7, K: 0.1, DEF: 0.1 }
+      : { RB: 1, WR: 1, QB: 1, TE: 1, K: 1, DEF: 1 };
 
   const missing = Math.max(0, (target[pos] || 0) - (counts[pos] || 0));
   return missing * (earlyBoost[pos] || 1);
 }
 
-function pickBestForTeam(draft, teamNum) {
+function pickBestForTeam(draft, teamNum, players) {
   const pickedSet = new Set(draft.picked || []);
   const currentPick = draft.picks[draft.currentIndex];
   const round = currentPick?.round || 1;
 
-  const counts = getRosterCounts(draft, teamNum);
+  // roster counts for needs
+  // NOTE: we’ll compute counts in handler with playerById and pass in
+  // (to keep this pure), so we’ll attach counts to draft temporarily if needed
+  const counts = draft.__counts;
 
-  // Score each available player: higher is better
   let best = null;
   let bestScore = -Infinity;
 
-  for (const p of PLAYERS) {
+  for (const p of players) {
+    if (!p?.id) continue;
     if (pickedSet.has(p.id)) continue;
 
-    // base score from rank (lower rank = better)
-    const rankScore = 1000 - (p.rank || 999);
-
-    // need score (bigger if team needs that position)
+    // With Sleeper endpoint we don't have rank/adp. We'll use needs heavily and a small stable tie-break.
     const nScore = needScore(counts, p.position, round) * 100;
 
-    // small tier bonus (lower tier number = better)
-    const tierBonus = p.tier ? (10 - p.tier) * 5 : 0;
+    // tie-break: prefer non-K/DEF early even if needs are equal
+    const positionPenalty =
+      round <= 6 && (p.position === "K" || p.position === "DEF") ? -50 : 0;
 
-    const score = rankScore + nScore + tierBonus;
+    // simple deterministic tie-break: name length + charcode
+    const tiebreak = (p.name || "").length;
+
+    const score = nScore + positionPenalty + tiebreak;
 
     if (score > bestScore) {
       bestScore = score;
@@ -81,17 +116,12 @@ function buildSnakeOrder(teams, rounds) {
 }
 
 exports.handler = async (event) => {
-  const table = process.env.DRAFTS_TABLE;
-  const method = event.requestContext?.http?.method;
-  const path =
-    event.rawPath ||
-    event.requestContext?.http?.path ||
-    event.path ||
-    "";
-  const draftId = event.pathParameters?.draftId;
+  const draftsTable = process.env.DRAFTS_TABLE;
+  const playersTable = process.env.PLAYERS_TABLE; // ADD this env var in template (see below)
 
-  console.log("method", method, "path", path, "draftId", draftId);
-  console.log("env DRAFTS_TABLE", process.env.DRAFTS_TABLE);
+  const method = event.requestContext?.http?.method;
+  const path = event.rawPath || event.requestContext?.http?.path || event.path || "";
+  const draftId = event.pathParameters?.draftId;
 
   try {
     // POST /drafts
@@ -105,6 +135,7 @@ exports.handler = async (event) => {
 
       const item = {
         draftId: id,
+        sport: (body.sport || "nfl").toLowerCase(),
         teams,
         rounds,
         picks,
@@ -114,7 +145,7 @@ exports.handler = async (event) => {
         version: 1,
       };
 
-      await ddb.send(new PutCommand({ TableName: table, Item: item }));
+      await ddb.send(new PutCommand({ TableName: draftsTable, Item: item }));
 
       return {
         statusCode: 200,
@@ -125,7 +156,7 @@ exports.handler = async (event) => {
 
     // GET /drafts/{draftId}
     if (method === "GET" && draftId) {
-      const res = await ddb.send(new GetCommand({ TableName: table, Key: { draftId } }));
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
       if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
@@ -136,18 +167,20 @@ exports.handler = async (event) => {
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         body: JSON.stringify({
           draftId: d.draftId,
+          sport: d.sport || "nfl",
           teams: d.teams,
           rounds: d.rounds,
           picked: d.picked || [],
+          currentIndex: d.currentIndex,
           currentRound: current?.round || d.rounds,
           currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
           currentTeam: current?.team || null,
           completed: d.currentIndex >= d.picks.length,
-          picks: d.picks.map((p) => ({
+          picks: (d.picks || []).map((p) => ({
             overall: p.overall,
             round: p.round,
             team: p.team,
-            player: p.playerId ? (PLAYER_MAP[p.playerId] || { id: p.playerId, name: p.playerId, position: "—" }) : null,
+            playerId: p.playerId || null,
           })),
         }),
       };
@@ -159,16 +192,12 @@ exports.handler = async (event) => {
       const playerId = String(body.playerId || "").trim();
       if (!playerId) return { statusCode: 400, body: JSON.stringify({ error: "Missing playerId" }) };
 
-      const res = await ddb.send(new GetCommand({ TableName: table, Key: { draftId } }));
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
       if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
-      if ((d.picked || []).includes(playerId)) {
-        return { statusCode: 409, body: JSON.stringify({ error: "Player already picked" }) };
-      }
-      if (d.currentIndex >= d.picks.length) {
-        return { statusCode: 409, body: JSON.stringify({ error: "Draft already completed" }) };
-      }
+      if ((d.picked || []).includes(playerId)) return { statusCode: 409, body: JSON.stringify({ error: "Player already picked" }) };
+      if (d.currentIndex >= d.picks.length) return { statusCode: 409, body: JSON.stringify({ error: "Draft already completed" }) };
 
       d.picks[d.currentIndex].playerId = playerId;
       d.picked = [playerId, ...(d.picked || [])];
@@ -176,16 +205,10 @@ exports.handler = async (event) => {
 
       await ddb.send(
         new UpdateCommand({
-          TableName: table,
+          TableName: draftsTable,
           Key: { draftId },
           UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: {
-            ":p": d.picks,
-            ":k": d.picked,
-            ":i": d.currentIndex,
-            ":z": 0,
-            ":one": 1,
-          },
+          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
         })
       );
 
@@ -198,17 +221,19 @@ exports.handler = async (event) => {
 
     // POST /drafts/{draftId}/auto-pick
     if (method === "POST" && draftId && path.endsWith("/auto-pick")) {
-      const res = await ddb.send(new GetCommand({ TableName: table, Key: { draftId } }));
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
       if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
+      if (d.currentIndex >= d.picks.length) return { statusCode: 409, body: JSON.stringify({ error: "Draft already completed" }) };
 
-      if (d.currentIndex >= d.picks.length) {
-        return { statusCode: 409, body: JSON.stringify({ error: "Draft already completed" }) };
-      }
+      const sport = (d.sport || "nfl").toLowerCase();
+      const { players, byId } = await loadPlayersForSport(playersTable, sport);
 
       const teamNum = d.picks[d.currentIndex]?.team;
-      const best = pickBestForTeam(d, teamNum);
+      d.__counts = getRosterCounts(d, teamNum, byId);
+
+      const best = pickBestForTeam(d, teamNum, players);
       if (!best) return { statusCode: 409, body: JSON.stringify({ error: "No players left" }) };
 
       d.picks[d.currentIndex].playerId = best.id;
@@ -217,17 +242,10 @@ exports.handler = async (event) => {
 
       await ddb.send(
         new UpdateCommand({
-          TableName: table,
+          TableName: draftsTable,
           Key: { draftId },
-          UpdateExpression:
-            "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: {
-            ":p": d.picks,
-            ":k": d.picked,
-            ":i": d.currentIndex,
-            ":z": 0,
-            ":one": 1,
-          },
+          UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
+          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
         })
       );
 
@@ -240,14 +258,18 @@ exports.handler = async (event) => {
 
     // POST /drafts/{draftId}/sim-to-end
     if (method === "POST" && draftId && path.endsWith("/sim-to-end")) {
-      const res = await ddb.send(new GetCommand({ TableName: table, Key: { draftId } }));
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
       if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
+      const sport = (d.sport || "nfl").toLowerCase();
+      const { players, byId } = await loadPlayersForSport(playersTable, sport);
 
       while (d.currentIndex < d.picks.length) {
         const teamNum = d.picks[d.currentIndex]?.team;
-        const best = pickBestForTeam(d, teamNum);
+        d.__counts = getRosterCounts(d, teamNum, byId);
+
+        const best = pickBestForTeam(d, teamNum, players);
         if (!best) break;
 
         d.picks[d.currentIndex].playerId = best.id;
@@ -257,17 +279,10 @@ exports.handler = async (event) => {
 
       await ddb.send(
         new UpdateCommand({
-          TableName: table,
+          TableName: draftsTable,
           Key: { draftId },
-          UpdateExpression:
-            "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: {
-            ":p": d.picks,
-            ":k": d.picked,
-            ":i": d.currentIndex,
-            ":z": 0,
-            ":one": 1,
-          },
+          UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
+          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
         })
       );
 
@@ -279,7 +294,6 @@ exports.handler = async (event) => {
     }
 
     return { statusCode: 404, body: JSON.stringify({ error: "Not found" }) };
-
   } catch (e) {
     return { statusCode: 500, body: JSON.stringify({ error: e.message || "Server error" }) };
   }

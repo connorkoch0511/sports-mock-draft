@@ -10,7 +10,7 @@ Resources:
   DraftsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: mist-mock-drafts
+      TableName: perfectpick-drafts
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
       - AttributeName: draftId
@@ -18,6 +18,21 @@ Resources:
       KeySchema:
       - AttributeName: draftId
         KeyType: HASH
+  PlayersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: perfectpick-players
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: sport
+        AttributeType: S
+      - AttributeName: playerId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: sport
+        KeyType: HASH
+      - AttributeName: playerId
+        KeyType: RANGE
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -35,6 +50,14 @@ Resources:
     Properties:
       CodeUri: PlayersFunction
       Handler: players.handler
+      Environment:
+        Variables:
+          PLAYERS_TABLE:
+            Ref: PlayersTable
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: PlayersTable
       Events:
         GetPlayers:
           Type: HttpApi
@@ -54,6 +77,8 @@ Resources:
         Variables:
           DRAFTS_TABLE:
             Ref: DraftsTable
+          PLAYERS_TABLE:
+            Ref: PlayersTable
       Policies:
       - DynamoDBCrudPolicy:
           TableName:
@@ -96,6 +121,28 @@ Resources:
             Method: POST
     Metadata:
       SamResourceId: DraftsFunction
+  SyncPlayersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: SyncPlayersFunction
+      Handler: syncPlayers.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          PLAYERS_TABLE:
+            Ref: PlayersTable
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: PlayersTable
+      Events:
+        Nightly:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+    Metadata:
+      SamResourceId: SyncPlayersFunction
 Outputs:
   ApiBaseUrl:
     Description: Base URL for HTTP API

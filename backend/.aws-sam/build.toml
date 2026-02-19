@@ -7,6 +7,6 @@ architecture = "x86_64"
 handler = "players.handler"
 manifest_hash = ""
 packagetype = "Zip"
-functions = ["PlayersFunction", "DraftsFunction"]
+functions = ["PlayersFunction", "DraftsFunction", "SyncPlayersFunction"]
 
 [layer_build_definitions]
