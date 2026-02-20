@@ -75,7 +75,7 @@ Resources:
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DraftsTable
-        - DynamoDBCrudPolicy:
+        - DynamoDBReadPolicy:
             TableName: !Ref PlayersTable
       Events:
         CreateDraft:

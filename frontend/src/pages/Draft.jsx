@@ -261,8 +261,14 @@ export default function Draft() {
             </div>
 
             {draft.completed ? (
-              <div className="rounded-2xl border border-emerald-900/50 bg-emerald-950/30 p-4 text-emerald-200 text-sm">
-                Draft complete ✅
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-900/50 bg-emerald-950/30 p-4 text-emerald-200 text-sm">
+                <span>Draft complete ✅</span>
+                <Link
+                  to={`/draft/${draftId}/results`}
+                  className="rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold hover:bg-emerald-300"
+                >
+                  View Results →
+                </Link>
               </div>
             ) : null}
           </div>

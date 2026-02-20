@@ -1,6 +1,7 @@
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home.jsx";
 import Draft from "./pages/Draft.jsx";
+import Results from "./pages/Results.jsx"; // 👈 new
 
 export default function App() {
   return (
@@ -9,6 +10,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/draft/:draftId" element={<Draft />} />
+          <Route path="/draft/:draftId/results" element={<Results />} />
         </Routes>
       </div>
     </div>

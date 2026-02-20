@@ -40,6 +40,29 @@ async function loadPlayersForSport(table, sport, format) {
   return { players, byId };
 }
 
+async function getPlayerSnapshot(playersTable, sport, format, playerId) {
+  const res = await ddb.send(
+    new GetCommand({
+      TableName: playersTable,
+      Key: { sport, playerId: String(playerId) },
+    })
+  );
+
+  const p = res.Item;
+  if (!p) return null;
+
+  return {
+    id: p.id || p.playerId,
+    playerId: p.playerId,
+    name: p.name,
+    position: p.position,
+    team: p.team,
+    rank: p.rank?.[format] ?? null,
+    adp: p.adp?.[format] ?? null,
+    tier: p.tier?.[format] ?? null,
+  };
+}
+
 function getRosterCounts(draft, teamNum, playerById) {
   const counts = { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
   for (const pk of draft.picks) {
@@ -113,7 +136,7 @@ function buildSnakeOrder(teams, rounds) {
       : Array.from({ length: teams }, (_, i) => teams - i);
 
     for (const team of teamOrder) {
-      picks.push({ overall, round: r, team, playerId: null });
+      picks.push({ overall, round: r, team, playerId: null, player: null });
       overall++;
     }
   }
@@ -171,9 +194,6 @@ exports.handler = async (event) => {
       if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
-      const sport = (d.sport || "nfl").toLowerCase();
-      const format = (d.format || "standard").toLowerCase();
-      const { byId } = await loadPlayersForSport(playersTable, sport, format);
       const current = d.picks[d.currentIndex] || null;
 
       return {
@@ -192,18 +212,13 @@ exports.handler = async (event) => {
           currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
           currentTeam: current?.team || null,
           completed: d.currentIndex >= d.picks.length,
-          picks: (d.picks || []).map((p) => {
-            const pl = p.playerId ? byId[p.playerId] : null;
-            return {
-              overall: p.overall,
-              round: p.round,
-              team: p.team,
-              playerId: p.playerId || null,
-              player: pl
-                ? { id: pl.id, name: pl.name, position: pl.position, team: pl.team }
-                : null,
-            };
-          }),
+          picks: (d.picks || []).map((p) => ({
+            overall: p.overall,
+            round: p.round,
+            team: p.team,
+            playerId: p.playerId || null,
+            player: p.player || null, // already stored
+          })),
         }),
       };
     }
@@ -221,7 +236,23 @@ exports.handler = async (event) => {
       if ((d.picked || []).includes(playerId)) return { statusCode: 409, body: JSON.stringify({ error: "Player already picked" }) };
       if (d.currentIndex >= d.picks.length) return { statusCode: 409, body: JSON.stringify({ error: "Draft already completed" }) };
 
+      const sport = (d.sport || "nfl").toLowerCase();
+      const format = (d.format || "standard").toLowerCase();
+
+      const snap = await getPlayerSnapshot(playersTable, sport, format, playerId);
+      if (!snap) return { statusCode: 400, body: JSON.stringify({ error: "Invalid playerId" }) };
+
       d.picks[d.currentIndex].playerId = playerId;
+      d.picks[d.currentIndex].player = {
+        id: snap.id,
+        name: snap.name,
+        position: snap.position,
+        team: snap.team,
+        rank: snap.rank,
+        adp: snap.adp,
+        tier: snap.tier,
+      };
+
       d.picked = [playerId, ...(d.picked || [])];
       d.currentIndex = d.currentIndex + 1;
 
@@ -260,6 +291,16 @@ exports.handler = async (event) => {
       if (!best) return { statusCode: 409, body: JSON.stringify({ error: "No players left" }) };
 
       d.picks[d.currentIndex].playerId = best.id;
+      d.picks[d.currentIndex].playerId = best.id;
+      d.picks[d.currentIndex].player = {
+        id: best.id,
+        name: best.name,
+        position: best.position,
+        team: best.team,
+        rank: best.rank,
+        adp: best.adp,
+        tier: best.tier,
+      };
       d.picked = [best.id, ...(d.picked || [])];
       d.currentIndex = d.currentIndex + 1;
 
@@ -297,6 +338,15 @@ exports.handler = async (event) => {
         if (!best) break;
 
         d.picks[d.currentIndex].playerId = best.id;
+        d.picks[d.currentIndex].player = {
+          id: best.id,
+          name: best.name,
+          position: best.position,
+          team: best.team,
+          rank: best.rank,
+          adp: best.adp,
+          tier: best.tier,
+        };
         d.picked = [best.id, ...(d.picked || [])];
         d.currentIndex += 1;
       }
