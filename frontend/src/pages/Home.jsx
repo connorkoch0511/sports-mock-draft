@@ -24,7 +24,7 @@ export default function Home() {
     setLoading(true);
     setErr("");
     try {
-      const draft = await apiPost("/drafts", { teams, rounds });
+      const draft = await apiPost("/drafts", { teams, rounds, sport: "nfl", format, year });
       nav(`/draft/${draft.draftId}`);
     } catch (e) {
       setErr(e.message || "Failed to create draft");

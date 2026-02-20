@@ -7,7 +7,8 @@ exports.handler = async (event) => {
   const table = process.env.PLAYERS_TABLE;
 
   const qs = event.queryStringParameters || {};
-  const sport = (qs.sport || "nfl").toLowerCase();
+  const sport = String(qs.sport || "nfl").toLowerCase();
+  const format = String(qs.format || "standard").toLowerCase(); // standard | half-ppr | ppr
 
   const res = await ddb.send(
     new QueryCommand({
@@ -18,23 +19,20 @@ exports.handler = async (event) => {
     })
   );
 
-  // Normalize output shape for frontend
   const players = (res.Items || [])
     .map((p) => ({
-      id: p.id || p.playerId,      // canonical id
+      id: p.id || p.playerId,
       playerId: p.playerId,
       name: p.name,
       position: p.position,
       team: p.team,
       status: p.status,
       updatedAt: p.updatedAt,
-      // Optional fields if you later add them:
-      rank: p.rank ?? null,
-      adp: p.adp ?? null,
-      tier: p.tier ?? null,
+      rank: p.rank?.[format] ?? null,
+      adp: p.adp?.[format] ?? null,
+      tier: p.tier?.[format] ?? null,
     }))
-    // Optional: stable sort (name); you can later add rank/adp sorting when you have it
-    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    .sort((a, b) => (a.rank ?? 999999) - (b.rank ?? 999999));
 
   return {
     statusCode: 200,
@@ -42,6 +40,6 @@ exports.handler = async (event) => {
       "Content-Type": "application/json",
       "Access-Control-Allow-Origin": "*",
     },
-    body: JSON.stringify({ sport, count: players.length, players }),
+    body: JSON.stringify({ sport, format, count: players.length, players }),
   };
 };

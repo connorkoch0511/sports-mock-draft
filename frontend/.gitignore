@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# SAM build output
+backend/.aws-sam/
+backend/out.json

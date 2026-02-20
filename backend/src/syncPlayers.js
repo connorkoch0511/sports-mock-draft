@@ -4,13 +4,13 @@ const { DynamoDBDocumentClient, BatchWriteCommand } = require("@aws-sdk/lib-dyna
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 const ALLOWED = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
+const FORMATS = ["standard", "half-ppr", "ppr"];
 
 function chunk(arr, size) {
   const out = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
 }
-
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -26,23 +26,61 @@ function normName(name) {
     .trim();
 }
 
-function normPos(pos) {
+function toAppPos(pos) {
   const p = String(pos || "").toUpperCase();
   if (p === "DST") return "DEF";
   return p;
 }
 
+function isSleeperDefense(p) {
+  const pos = toAppPos(p.position);
+  const fantasyPos = Array.isArray(p.fantasy_positions) ? p.fantasy_positions.map(toAppPos) : [];
+  // Sleeper commonly uses: position="DEF" or "DST", fantasy_positions includes "DEF"
+  return pos === "DEF" || fantasyPos.includes("DEF");
+}
+
 function normalizeSleeperPlayer(p, playerId) {
+  const team = p.team ? String(p.team).toUpperCase() : "";
+
+  // --- DEF / DST special case (do NOT require status=active) ---
+  if (isSleeperDefense(p)) {
+    if (!team) return null;
+
+    const name =
+      p.full_name ||
+      p.search_full_name ||
+      p.last_name || // sometimes used
+      `${team} Defense`;
+
+    return {
+      sport: "nfl",
+      id: String(playerId),
+      playerId: String(playerId),
+
+      name,
+      nameKey: normName(name),
+
+      position: "DEF",
+      team,
+
+      status: p.status ?? "team",
+      updatedAt: Date.now(),
+
+      // multi-format containers
+      adp: {},
+      rank: {},
+      tier: {},
+    };
+  }
+
+  // --- Everyone else: keep strict active filter ---
   const status = String(p.status || "").toLowerCase();
   if (status !== "active") return null;
 
-  const positions = Array.isArray(p.fantasy_positions) ? p.fantasy_positions : [];
-  // Sleeper usually uses "DEF" for team defense in fantasy_positions
-  const fantasyPos = positions.find((x) => ALLOWED.has(x)) || null;
+  const fantasyPositions = Array.isArray(p.fantasy_positions) ? p.fantasy_positions.map(toAppPos) : [];
+  const fantasyPos = fantasyPositions.find((x) => ALLOWED.has(x)) || null;
   if (!fantasyPos) return null;
-
-  // Team is required (for DEF this will be the NFL team abbrev)
-  if (!p.team) return null;
+  if (!team) return null;
 
   const name =
     p.full_name ||
@@ -54,7 +92,6 @@ function normalizeSleeperPlayer(p, playerId) {
 
   return {
     sport: "nfl",
-    // Canonical id used by frontend + drafts
     id: String(playerId),
     playerId: String(playerId),
 
@@ -62,83 +99,103 @@ function normalizeSleeperPlayer(p, playerId) {
     nameKey: normName(name),
 
     position: fantasyPos,
-    team: p.team,
+    team,
 
     status: p.status,
     updatedAt: Date.now(),
 
-    // filled later
-    adp: null,
-    rank: null,
-    tier: null,
+    // multi-format containers
+    adp: {},
+    rank: {},
+    tier: {},
   };
 }
 
-function ffcPosToAppPos(pos) {
-  const p = String(pos || "").toUpperCase();
-  if (p === "DST") return "DEF";
-  return p;
+async function fetchFfcAdp({ format, teams, year }) {
+  const url = `https://fantasyfootballcalculator.com/api/v1/adp/${encodeURIComponent(
+    format
+  )}?teams=${encodeURIComponent(teams)}&year=${encodeURIComponent(year)}`;
+
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`FFC ADP fetch failed (${format}): ${r.status}`);
+  const j = await r.json();
+  return Array.isArray(j.players) ? j.players : [];
+}
+
+function buildFfcMap(ffcPlayers) {
+  const m = new Map();
+
+  for (const p of ffcPlayers) {
+    const pos = toAppPos(p.position);
+    if (!ALLOWED.has(pos)) continue;
+
+    const team = p.team ? String(p.team).toUpperCase() : "";
+    if (!team) continue;
+
+    const key = `${pos}|${team}|${normName(p.name)}`;
+
+    const adp = p.adp != null ? Number(p.adp) : null;
+    if (adp == null || Number.isNaN(adp)) continue;
+
+    const prev = m.get(key);
+    if (prev == null || adp < prev) m.set(key, adp);
+  }
+
+  return m;
 }
 
 exports.handler = async () => {
   const table = process.env.PLAYERS_TABLE;
-  const sport = "nfl";
 
   const ADP_TEAMS = Number(process.env.ADP_TEAMS || 12);
   const ADP_YEAR = Number(process.env.ADP_YEAR || 2025);
-  const ADP_FORMAT = process.env.ADP_FORMAT || "standard"; // standard | ppr | half-ppr (if you use those)
 
   // 1) Sleeper dump
   const sleeperUrl = "https://api.sleeper.app/v1/players/nfl";
   const sr = await fetch(sleeperUrl);
   if (!sr.ok) throw new Error(`Sleeper fetch failed: ${sr.status}`);
-  const sleeperData = await sr.json(); // object keyed by sleeper player_id
+  const sleeperData = await sr.json();
 
   const basePlayers = Object.entries(sleeperData)
     .map(([playerId, p]) => normalizeSleeperPlayer(p, playerId))
     .filter(Boolean);
 
-  // 2) FFC ADP
-  const adpUrl = `https://fantasyfootballcalculator.com/api/v1/adp/${encodeURIComponent(
-    ADP_FORMAT
-  )}?teams=${encodeURIComponent(ADP_TEAMS)}&year=${encodeURIComponent(ADP_YEAR)}`;
-
-  const ar = await fetch(adpUrl);
-  if (!ar.ok) throw new Error(`FFC ADP fetch failed: ${ar.status}`);
-  const adpJson = await ar.json();
-
-  const ffcPlayers = Array.isArray(adpJson.players) ? adpJson.players : [];
-  const ffcKeyToAdp = new Map();
-  for (const p of ffcPlayers) {
-    const pos = ffcPosToAppPos(p.position);
-    if (!ALLOWED.has(pos)) continue;
-
-    const key = `${pos}|${p.team}|${normName(p.name)}`;
-    // if duplicates exist, keep the best (lowest) adp
-    const prev = ffcKeyToAdp.get(key);
-    if (prev == null || (p.adp != null && p.adp < prev)) ffcKeyToAdp.set(key, p.adp);
+  // 2) Fetch FFC ADP for all formats
+  const ffcByFormat = {};
+  for (const fmt of FORMATS) {
+    const ffcPlayers = await fetchFfcAdp({ format: fmt, teams: ADP_TEAMS, year: ADP_YEAR });
+    ffcByFormat[fmt] = buildFfcMap(ffcPlayers);
+    await sleep(250);
   }
 
-  // 3) merge ADP into Sleeper list
+  // 3) Merge ADP into Sleeper list for all formats
   for (const pl of basePlayers) {
     const key = `${pl.position}|${pl.team}|${pl.nameKey}`;
-    const adp = ffcKeyToAdp.get(key);
-    if (adp != null) pl.adp = Number(adp);
+
+    for (const fmt of FORMATS) {
+      const adp = ffcByFormat[fmt].get(key);
+      if (adp != null) pl.adp[fmt] = adp;
+    }
   }
 
-  // 4) rank + tier from ADP
-  const withAdp = basePlayers.filter((p) => p.adp != null).sort((a, b) => a.adp - b.adp);
-  for (let i = 0; i < withAdp.length; i++) {
-    withAdp[i].rank = i + 1;
-    // Simple tiering: tier = draft round based on ADP (teams per round)
-    withAdp[i].tier = Math.max(1, Math.ceil(withAdp[i].adp / ADP_TEAMS));
+  // 4) rank + tier per format
+  const countsByFormat = {};
+  for (const fmt of FORMATS) {
+    const list = basePlayers
+      .filter((p) => p.adp?.[fmt] != null)
+      .sort((a, b) => Number(a.adp[fmt]) - Number(b.adp[fmt]));
+
+    countsByFormat[fmt] = list.length;
+
+    for (let i = 0; i < list.length; i++) {
+      list[i].rank[fmt] = i + 1;
+      list[i].tier[fmt] = Math.max(1, Math.ceil(list[i].adp[fmt] / ADP_TEAMS));
+    }
   }
 
-  // Players without ADP keep rank/tier null — but now it’ll be FAR fewer. :contentReference[oaicite:1]{index=1}
-
-  // 5) batch write w/ retry on UnprocessedItems
+  // 5) Batch write with retry
   const batches = chunk(basePlayers, 25);
-  let inserted = 0;
+  let wrote = 0;
 
   for (const b of batches) {
     let req = {
@@ -150,8 +207,8 @@ exports.handler = async () => {
     for (let attempt = 0; attempt < 6; attempt++) {
       const resp = await ddb.send(new BatchWriteCommand(req));
       const unprocessed = resp.UnprocessedItems?.[table] || [];
-      inserted += (attempt === 0 ? b.length : 0);
 
+      if (attempt === 0) wrote += b.length;
       if (!unprocessed.length) break;
 
       req = { RequestItems: { [table]: unprocessed } };
@@ -163,13 +220,13 @@ exports.handler = async () => {
     statusCode: 200,
     body: JSON.stringify({
       ok: true,
-      sport,
+      sport: "nfl",
       total: basePlayers.length,
-      withAdp: withAdp.length,
-      inserted,
+      wrote,
       adpTeams: ADP_TEAMS,
       adpYear: ADP_YEAR,
-      adpFormat: ADP_FORMAT,
+      withAdp: countsByFormat,
+      formats: FORMATS,
     }),
   };
 };

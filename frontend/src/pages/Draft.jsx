@@ -18,10 +18,8 @@ export default function Draft() {
   const load = async () => {
     setErr("");
     try {
-      const [d, p] = await Promise.all([
-        apiGet(`/drafts/${draftId}`),
-        apiGet(`/players?sport=${d.sport || "nfl"}&format=${d.format || "standard"}`)
-      ]);
+      const d = await apiGet(`/drafts/${draftId}`);
+      const p = await apiGet(`/players?sport=${d.sport || "nfl"}&format=${encodeURIComponent(d.format || "standard")}`);
       setDraft(d);
       setPlayers(p.players || []);
     } catch (e) {
@@ -97,7 +95,7 @@ export default function Draft() {
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
 
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden">
+    <div className="relative min-h-screen w-full">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -250,7 +248,7 @@ export default function Draft() {
           </div>
 
           {/* Team Rosters (sticky right rail) */}
-          <div className="xl:sticky xl:top-6 h-fit rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="xl:sticky xl:top-6 min-h-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Team Rosters</h2>
               <div className="text-xs text-zinc-400">Live</div>

@@ -133,9 +133,15 @@ exports.handler = async (event) => {
       const id = randomUUID();
       const picks = buildSnakeOrder(teams, rounds);
 
+      const sport = String(body.sport || "nfl").toLowerCase();
+      const format = String(body.format || "standard").toLowerCase();
+      const year = Number(body.year || 2025);
+
       const item = {
         draftId: id,
-        sport: (body.sport || "nfl").toLowerCase(),
+        sport,
+        format,
+        year,
         teams,
         rounds,
         picks,
@@ -168,6 +174,8 @@ exports.handler = async (event) => {
         body: JSON.stringify({
           draftId: d.draftId,
           sport: d.sport || "nfl",
+          format: d.format || "standard",
+          year: d.year || 2025,
           teams: d.teams,
           rounds: d.rounds,
           picked: d.picked || [],
