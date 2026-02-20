@@ -70,15 +70,7 @@ function pickBestForTeam(draft, teamNum, players) {
   const currentPick = draft.picks[draft.currentIndex];
   const round = currentPick?.round || 1;
 
-  const base = p.rank != null ? (100000 - p.rank) : 0; // ranked players dominate
-  const nScore = needScore(counts, p.position, round) * 500; // needs still matter
-  const kDefPenalty = (round <= 10 && (p.position === "K" || p.position === "DEF")) ? -20000 : 0;
-  const score = base + nScore + kDefPenalty;
-
-  // roster counts for needs
-  // NOTE: we’ll compute counts in handler with playerById and pass in
-  // (to keep this pure), so we’ll attach counts to draft temporarily if needed
-  const counts = draft.__counts;
+  const counts = draft.__counts || { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
 
   let best = null;
   let bestScore = -Infinity;
@@ -87,17 +79,20 @@ function pickBestForTeam(draft, teamNum, players) {
     if (!p?.id) continue;
     if (pickedSet.has(p.id)) continue;
 
-    // With Sleeper endpoint we don't have rank/adp. We'll use needs heavily and a small stable tie-break.
-    const nScore = needScore(counts, p.position, round) * 100;
+    // Rank dominates (lower rank = better)
+    const base = p.rank != null ? (100000 - Number(p.rank)) : 0;
 
-    // tie-break: prefer non-K/DEF early even if needs are equal
-    const positionPenalty =
-      round <= 6 && (p.position === "K" || p.position === "DEF") ? -50 : 0;
+    // Needs still matters (especially early)
+    const needs = needScore(counts, p.position, round) * 500;
 
-    // simple deterministic tie-break: name length + charcode
+    // Hard push K/DEF later (but not impossible)
+    const kDefPenalty =
+      round <= 10 && (p.position === "K" || p.position === "DEF") ? -20000 : 0;
+
+    // Small tie-breaker (stable)
     const tiebreak = (p.name || "").length;
 
-    const score = nScore + positionPenalty + tiebreak;
+    const score = base + needs + kDefPenalty + tiebreak;
 
     if (score > bestScore) {
       bestScore = score;
@@ -176,6 +171,9 @@ exports.handler = async (event) => {
       if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
+      const sport = (d.sport || "nfl").toLowerCase();
+      const format = (d.format || "standard").toLowerCase();
+      const { byId } = await loadPlayersForSport(playersTable, sport, format);
       const current = d.picks[d.currentIndex] || null;
 
       return {
@@ -194,12 +192,18 @@ exports.handler = async (event) => {
           currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
           currentTeam: current?.team || null,
           completed: d.currentIndex >= d.picks.length,
-          picks: (d.picks || []).map((p) => ({
-            overall: p.overall,
-            round: p.round,
-            team: p.team,
-            playerId: p.playerId || null,
-          })),
+          picks: (d.picks || []).map((p) => {
+            const pl = p.playerId ? byId[p.playerId] : null;
+            return {
+              overall: p.overall,
+              round: p.round,
+              team: p.team,
+              playerId: p.playerId || null,
+              player: pl
+                ? { id: pl.id, name: pl.name, position: pl.position, team: pl.team }
+                : null,
+            };
+          }),
         }),
       };
     }
