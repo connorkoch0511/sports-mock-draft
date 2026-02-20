@@ -12,7 +12,7 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
 
-async function loadPlayersForSport(table, sport) {
+async function loadPlayersForSport(table, sport, format) {
   const res = await ddb.send(
     new QueryCommand({
       TableName: table,
@@ -29,7 +29,12 @@ async function loadPlayersForSport(table, sport) {
       name: p.name,
       position: p.position,
       team: p.team,
-    }));
+      rank: p.rank?.[format] ?? null,
+      adp:  p.adp?.[format] ?? null,
+      tier: p.tier?.[format] ?? null,
+    }))
+    // IMPORTANT: sort by rank, push nulls to bottom
+    .sort((a,b) => (a.rank ?? 999999) - (b.rank ?? 999999));
 
   const byId = Object.fromEntries(players.map((p) => [p.id, p]));
   return { players, byId };
@@ -64,6 +69,11 @@ function pickBestForTeam(draft, teamNum, players) {
   const pickedSet = new Set(draft.picked || []);
   const currentPick = draft.picks[draft.currentIndex];
   const round = currentPick?.round || 1;
+
+  const base = p.rank != null ? (100000 - p.rank) : 0; // ranked players dominate
+  const nScore = needScore(counts, p.position, round) * 500; // needs still matter
+  const kDefPenalty = (round <= 10 && (p.position === "K" || p.position === "DEF")) ? -20000 : 0;
+  const score = base + nScore + kDefPenalty;
 
   // roster counts for needs
   // NOTE: we’ll compute counts in handler with playerById and pass in
@@ -236,7 +246,8 @@ exports.handler = async (event) => {
       if (d.currentIndex >= d.picks.length) return { statusCode: 409, body: JSON.stringify({ error: "Draft already completed" }) };
 
       const sport = (d.sport || "nfl").toLowerCase();
-      const { players, byId } = await loadPlayersForSport(playersTable, sport);
+      const format = (d.format || "standard").toLowerCase();
+      const { players, byId } = await loadPlayersForSport(playersTable, sport, format);
 
       const teamNum = d.picks[d.currentIndex]?.team;
       d.__counts = getRosterCounts(d, teamNum, byId);
@@ -271,7 +282,8 @@ exports.handler = async (event) => {
 
       const d = res.Item;
       const sport = (d.sport || "nfl").toLowerCase();
-      const { players, byId } = await loadPlayersForSport(playersTable, sport);
+      const format = (d.format || "standard").toLowerCase();
+      const { players, byId } = await loadPlayersForSport(playersTable, sport, format);
 
       while (d.currentIndex < d.picks.length) {
         const teamNum = d.picks[d.currentIndex]?.team;

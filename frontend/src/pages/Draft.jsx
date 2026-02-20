@@ -91,6 +91,19 @@ export default function Draft() {
     }
   };
 
+  const simToEnd = async () => {
+    setBusy(true);
+    setErr("");
+    try {
+      await apiPost(`/drafts/${draftId}/sim-to-end`, {});
+      await load();
+    } catch (e) {
+      setErr(e.message || "Sim failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (err) return <div className="p-6 text-red-200">{err}</div>;
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
 
@@ -126,7 +139,13 @@ export default function Draft() {
               >
                 Auto Pick
               </button>
-
+              <button
+                onClick={simToEnd}
+                disabled={busy || draft.completed}
+                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
+              >
+                Sim to End
+              </button>
               <Pill>Draft: {draftId}</Pill>
               <Pill>{currentPickLabel}</Pill>
               <Pill>{draft.teams} teams • {draft.rounds} rounds</Pill>
@@ -183,7 +202,7 @@ export default function Draft() {
                   <div className="mt-1 flex gap-2 text-xs text-zinc-300 flex-wrap">
                     <Pill>{p.position}</Pill>
                     <Pill>{p.team}</Pill>
-                    <Pill>{p.tier != null ? `Tier ${p.tier}` : "Tier —"}</Pill>
+                    {p.tier != null ? <Pill>Tier {p.tier}</Pill> : null}
                   </div>
                 </button>
               ))}

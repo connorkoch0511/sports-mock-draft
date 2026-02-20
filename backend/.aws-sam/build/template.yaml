@@ -1,0 +1,153 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Mock Draft - serverless API
+Globals:
+  Function:
+    Runtime: nodejs20.x
+    Timeout: 10
+    MemorySize: 256
+Resources:
+  DraftsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: perfectpick-drafts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: draftId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: draftId
+        KeyType: HASH
+  PlayersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: perfectpick-players
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: sport
+        AttributeType: S
+      - AttributeName: playerId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: sport
+        KeyType: HASH
+      - AttributeName: playerId
+        KeyType: RANGE
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods:
+        - GET
+        - POST
+        - OPTIONS
+        AllowHeaders:
+        - content-type
+        AllowOrigins:
+        - '*'
+  PlayersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: PlayersFunction
+      Handler: players.handler
+      Environment:
+        Variables:
+          PLAYERS_TABLE:
+            Ref: PlayersTable
+      Policies:
+      - DynamoDBReadPolicy:
+          TableName:
+            Ref: PlayersTable
+      Events:
+        GetPlayers:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /players
+            Method: GET
+    Metadata:
+      SamResourceId: PlayersFunction
+  DraftsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: DraftsFunction
+      Handler: drafts.handler
+      Environment:
+        Variables:
+          DRAFTS_TABLE:
+            Ref: DraftsTable
+          PLAYERS_TABLE:
+            Ref: PlayersTable
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: DraftsTable
+      Events:
+        CreateDraft:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /drafts
+            Method: POST
+        GetDraft:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /drafts/{draftId}
+            Method: GET
+        Pick:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /drafts/{draftId}/pick
+            Method: POST
+        AutoPick:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /drafts/{draftId}/auto-pick
+            Method: POST
+        SimToEnd:
+          Type: HttpApi
+          Properties:
+            ApiId:
+              Ref: HttpApi
+            Path: /drafts/{draftId}/sim-to-end
+            Method: POST
+    Metadata:
+      SamResourceId: DraftsFunction
+  SyncPlayersFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: SyncPlayersFunction
+      Handler: syncPlayers.handler
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          PLAYERS_TABLE:
+            Ref: PlayersTable
+          ADP_TEAMS: 12
+          ADP_YEAR: 2025
+          ADP_FORMAT: standard
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: PlayersTable
+      Events:
+        Nightly:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 day)
+    Metadata:
+      SamResourceId: SyncPlayersFunction
+Outputs:
+  ApiBaseUrl:
+    Description: Base URL for HTTP API
+    Value:
+      Fn::Sub: https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com
