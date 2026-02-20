@@ -123,25 +123,37 @@ async function fetchFfcAdp({ format, teams, year }) {
 }
 
 function buildFfcMap(ffcPlayers) {
-  const m = new Map();
+  const byStrict = new Map();     // pos|team|name
+  const defByTeam = new Map();    // team -> adp
+  const kByName = new Map();      // nameKey -> adp
 
   for (const p of ffcPlayers) {
-    const pos = toAppPos(p.position);
-    if (!ALLOWED.has(pos)) continue;
-
-    const team = p.team ? String(p.team).toUpperCase() : "";
-    if (!team) continue;
-
-    const key = `${pos}|${team}|${normName(p.name)}`;
-
+    const pos = ffcPosToAppPos(p.position);
     const adp = p.adp != null ? Number(p.adp) : null;
-    if (adp == null || Number.isNaN(adp)) continue;
+    if (!adp || Number.isNaN(adp)) continue;
 
-    const prev = m.get(key);
-    if (prev == null || adp < prev) m.set(key, adp);
+    const team = String(p.team || "").toUpperCase();
+    const nameKey = normName(p.name);
+
+    if (pos === "DEF" && team) {
+      const prev = defByTeam.get(team);
+      if (prev == null || adp < prev) defByTeam.set(team, adp);
+      continue;
+    }
+
+    if (pos === "K" && nameKey) {
+      const prev = kByName.get(nameKey);
+      if (prev == null || adp < prev) kByName.set(nameKey, adp);
+      // still allow strict too
+    }
+
+    if (!ALLOWED.has(pos)) continue;
+    const key = `${pos}|${team}|${nameKey}`;
+    const prev = byStrict.get(key);
+    if (prev == null || adp < prev) byStrict.set(key, adp);
   }
 
-  return m;
+  return { byStrict, defByTeam, kByName };
 }
 
 exports.handler = async () => {
@@ -170,11 +182,23 @@ exports.handler = async () => {
 
   // 3) Merge ADP into Sleeper list for all formats
   for (const pl of basePlayers) {
-    const key = `${pl.position}|${pl.team}|${pl.nameKey}`;
+    const team = String(pl.team || "").toUpperCase();
+    const nameKey = pl.nameKey;
+    const strictKey = `${pl.position}|${team}|${nameKey}`;
 
     for (const fmt of FORMATS) {
-      const adp = ffcByFormat[fmt].get(key);
-      if (adp != null) pl.adp[fmt] = adp;
+        const maps = ffcByFormat[fmt];
+        let adp = maps.byStrict.get(strictKey);
+
+        if (adp == null && pl.position === "DEF") {
+        adp = maps.defByTeam.get(team);
+        }
+
+        if (adp == null && pl.position === "K") {
+        adp = maps.kByName.get(nameKey);
+        }
+
+        if (adp != null) pl.adp[fmt] = adp;
     }
   }
 

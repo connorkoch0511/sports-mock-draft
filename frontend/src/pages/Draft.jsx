@@ -175,14 +175,15 @@ export default function Draft() {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-medium">
-                      {p.rank}. {p.name}
+                      {p.rank != null ? `${p.rank}. ` : ""}
+                      {p.name}
                     </div>
-                    <div className="text-xs text-zinc-400">ADP {p.adp}</div>
+                    <div className="text-xs text-zinc-400">{p.adp != null ? `ADP ${p.adp}` : "ADP —"}</div>
                   </div>
                   <div className="mt-1 flex gap-2 text-xs text-zinc-300 flex-wrap">
                     <Pill>{p.position}</Pill>
                     <Pill>{p.team}</Pill>
-                    <Pill>Tier {p.tier}</Pill>
+                    <Pill>{p.tier != null ? `Tier ${p.tier}` : "Tier —"}</Pill>
                   </div>
                 </button>
               ))}
