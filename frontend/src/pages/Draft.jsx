@@ -229,7 +229,7 @@ export default function Draft() {
                 <tbody>
                   {draft.picks.map((pk, idx) => {
                     const isNow = idx === draft.currentIndex && !draft.completed;
-                    const pl = pk.playerId ? playersById.get(pk.playerId) : null;
+                    const pl = pk.player || (pk.playerId ? playersById.get(pk.playerId) : null);
                     return (
                       <tr
                         key={pk.overall}
@@ -248,7 +248,7 @@ export default function Draft() {
                           ) : isNow ? (
                             <span className="text-cyan-200">On the clock</span>
                           ) : pk.playerId ? (
-                            <span className="text-zinc-500">{pk.playerId}</span> // fallback if not loaded yet
+                            <span className="text-zinc-500">{pk.playerId}</span>
                           ) : (
                             <span className="text-zinc-600">—</span>
                           )}

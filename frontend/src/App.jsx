@@ -1,7 +1,7 @@
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home.jsx";
 import Draft from "./pages/Draft.jsx";
-import Results from "./pages/Results.jsx"; // 👈 new
+import Results from "./pages/Results.jsx";
 
 export default function App() {
   return (
