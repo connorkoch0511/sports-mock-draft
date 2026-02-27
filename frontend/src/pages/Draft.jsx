@@ -226,18 +226,19 @@ export default function Draft() {
 
             {/* Table (horizontal scroll only) */}
             <div className="flex-1 min-h-0 overflow-auto rounded-2xl border border-zinc-900">
-              <table className="w-full text-sm min-w-[720px] md:min-w-[900px]">
+              <table className="w-full text-sm min-w-[620px] md:min-w-[760px]">
                 <thead className="bg-black/70 sticky top-0 z-10">
                   <tr className="text-left">
-                    <th className="p-3 text-zinc-400">Pick</th>
-                    <th className="p-3 text-zinc-400">Team</th>
-                    <th className="p-3 text-zinc-400">Player</th>
+                    <th className="px-3 py-2 text-zinc-400 w-20">Pick</th>
+                    <th className="px-3 py-2 text-zinc-400 w-28">Team</th>
+                    <th className="px-3 py-2 text-zinc-400">Player</th>
                   </tr>
                 </thead>
                 <tbody>
                   {draft.picks.map((pk, idx) => {
                     const isNow = idx === draft.currentIndex && !draft.completed;
                     const pl = pk.player || (pk.playerId ? playersById.get(pk.playerId) : null);
+
                     return (
                       <tr
                         key={pk.overall}
@@ -246,12 +247,13 @@ export default function Draft() {
                           isNow ? "bg-cyan-300/10" : "",
                         ].join(" ")}
                       >
-                        <td className="p-3">#{pk.overall}</td>
-                        <td className="p-3">Team {pk.team}</td>
-                        <td className="p-3">
+                        <td className="px-3 py-2 text-zinc-200 tabular-nums">#{pk.overall}</td>
+                        <td className="px-3 py-2 text-zinc-200">T{pk.team}</td>
+                        <td className="px-3 py-2 min-w-0">
                           {pl ? (
-                            <span className="text-zinc-200">
-                              {pl.name} <span className="text-zinc-500">({pl.position})</span>
+                            <span className="text-zinc-200 block truncate">
+                              {pl.name}{" "}
+                              <span className="text-zinc-500">({pl.position})</span>
                             </span>
                           ) : isNow ? (
                             <span className="text-cyan-200">On the clock</span>
