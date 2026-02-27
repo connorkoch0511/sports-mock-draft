@@ -1,4 +1,7 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL;
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
+if (!API_BASE) {
+  throw new Error("Missing VITE_API_BASE_URL (check .env.production / .env.local)");
+}
 
 async function req(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {

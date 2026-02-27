@@ -108,7 +108,7 @@ export default function Draft() {
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
 
   return (
-    <div className="relative min-h-screen w-full">
+    <div className="relative min-h-screen w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -146,6 +146,14 @@ export default function Draft() {
               >
                 Sim to End
               </button>
+              {draft.completed ? (
+                <Link
+                  to={`/draft/${draftId}/results`}
+                  className="rounded-2xl bg-emerald-400 px-4 py-2 text-xs font-semibold text-black hover:bg-emerald-300"
+                >
+                  View Results →
+                </Link>
+              ) : null}
               <Pill>Draft: {draftId}</Pill>
               <Pill>{currentPickLabel}</Pill>
               <Pill>{draft.teams} teams • {draft.rounds} rounds</Pill>
@@ -154,9 +162,9 @@ export default function Draft() {
         </div>
 
         {/* 3-column app layout */}
-        <div className="grid gap-4 xl:grid-cols-[420px_1fr_360px] flex-1 min-h-0">
+        <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
           {/* Big Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 flex flex-col">
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Big Board</h2>
               <div className="text-xs text-zinc-400">Click a player to draft</div>
@@ -210,7 +218,7 @@ export default function Draft() {
           </div>
 
           {/* Draft Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 flex flex-col">
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Draft Board</h2>
               <div className="text-xs text-zinc-400">Snake draft</div>
@@ -218,7 +226,7 @@ export default function Draft() {
 
             {/* Table (horizontal scroll only) */}
             <div className="flex-1 min-h-0 overflow-auto rounded-2xl border border-zinc-900">
-              <table className="min-w-[900px] w-full text-sm">
+              <table className="w-full text-sm min-w-[720px] md:min-w-[900px]">
                 <thead className="bg-black/70 sticky top-0 z-10">
                   <tr className="text-left">
                     <th className="p-3 text-zinc-400">Pick</th>
@@ -259,22 +267,10 @@ export default function Draft() {
                 </tbody>
               </table>
             </div>
-
-            {draft.completed ? (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-emerald-900/50 bg-emerald-950/30 p-4 text-emerald-200 text-sm">
-                <span>Draft complete ✅</span>
-                <Link
-                  to={`/draft/${draftId}/results`}
-                  className="rounded-xl bg-emerald-400 px-4 py-2 text-black font-semibold hover:bg-emerald-300"
-                >
-                  View Results →
-                </Link>
-              </div>
-            ) : null}
           </div>
 
           {/* Team Rosters (sticky right rail) */}
-          <div className="xl:sticky xl:top-6 min-h-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="2xl:sticky 2xl:top-6 min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] lg:col-span-2 2xl:col-span-1">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Team Rosters</h2>
               <div className="text-xs text-zinc-400">Live</div>
