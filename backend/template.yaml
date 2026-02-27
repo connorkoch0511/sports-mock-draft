@@ -52,6 +52,7 @@ Resources:
       Environment:
         Variables:
           PLAYERS_TABLE: !Ref PlayersTable
+          ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
       Policies:
         - DynamoDBReadPolicy:
             TableName: !Ref PlayersTable
@@ -72,6 +73,7 @@ Resources:
         Variables:
           DRAFTS_TABLE: !Ref DraftsTable
           PLAYERS_TABLE: !Ref PlayersTable
+          ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DraftsTable
@@ -121,6 +123,7 @@ Resources:
           ADP_TEAMS: 12
           ADP_YEAR: 2025
           ADP_FORMAT: standard
+          ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PlayersTable
