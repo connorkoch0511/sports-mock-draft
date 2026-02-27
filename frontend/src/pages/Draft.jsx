@@ -1,9 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/api";
+import { usePageTitle } from "../lib/usePageTitle";
+
+const PICK_SECONDS = 60;
 
 function Pill({ children }) {
-  return <span className="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-200">{children}</span>;
+  return (
+    <span className="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-200">
+      {children}
+    </span>
+  );
 }
 
 export default function Draft() {
@@ -15,11 +22,18 @@ export default function Draft() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
+  // Timer + pause
+  const [paused, setPaused] = useState(false);
+  const [secondsLeft, setSecondsLeft] = useState(PICK_SECONDS);
+  const tickRef = useRef(null);
+
   const load = async () => {
     setErr("");
     try {
       const d = await apiGet(`/drafts/${draftId}`);
-      const p = await apiGet(`/players?sport=${d.sport || "nfl"}&format=${encodeURIComponent(d.format || "standard")}`);
+      const p = await apiGet(
+        `/players?sport=${d.sport || "nfl"}&format=${encodeURIComponent(d.format || "standard")}`
+      );
       setDraft(d);
       setPlayers(p.players || []);
     } catch (e) {
@@ -31,6 +45,8 @@ export default function Draft() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId]);
+
+  usePageTitle(draft ? `Draft ${draftId}` : "Draft");
 
   const filtered = useMemo(() => {
     if (!draft) return [];
@@ -104,8 +120,75 @@ export default function Draft() {
     }
   };
 
+  // ----- Timer + Autopick behavior -----
+
+  // Reset timer on new pick / when it becomes Team 1's turn
+  useEffect(() => {
+    if (!draft) return;
+    if (draft.completed) {
+      setSecondsLeft(0);
+      return;
+    }
+    // Only meaningful for Team 1
+    if (draft.currentTeam === 1) setSecondsLeft(PICK_SECONDS);
+  }, [draft?.draftId, draft?.currentIndex, draft?.currentTeam, draft?.completed]);
+
+  // Autopick for teams 2..N immediately (while not paused)
+  useEffect(() => {
+    if (!draft) return;
+    if (paused) return;
+    if (busy) return;
+    if (draft.completed) return;
+
+    if (draft.currentTeam !== 1) {
+      autoPick();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft?.currentTeam, draft?.currentIndex, draft?.completed, paused, busy]);
+
+  // Run countdown only when Team 1 is on the clock
+  useEffect(() => {
+    if (tickRef.current) clearInterval(tickRef.current);
+
+    if (!draft) return;
+    if (paused) return;
+    if (busy) return;
+    if (draft.completed) return;
+    if (draft.currentTeam !== 1) return;
+
+    tickRef.current = setInterval(() => {
+      setSecondsLeft((s) => Math.max(0, s - 1));
+    }, 1000);
+
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
+  }, [draft?.currentTeam, draft?.completed, paused, busy]);
+
+  // If Team 1 runs out of time, autopick for Team 1
+  useEffect(() => {
+    if (!draft) return;
+    if (paused) return;
+    if (busy) return;
+    if (draft.completed) return;
+
+    if (draft.currentTeam === 1 && secondsLeft === 0) {
+      autoPick();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [secondsLeft, draft?.currentTeam, draft?.completed, paused, busy]);
+
+  // Cleanup timer on unmount
+  useEffect(() => {
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+    };
+  }, []);
+
   if (err) return <div className="p-6 text-red-200">{err}</div>;
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
+
+  const canManualPick = !paused && !busy && !draft.completed && draft.currentTeam === 1;
 
   return (
     <div className="relative min-h-screen w-full overflow-x-hidden">
@@ -133,19 +216,37 @@ export default function Draft() {
 
             <div className="flex flex-wrap gap-2 items-center justify-start lg:justify-end">
               <button
+                onClick={() => setPaused((p) => !p)}
+                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600"
+              >
+                {paused ? "Resume" : "Pause"}
+              </button>
+
+              {draft.currentTeam === 1 && !draft.completed ? (
+                <Pill>⏱ {secondsLeft}s</Pill>
+              ) : draft.completed ? (
+                <Pill>✅ Completed</Pill>
+              ) : (
+                <Pill>Auto-picking other teams…</Pill>
+              )}
+
+              <button
                 onClick={autoPick}
-                disabled={busy || draft.completed}
+                disabled={paused || busy || draft.completed}
                 className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
+                title="Auto-pick the current team (Team 1 too)"
               >
                 Auto Pick
               </button>
+
               <button
                 onClick={simToEnd}
-                disabled={busy || draft.completed}
+                disabled={paused || busy || draft.completed}
                 className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
               >
                 Sim to End
               </button>
+
               {draft.completed ? (
                 <Link
                   to={`/draft/${draftId}/results`}
@@ -154,9 +255,12 @@ export default function Draft() {
                   View Results →
                 </Link>
               ) : null}
+
               <Pill>Draft: {draftId}</Pill>
               <Pill>{currentPickLabel}</Pill>
-              <Pill>{draft.teams} teams • {draft.rounds} rounds</Pill>
+              <Pill>
+                {draft.teams} teams • {draft.rounds} rounds
+              </Pill>
             </div>
           </div>
         </div>
@@ -167,7 +271,15 @@ export default function Draft() {
           <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Big Board</h2>
-              <div className="text-xs text-zinc-400">Click a player to draft</div>
+              <div className="text-xs text-zinc-400">
+                {draft.completed
+                  ? "Draft completed"
+                  : paused
+                  ? "Paused"
+                  : draft.currentTeam === 1
+                  ? "You are on the clock (Team 1)"
+                  : "Auto-picking other teams"}
+              </div>
             </div>
 
             <div className="flex gap-2">
@@ -196,9 +308,18 @@ export default function Draft() {
               {filtered.map((p) => (
                 <button
                   key={p.id}
-                  disabled={busy}
+                  disabled={!canManualPick}
                   onClick={() => makePick(p.id)}
                   className="w-full text-left rounded-2xl border border-zinc-900 bg-black/60 p-3 hover:border-zinc-700 disabled:opacity-50"
+                  title={
+                    canManualPick
+                      ? "Click to draft for Team 1"
+                      : draft.completed
+                      ? "Draft completed"
+                      : paused
+                      ? "Paused"
+                      : "You can only draft when Team 1 is on the clock"
+                  }
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="font-medium">
@@ -242,18 +363,14 @@ export default function Draft() {
                     return (
                       <tr
                         key={pk.overall}
-                        className={[
-                          "border-t border-zinc-900",
-                          isNow ? "bg-cyan-300/10" : "",
-                        ].join(" ")}
+                        className={["border-t border-zinc-900", isNow ? "bg-cyan-300/10" : ""].join(" ")}
                       >
                         <td className="px-3 py-2 text-zinc-200 tabular-nums">#{pk.overall}</td>
                         <td className="px-3 py-2 text-zinc-200">T{pk.team}</td>
                         <td className="px-3 py-2 min-w-0">
                           {pl ? (
                             <span className="text-zinc-200 block truncate">
-                              {pl.name}{" "}
-                              <span className="text-zinc-500">({pl.position})</span>
+                              {pl.name} <span className="text-zinc-500">({pl.position})</span>
                             </span>
                           ) : isNow ? (
                             <span className="text-cyan-200">On the clock</span>

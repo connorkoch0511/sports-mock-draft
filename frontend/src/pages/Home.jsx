@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost } from "../lib/api";
+import { usePageTitle } from "../lib/usePageTitle";
 
 function Card({ title, desc }) {
   return (
@@ -19,6 +20,8 @@ export default function Home() {
   const [err, setErr] = useState("");
   const [format, setFormat] = useState("standard"); // "standard" | "half-ppr" | "ppr"
   const [year, setYear] = useState(2025);
+
+  usePageTitle("Home");
 
   const createDraft = async () => {
     setLoading(true);

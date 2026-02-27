@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiGet } from "../lib/api";
+import { usePageTitle } from "../lib/usePageTitle";
 
 export default function Results() {
   const { draftId } = useParams();
@@ -13,6 +14,8 @@ export default function Results() {
       .then(setDraft)
       .catch((e) => setErr(e.message || "Failed to load results"));
   }, [draftId]);
+
+  usePageTitle(draftId ? `Results ${draftId}` : "Results");
 
   if (err) return <div className="p-6 text-red-300">{err}</div>;
   if (!draft) return <div className="p-6 text-zinc-300">Loading results…</div>;
