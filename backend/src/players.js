@@ -3,12 +3,28 @@ const { DynamoDBDocumentClient, QueryCommand } = require("@aws-sdk/lib-dynamodb"
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
+function corsHeaders() {
+  const origin = process.env.ALLOWED_ORIGIN || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": "content-type",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  };
+}
+
 exports.handler = async (event) => {
   const table = process.env.PLAYERS_TABLE;
 
+  const method = event.requestContext?.http?.method;
+  const headers = { "Content-Type": "application/json", ...corsHeaders() };
+
+  if (method === "OPTIONS") {
+    return { statusCode: 200, headers, body: "" };
+  }
+
   const qs = event.queryStringParameters || {};
   const sport = String(qs.sport || "nfl").toLowerCase();
-  const format = String(qs.format || "standard").toLowerCase(); // standard | half-ppr | ppr
+  const format = String(qs.format || "standard").toLowerCase();
 
   const res = await ddb.send(
     new QueryCommand({
@@ -36,10 +52,7 @@ exports.handler = async (event) => {
 
   return {
     statusCode: 200,
-    headers: {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    },
+    headers,
     body: JSON.stringify({ sport, format, count: players.length, players }),
   };
 };

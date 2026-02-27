@@ -12,6 +12,15 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
 
+function corsHeaders() {
+  const origin = process.env.ALLOWED_ORIGIN || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Headers": "content-type",
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  };
+}
+
 async function loadPlayersForSport(table, sport, format) {
   const res = await ddb.send(
     new QueryCommand({
@@ -151,6 +160,12 @@ exports.handler = async (event) => {
   const path = event.rawPath || event.requestContext?.http?.path || event.path || "";
   const draftId = event.pathParameters?.draftId;
 
+  const headers = { "Content-Type": "application/json", ...corsHeaders() };
+
+  if (method === "OPTIONS") {
+    return { statusCode: 200, headers, body: "" };
+  }
+
   try {
     // POST /drafts
     if (method === "POST" && path === "/drafts") {
@@ -183,7 +198,7 @@ exports.handler = async (event) => {
 
       return {
         statusCode: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers,
         body: JSON.stringify({ draftId: id }),
       };
     }
@@ -191,14 +206,14 @@ exports.handler = async (event) => {
     // GET /drafts/{draftId}
     if (method === "GET" && draftId) {
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
+      if (!res.Item) return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
       const current = d.picks[d.currentIndex] || null;
 
       return {
         statusCode: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers,
         body: JSON.stringify({
           draftId: d.draftId,
           sport: d.sport || "nfl",
@@ -227,22 +242,22 @@ exports.handler = async (event) => {
     if (method === "POST" && draftId && path.endsWith("/pick")) {
       const body = event.body ? JSON.parse(event.body) : {};
       const playerId = String(body.playerId || "").trim();
-      if (!playerId) return { statusCode: 400, body: JSON.stringify({ error: "Missing playerId" }) };
+      if (!playerId) return { statusCode: 400, headers, body: JSON.stringify({ error: "Missing playerId" }) };
 
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
+      if (!res.Item) return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
-      if ((d.picked || []).includes(playerId)) return { statusCode: 409, body: JSON.stringify({ error: "Player already picked" }) };
-      if (d.currentIndex >= d.picks.length) return { statusCode: 409, body: JSON.stringify({ error: "Draft already completed" }) };
+      if ((d.picked || []).includes(playerId)) return { statusCode: 409, headers, body: JSON.stringify({ error: "Player already picked" }) };
+      if (d.currentIndex >= d.picks.length) return { statusCode: 409, headers, body: JSON.stringify({ error: "Draft already completed" }) };
 
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
 
       const snap = await getPlayerSnapshot(playersTable, sport, format, playerId);
-      if (!snap) return { statusCode: 400, body: JSON.stringify({ error: "Invalid playerId" }) };
+      if (!snap) return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid playerId" }) };
 
-      if (!ALLOWED_POS.has(snap.position)) return { statusCode: 400, body: JSON.stringify({ error: "Snapshot position is not allowed" }) };
+      if (!ALLOWED_POS.has(snap.position)) return { statusCode: 400, headers, body: JSON.stringify({ error: "Snapshot position is not allowed" }) };
 
       d.picks[d.currentIndex].playerId = playerId;
       d.picks[d.currentIndex].player = {
@@ -269,7 +284,7 @@ exports.handler = async (event) => {
 
       return {
         statusCode: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers,
         body: JSON.stringify({ ok: true }),
       };
     }
@@ -277,10 +292,10 @@ exports.handler = async (event) => {
     // POST /drafts/{draftId}/auto-pick
     if (method === "POST" && draftId && path.endsWith("/auto-pick")) {
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
+      if (!res.Item) return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
-      if (d.currentIndex >= d.picks.length) return { statusCode: 409, body: JSON.stringify({ error: "Draft already completed" }) };
+      if (d.currentIndex >= d.picks.length) return { statusCode: 409, headers, body: JSON.stringify({ error: "Draft already completed" }) };
 
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
@@ -290,7 +305,7 @@ exports.handler = async (event) => {
       d.__counts = getRosterCounts(d, teamNum, byId);
 
       const best = pickBestForTeam(d, teamNum, players);
-      if (!best) return { statusCode: 409, body: JSON.stringify({ error: "No players left" }) };
+      if (!best) return { statusCode: 409, headers, body: JSON.stringify({ error: "No players left" }) };
 
       d.picks[d.currentIndex].playerId = best.id;
       d.picks[d.currentIndex].player = {
@@ -316,7 +331,7 @@ exports.handler = async (event) => {
 
       return {
         statusCode: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers,
         body: JSON.stringify({ ok: true, picked: best }),
       };
     }
@@ -324,7 +339,7 @@ exports.handler = async (event) => {
     // POST /drafts/{draftId}/sim-to-end
     if (method === "POST" && draftId && path.endsWith("/sim-to-end")) {
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return { statusCode: 404, body: JSON.stringify({ error: "Draft not found" }) };
+      if (!res.Item) return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
 
       const d = res.Item;
       const sport = (d.sport || "nfl").toLowerCase();
@@ -363,13 +378,13 @@ exports.handler = async (event) => {
 
       return {
         statusCode: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        headers,
         body: JSON.stringify({ ok: true, completed: d.currentIndex >= d.picks.length }),
       };
     }
 
-    return { statusCode: 404, body: JSON.stringify({ error: "Not found" }) };
+    return { statusCode: 404, headers, body: JSON.stringify({ error: "Not found" }) };
   } catch (e) {
-    return { statusCode: 500, body: JSON.stringify({ error: e.message || "Server error" }) };
+    return { statusCode: 500, headers, body: JSON.stringify({ error: e.message || "Server error" }) };
   }
 };

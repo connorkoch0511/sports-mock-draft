@@ -42,7 +42,8 @@ Resources:
       CorsConfiguration:
         AllowMethods: ["GET", "POST", "OPTIONS"]
         AllowHeaders: ["content-type"]
-        AllowOrigins: ["*"]
+        AllowOrigins:
+          - "https://d2kf4b52rvabfv.cloudfront.net"
 
   PlayersFunction:
     Type: AWS::Serverless::Function
@@ -123,7 +124,6 @@ Resources:
           ADP_TEAMS: 12
           ADP_YEAR: 2025
           ADP_FORMAT: standard
-          ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PlayersTable
