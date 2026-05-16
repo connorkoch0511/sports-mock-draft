@@ -122,7 +122,7 @@ Resources:
         Variables:
           PLAYERS_TABLE: !Ref PlayersTable
           ADP_TEAMS: 12
-          ADP_YEAR: 2025
+          ADP_YEAR: 2026
           ADP_FORMAT: standard
       Policies:
         - DynamoDBCrudPolicy:

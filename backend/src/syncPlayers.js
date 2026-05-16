@@ -191,7 +191,7 @@ exports.handler = async () => {
   const table = process.env.PLAYERS_TABLE;
 
   const ADP_TEAMS = Number(process.env.ADP_TEAMS || 12);
-  const ADP_YEAR = Number(process.env.ADP_YEAR || 2025);
+  const ADP_YEAR = Number(process.env.ADP_YEAR || 2026);
 
   // 1) Sleeper dump
   const sleeperUrl = "https://api.sleeper.app/v1/players/nfl";

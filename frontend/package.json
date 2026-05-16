@@ -8,6 +8,9 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:headed": "playwright test --headed",
     "deploy": "npm run build && aws s3 sync dist s3://sports-mock-draft --delete --exclude index.html --cache-control \"public,max-age=31536000,immutable\" && aws s3 cp dist/index.html s3://sports-mock-draft/index.html --cache-control \"no-cache\" --content-type \"text/html\" && aws cloudfront create-invalidation --distribution-id E15ETV8V4GO391 --paths \"/*\""
   },
   "dependencies": {
@@ -17,6 +20,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/postcss": "^4.1.18",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",

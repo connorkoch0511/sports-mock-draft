@@ -19,6 +19,8 @@ export default function Draft() {
   const [players, setPlayers] = useState([]);
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState("");
+  const [page, setPage] = useState(0);
+  const [draftPage, setDraftPage] = useState(0);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -48,15 +50,21 @@ export default function Draft() {
 
   usePageTitle(draft ? `Draft ${draftId}` : "Draft");
 
+  const PAGE_SIZE = 25;
+
   const filtered = useMemo(() => {
     if (!draft) return [];
     const q = query.trim().toLowerCase();
     return players
       .filter((p) => !draft.picked?.includes(p.id))
       .filter((p) => (pos ? p.position === pos : true))
-      .filter((p) => (q ? p.name.toLowerCase().includes(q) : true))
-      .slice(0, 200);
+      .filter((p) => (q ? p.name.toLowerCase().includes(q) : true));
   }, [players, draft, query, pos]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pagedPlayers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  useEffect(() => { setPage(0); }, [query, pos]);
 
   const playersById = useMemo(() => {
     const m = new Map();
@@ -304,8 +312,45 @@ export default function Draft() {
               </select>
             </div>
 
+            {/* Pagination controls */}
+            <div className="flex items-center justify-between text-xs text-zinc-400">
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setPage(0)}
+                  disabled={page === 0}
+                  className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 hover:border-zinc-600 disabled:opacity-30"
+                >
+                  «
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 hover:border-zinc-600 disabled:opacity-30"
+                >
+                  ‹
+                </button>
+              </div>
+              <span>{page + 1} / {totalPages} · {filtered.length} players</span>
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  disabled={page >= totalPages - 1}
+                  className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 hover:border-zinc-600 disabled:opacity-30"
+                >
+                  ›
+                </button>
+                <button
+                  onClick={() => setPage(totalPages - 1)}
+                  disabled={page >= totalPages - 1}
+                  className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 hover:border-zinc-600 disabled:opacity-30"
+                >
+                  »
+                </button>
+              </div>
+            </div>
+
             <div className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
-              {filtered.map((p) => (
+              {pagedPlayers.map((p) => (
                 <button
                   key={p.id}
                   disabled={!canManualPick}
@@ -339,11 +384,45 @@ export default function Draft() {
           </div>
 
           {/* Draft Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
+          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Draft Board</h2>
               <div className="text-xs text-zinc-400">Snake draft</div>
             </div>
+
+            {/* Draft board pagination controls */}
+            {(() => {
+              const totalDraftPages = Math.max(1, Math.ceil(draft.picks.length / PAGE_SIZE));
+              return (
+                <div className="flex items-center justify-between text-xs text-zinc-400">
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setDraftPage(0)}
+                      disabled={draftPage === 0}
+                      className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 hover:border-zinc-600 disabled:opacity-30"
+                    >«</button>
+                    <button
+                      onClick={() => setDraftPage((p) => Math.max(0, p - 1))}
+                      disabled={draftPage === 0}
+                      className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 hover:border-zinc-600 disabled:opacity-30"
+                    >‹</button>
+                  </div>
+                  <span>{draftPage + 1} / {totalDraftPages} · {draft.picks.length} picks</span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => setDraftPage((p) => Math.min(totalDraftPages - 1, p + 1))}
+                      disabled={draftPage >= totalDraftPages - 1}
+                      className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 hover:border-zinc-600 disabled:opacity-30"
+                    >›</button>
+                    <button
+                      onClick={() => setDraftPage(totalDraftPages - 1)}
+                      disabled={draftPage >= totalDraftPages - 1}
+                      className="rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 hover:border-zinc-600 disabled:opacity-30"
+                    >»</button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Table (horizontal scroll only) */}
             <div className="flex-1 min-h-0 overflow-auto rounded-2xl border border-zinc-900">
@@ -356,8 +435,9 @@ export default function Draft() {
                   </tr>
                 </thead>
                 <tbody>
-                  {draft.picks.map((pk, idx) => {
-                    const isNow = idx === draft.currentIndex && !draft.completed;
+                  {draft.picks.slice(draftPage * PAGE_SIZE, (draftPage + 1) * PAGE_SIZE).map((pk, idx) => {
+                    const absoluteIdx = draftPage * PAGE_SIZE + idx;
+                    const isNow = absoluteIdx === draft.currentIndex && !draft.completed;
                     const pl = pk.player || (pk.playerId ? playersById.get(pk.playerId) : null);
 
                     return (
