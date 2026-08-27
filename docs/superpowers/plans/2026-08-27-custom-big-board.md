@@ -223,6 +223,8 @@ test("ties break by playerId for determinism", () => {
   assert.deepStrictEqual(rows.map((r) => r.playerId), ["a", "z"]);
 });
 
+// Defensive: loadPool filters unranked players out, but reconcile is a pure
+// function and must stay total over its input domain.
 test("players with a null consensus rank sort last", () => {
   const { rows } = reconcile([], pool(["a", null], ["b", 5]));
   assert.deepStrictEqual(rows.map((r) => r.playerId), ["b", "a"]);
@@ -478,12 +480,16 @@ async function loadPool(playersTable, sport, format) {
 
   return (res.Items || [])
     .filter((p) => p && ALLOWED_POS.has(p.position))
+    // Only ranked players belong on a big board. The table holds ~3,900 NFL
+    // players; a few hundred have ADP. The rest are practice-squad depth that
+    // would make the drag list unusable and show an empty delta on every row.
+    .filter((p) => p.rank?.[format] != null)
     .map((p) => ({
       playerId: String(p.playerId || p.id),
       name: p.name,
       position: p.position,
       team: p.team,
-      consensusRank: p.rank?.[format] ?? null,
+      consensusRank: p.rank[format],
     }));
 }
 
