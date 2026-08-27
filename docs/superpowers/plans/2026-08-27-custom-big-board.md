@@ -30,7 +30,7 @@ Two spec elements are deliberately deferred, and their absence here is intention
 - **Bots draft off consensus, never the user's board.** No task in this plan may feed board order into `pickBestForTeam()`.
 - **No new backend runtime dependencies.** `backend/src/package.json` stays at `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb`.
 - **Backend is CommonJS** (`"type": "commonjs"`). Use `require` / `module.exports`. Frontend is ESM.
-- **Node 20** (`Runtime: nodejs20.x`). `node:test` is built in — do not add a test runner.
+- **Node 24** (`Runtime: nodejs24.x`). nodejs20.x passed AWS's creation-disabled date on 2026-06-01, so new functions cannot be created on it. `node:test` is built in — do not add a test runner.
 - **Every board write is conditional on `version`.** Never read-modify-write without a `ConditionExpression`.
 - **Existing drafts must keep working.** Read the slot as `d.userTeam || 1` everywhere.
 - **CORS origin** is `https://d2kf4b52rvabfv.cloudfront.net`, set via the `ALLOWED_ORIGIN` env var. Never hardcode it in a handler.
