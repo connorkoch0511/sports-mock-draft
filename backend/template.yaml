@@ -35,12 +35,23 @@ Resources:
           KeyType: HASH
         - AttributeName: playerId
           KeyType: RANGE
+  BoardsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: perfectpick-boards
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: boardId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: boardId
+          KeyType: HASH
 
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       CorsConfiguration:
-        AllowMethods: ["GET", "POST", "OPTIONS"]
+        AllowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
         AllowHeaders: ["content-type"]
         AllowOrigins:
           - "https://d2kf4b52rvabfv.cloudfront.net"
@@ -133,6 +144,46 @@ Resources:
           Properties:
             Schedule: rate(1 day)
 
+  BoardsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: boards.handler
+      Environment:
+        Variables:
+          BOARDS_TABLE: !Ref BoardsTable
+          PLAYERS_TABLE: !Ref PlayersTable
+          ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BoardsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PlayersTable
+      Events:
+        CreateBoard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /boards
+            Method: POST
+        GetBoard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /boards/{boardId}
+            Method: GET
+        SaveBoard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /boards/{boardId}
+            Method: PUT
+        DeleteBoard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /boards/{boardId}
+            Method: DELETE
 
 Outputs:
   ApiBaseUrl:
