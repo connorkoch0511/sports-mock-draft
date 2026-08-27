@@ -289,7 +289,9 @@ function reconcile(storedOrder, livePool) {
     const newcomerRank = rankOf(newcomer);
     let insertAt = 0;
     for (let i = 0; i < merged.length; i++) {
-      if (rankOf(merged[i].player) < newcomerRank) insertAt = i + 1;
+      // <= (not <) so a tied newcomer lands after the existing player,
+      // keeping the deterministic tie-break the test asserts.
+      if (rankOf(merged[i].player) <= newcomerRank) insertAt = i + 1;
     }
     merged.splice(insertAt, 0, { player: newcomer, isNew: true });
   }
