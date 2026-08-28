@@ -100,3 +100,13 @@ test("navigation is reachable from a board — the dead-end regression", async (
 
   await expect(page).toHaveURL(/\/$/);
 });
+
+test("New Draft navigates to the draft setup page", async ({ page }) => {
+  await page.goto("/");
+
+  await page.getByTestId("nav-toggle").click();
+  await page.getByTestId("nav-menu").getByRole("link", { name: "New Draft" }).click();
+
+  await expect(page).toHaveURL(/\/draft\/new$/);
+  await expect(page.getByTestId("nav-menu")).toHaveCount(0);
+});

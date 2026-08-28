@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 
 const LINKS = [
   { to: "/", label: "Home" },
+  { to: "/draft/new", label: "New Draft" },
   { to: "/boards", label: "Boards" },
 ];
 
@@ -45,15 +46,7 @@ export default function NavBar() {
   }, [open]);
 
   return (
-    <header className="relative flex items-center justify-between py-4">
-      <Link
-        to="/"
-        className="flex items-center gap-2 text-sm font-semibold tracking-tight text-white"
-      >
-        <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.6)]" />
-        PerfectPick
-      </Link>
-
+    <header className="relative flex items-center gap-3 py-4">
       <button
         ref={toggleRef}
         type="button"
@@ -72,7 +65,7 @@ export default function NavBar() {
           id="nav-menu"
           ref={menuRef}
           data-testid="nav-menu"
-          className="absolute right-0 top-full z-50 w-48 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur"
+          className="absolute left-0 top-full z-50 w-48 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur"
         >
           {LINKS.map((link) => {
             const active = pathname === link.to;
@@ -94,6 +87,14 @@ export default function NavBar() {
           })}
         </nav>
       )}
+
+      <Link
+        to="/"
+        className="flex items-center gap-2 text-sm font-semibold tracking-tight text-white"
+      >
+        <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.6)]" />
+        PerfectPick
+      </Link>
     </header>
   );
 }
