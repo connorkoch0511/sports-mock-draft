@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home.jsx";
 import Draft from "./pages/Draft.jsx";
 import Results from "./pages/Results.jsx";
+import Board from "./pages/Board.jsx";
 
 export default function App() {
   return (
@@ -11,6 +12,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/draft/:draftId" element={<Draft />} />
           <Route path="/draft/:draftId/results" element={<Results />} />
+          <Route path="/board/:boardId" element={<Board />} />
         </Routes>
       </div>
     </div>
