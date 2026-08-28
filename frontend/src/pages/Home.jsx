@@ -51,7 +51,7 @@ export default function Home() {
   };
 
   return (
-    <div className="relative min-h-[calc(100vh)] w-full overflow-hidden">
+    <div className="relative min-h-full w-full overflow-hidden">
       {/* Background */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.18),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.16),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />

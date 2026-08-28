@@ -202,7 +202,7 @@ export default function Draft() {
   const canManualPick = !paused && !busy && !draft.completed && isMyTurn;
 
   return (
-    <div className="relative min-h-screen w-full overflow-x-hidden">
+    <div className="relative min-h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -210,18 +210,14 @@ export default function Draft() {
       </div>
 
       {/* Content */}
-      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-screen flex flex-col gap-4">
+      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full flex flex-col gap-4">
         {/* Top bar */}
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
-              <Link to="/" className="text-zinc-300 hover:text-white">
-                ← Home
-              </Link>
-
               <div className="hidden sm:flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300">
                 <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.5)]" />
-                PerfectPick • Live Draft
+                Live Draft
               </div>
             </div>
 

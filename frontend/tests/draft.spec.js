@@ -175,14 +175,15 @@ test.describe("Draft page", () => {
     await expect(() => expect(pickPayload?.playerId).toBe("p1")).toPass();
   });
 
-  test("← Home link navigates to home", async ({ page }) => {
+  test("nav menu Home link navigates to home", async ({ page }) => {
     const state = makeDraftState({ currentIndex: 0 });
     mockDraftApis(page, state);
 
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
-    await page.getByRole("link", { name: "← Home" }).click();
+    await page.getByTestId("nav-toggle").click();
+    await page.getByTestId("nav-menu").getByRole("link", { name: "Home" }).click();
     await expect(page).toHaveURL("/");
   });
 
