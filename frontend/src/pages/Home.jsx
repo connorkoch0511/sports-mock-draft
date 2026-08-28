@@ -68,14 +68,17 @@ export default function Home() {
   const deleteBoard = async (id) => {
     setErr("");
     try {
+      // DELETE /boards/:id is idempotent (a DynamoDB DeleteCommand that
+      // succeeds even if the item is already gone), so a resolved call
+      // always means it's safe to forget locally. Only drop it from the
+      // registry once the server confirms the delete — on failure, keep
+      // it listed so the user can retry instead of losing their way back
+      // to a board that still exists.
       await apiDelete(`/boards/${id}`);
-    } catch (e) {
-      setErr(e.message || "Failed to delete board");
-    } finally {
-      // Drop it locally either way — a board the server no longer has
-      // should not linger in the list.
       forgetBoard(id);
       setBoards(listBoards());
+    } catch (e) {
+      setErr(e.message || "Failed to delete board");
     }
   };
 
