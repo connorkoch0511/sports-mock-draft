@@ -3,6 +3,7 @@ import Home from "./pages/Home.jsx";
 import Draft from "./pages/Draft.jsx";
 import Results from "./pages/Results.jsx";
 import Board from "./pages/Board.jsx";
+import Boards from "./pages/Boards.jsx";
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
           <Route path="/draft/:draftId" element={<Draft />} />
           <Route path="/draft/:draftId/results" element={<Results />} />
           <Route path="/board/:boardId" element={<Board />} />
+          <Route path="/boards" element={<Boards />} />
         </Routes>
       </div>
     </div>

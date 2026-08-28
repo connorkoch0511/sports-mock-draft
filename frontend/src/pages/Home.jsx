@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost, apiDelete } from "../lib/api";
+import { apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
-import { listBoards, rememberBoard, forgetBoard } from "../lib/boardRegistry";
 
 function Card({ title, desc }) {
   return (
@@ -24,7 +23,6 @@ export default function Home() {
   const [year, setYear] = useState(2025);
   const [slot, setSlot] = useState(1);
   const [randomSlot, setRandomSlot] = useState(false);
-  const [boards, setBoards] = useState(() => listBoards());
 
   const safeSlot = Math.min(Math.max(1, slot), teams);
   const schedule = useMemo(
@@ -49,36 +47,6 @@ export default function Home() {
       setErr(e.message || "Failed to create draft");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const createBoard = async () => {
-    setErr("");
-    try {
-      const name = `My ${format.toUpperCase()} Board`;
-      const { boardId } = await apiPost("/boards", { name, format, season: year });
-      rememberBoard({ id: boardId, name });
-      setBoards(listBoards());
-      nav(`/board/${boardId}`);
-    } catch (e) {
-      setErr(e.message || "Failed to create board");
-    }
-  };
-
-  const deleteBoard = async (id) => {
-    setErr("");
-    try {
-      // DELETE /boards/:id is idempotent (a DynamoDB DeleteCommand that
-      // succeeds even if the item is already gone), so a resolved call
-      // always means it's safe to forget locally. Only drop it from the
-      // registry once the server confirms the delete — on failure, keep
-      // it listed so the user can retry instead of losing their way back
-      // to a board that still exists.
-      await apiDelete(`/boards/${id}`);
-      forgetBoard(id);
-      setBoards(listBoards());
-    } catch (e) {
-      setErr(e.message || "Failed to delete board");
     }
   };
 
@@ -206,45 +174,6 @@ export default function Home() {
               <div className="text-xs text-zinc-400">
                 Tip: Once inside the draft, use <span className="text-zinc-200">Auto Pick</span> to simulate quickly.
               </div>
-            </div>
-
-            <div className="space-y-2 pt-2">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-white">My boards</div>
-                <button
-                  type="button"
-                  onClick={createBoard}
-                  data-testid="create-board"
-                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs text-zinc-200 hover:border-zinc-600"
-                >
-                  + New board
-                </button>
-              </div>
-              {boards.length === 0 ? (
-                <div className="text-sm text-zinc-500">
-                  No boards yet. Create one to rank players your way.
-                </div>
-              ) : (
-                <ul className="space-y-1" data-testid="board-list">
-                  {boards.map((b) => (
-                    <li key={b.id} className="flex items-center gap-2">
-                      <button
-                        onClick={() => nav(`/board/${b.id}`)}
-                        className="flex-1 rounded-2xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-left text-sm text-zinc-200 hover:border-zinc-600"
-                      >
-                        {b.name}
-                      </button>
-                      <button
-                        onClick={() => deleteBoard(b.id)}
-                        aria-label={`Delete ${b.name}`}
-                        className="rounded-2xl border border-zinc-800 px-3 py-2 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
-                      >
-                        Delete
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
           </div>
 

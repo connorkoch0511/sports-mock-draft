@@ -77,7 +77,7 @@ test("deleting a board removes it from the list", async ({ page }) => {
     return route.fallback();
   });
 
-  await page.goto("/");
+  await page.goto("/boards");
   await page.evaluate((id) => {
     localStorage.setItem(
       "perfectpick.myBoards",
