@@ -59,7 +59,7 @@ export default function NewDraft() {
         format,
         year: DRAFT_YEAR,
         userTeam,
-        ...(rosterSlots ? { rosterSlots } : {}),
+        ...(rosterSlots?.length ? { rosterSlots } : {}),
       });
       nav(`/draft/${draft.draftId}`);
     } catch (e) {
