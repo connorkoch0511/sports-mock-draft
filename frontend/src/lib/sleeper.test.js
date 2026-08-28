@@ -52,6 +52,22 @@ test("falls back to roster length when the draft has no round count", () => {
   assert.strictEqual(toDraftConfig(JOES, draft, USER).rounds, 16);
 });
 
+test("takes the draft's round count even when it diverges from the roster length", () => {
+  // JOES has 16 roster slots, but here the draft itself only ran 10 rounds. The
+  // two candidate numbers disagree, so this pins draft.settings.rounds as
+  // authoritative over rosterSlots.length rather than passing by coincidence.
+  const draft = { ...JOES_DRAFT, settings: { ...JOES_DRAFT.settings, rounds: 10 } };
+  assert.strictEqual(toDraftConfig(JOES, draft, USER).rounds, 10);
+});
+
+test("falls back to roster length using a fixture where that length differs from the draft rounds seen elsewhere", () => {
+  // ARCADE has 15 roster slots (distinct from the 16 and 10 used in the tests
+  // above). The draft's settings carry no rounds field at all, so the fallback
+  // must genuinely engage rather than reusing some other number.
+  const draft = { settings: { teams: ARCADE.total_rosters }, draft_order: null };
+  assert.strictEqual(toDraftConfig(ARCADE, draft, USER).rounds, 15);
+});
+
 test("takes teams from total_rosters", () => {
   assert.strictEqual(toDraftConfig(JOES, JOES_DRAFT, USER).teams, 12);
   assert.strictEqual(toDraftConfig(ARCADE, ARCADE_DRAFT, USER).teams, 10);
