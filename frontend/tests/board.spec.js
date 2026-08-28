@@ -94,7 +94,6 @@ test("deleting a board removes it from the list", async ({ page }) => {
 });
 
 test("surfaces a conflict when the board changed elsewhere", async ({ page }) => {
-  let getCount = 0;
   await page.route(`**/boards/${BOARD_ID}`, async (route) => {
     if (route.request().method() === "PUT") {
       return route.fulfill({
@@ -103,16 +102,9 @@ test("surfaces a conflict when the board changed elsewhere", async ({ page }) =>
         body: JSON.stringify({ error: "Board changed since you loaded it", currentVersion: 7 }),
       });
     }
-    getCount += 1;
-    // Board.jsx's conflict handler sets the "changed elsewhere" message and
-    // then immediately awaits a reload, whose success handler unconditionally
-    // clears the error — so on a near-instant mocked response the notice is
-    // wiped within a couple of milliseconds. Delaying the reload's GET (the
-    // second one, triggered by the 409) gives the notice a real window to be
-    // observed, without changing what's being asserted.
-    if (getCount > 1) {
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
+    // No artificial delay here: Board.jsx's conflict handler must keep the
+    // "changed elsewhere" notice on screen through the reload it triggers,
+    // even when the reload's GET resolves near-instantly.
     return route.fulfill({
       status: 200,
       contentType: "application/json",

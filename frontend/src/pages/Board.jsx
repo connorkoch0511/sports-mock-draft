@@ -98,14 +98,17 @@ export default function Board() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const load = useCallback(async () => {
+  // `preserveErr` lets a caller (the 409 conflict handler in `save`) reload
+  // fresh board data without wiping a message it just set. The normal load
+  // path (initial mount, plain refresh) still clears stale errors as before.
+  const load = useCallback(async ({ preserveErr = false } = {}) => {
     try {
       const data = await apiGet(`/boards/${boardId}`);
       setBoard(data);
       setRows(data.rows);
       versionRef.current = data.version;
       setStatus("idle");
-      setErr("");
+      if (!preserveErr) setErr("");
     } catch (e) {
       setErr(e.message || "Failed to load board");
       setStatus("error");
@@ -134,8 +137,8 @@ export default function Board() {
       // to that exact wording ("changed since you loaded it") on a 409 —
       // if either side changes, this check silently stops matching.
       if (String(e.message).includes("changed since")) {
-        setErr("This board changed elsewhere. Reloading.");
-        await load();
+        setErr("This board changed elsewhere. We've refreshed your view with the latest version.");
+        await load({ preserveErr: true });
       } else {
         setErr(e.message || "Save failed");
         setStatus("error");
