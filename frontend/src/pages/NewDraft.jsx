@@ -3,10 +3,23 @@ import { useNavigate } from "react-router-dom";
 import { apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
+import {
+  fetchUser,
+  fetchLeagues,
+  fetchLeagueDraft,
+  toDraftConfig,
+} from "../lib/sleeper";
 
 // Home carried this as state with a setter that was never called. It is a
 // constant here rather than dead state; the request body is unchanged.
 const DRAFT_YEAR = 2025;
+
+// The Sleeper season to look leagues up in. This is deliberately NOT DRAFT_YEAR.
+// DRAFT_YEAR is 2025 and is stored as metadata on the draft record; the ADP data
+// the sync job loads is 2026 (ADP_YEAR in template.yaml). A user's 2025 and 2026
+// Sleeper leagues are different leagues, so looking up 2025 would show last
+// season's leagues while drafting them against this season's rankings.
+const SLEEPER_SEASON = 2026;
 
 export default function NewDraft() {
   const nav = useNavigate();
@@ -17,6 +30,12 @@ export default function NewDraft() {
   const [format, setFormat] = useState("standard");
   const [slot, setSlot] = useState(1);
   const [randomSlot, setRandomSlot] = useState(false);
+  const [rosterSlots, setRosterSlots] = useState(null);
+  const [username, setUsername] = useState("");
+  const [leagues, setLeagues] = useState(null);
+  const [sleeperErr, setSleeperErr] = useState("");
+  const [finding, setFinding] = useState(false);
+  const [importedFrom, setImportedFrom] = useState("");
 
   usePageTitle("New Draft");
 
@@ -34,13 +53,55 @@ export default function NewDraft() {
         ? Math.floor(Math.random() * teams) + 1
         : safeSlot;
       const draft = await apiPost("/drafts", {
-        teams, rounds, sport: "nfl", format, year: DRAFT_YEAR, userTeam,
+        teams,
+        rounds,
+        sport: "nfl",
+        format,
+        year: DRAFT_YEAR,
+        userTeam,
+        ...(rosterSlots ? { rosterSlots } : {}),
       });
       nav(`/draft/${draft.draftId}`);
     } catch (e) {
       setErr(e.message || "Failed to create draft");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const findLeagues = async () => {
+    setFinding(true);
+    setSleeperErr("");
+    setLeagues(null);
+    try {
+      const user = await fetchUser(username);
+      const found = await fetchLeagues(user.user_id, SLEEPER_SEASON);
+      if (found.length === 0) {
+        setSleeperErr(`No ${SLEEPER_SEASON} leagues found for "${username}"`);
+      }
+      setLeagues(found.map((l) => ({ ...l, __userId: user.user_id })));
+    } catch (e) {
+      setSleeperErr(e.message || "Could not reach Sleeper");
+    } finally {
+      setFinding(false);
+    }
+  };
+
+  const useLeague = async (league) => {
+    setSleeperErr("");
+    try {
+      const draft = await fetchLeagueDraft(league.league_id);
+      const cfg = toDraftConfig(league, draft, league.__userId);
+      setTeams(cfg.teams);
+      setRounds(cfg.rounds);
+      setFormat(cfg.format);
+      setSlot(cfg.userTeam);
+      setRandomSlot(false);
+      setRosterSlots(cfg.rosterSlots);
+      setImportedFrom(cfg.leagueName);
+      setLeagues(null);
+    } catch (e) {
+      setSleeperErr(e.message || "Could not load that league's draft");
     }
   };
 
@@ -51,6 +112,81 @@ export default function NewDraft() {
         <p className="text-sm text-zinc-400">
           Set your league up, pick your slot, and draft.
         </p>
+      </div>
+
+      <div className="mb-6 max-w-2xl rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-5">
+        <div className="text-sm font-semibold text-white">Import from Sleeper</div>
+        <p className="mt-1 text-xs text-zinc-400">
+          Enter a Sleeper username to pull a league's teams, rounds, scoring, roster
+          slots, and your draft slot. Nothing is stored and no sign-in is needed.
+        </p>
+
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            data-testid="sleeper-username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") findLeagues(); }}
+            placeholder="Sleeper username"
+            className="flex-1 rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-300/60"
+          />
+          <button
+            type="button"
+            onClick={findLeagues}
+            disabled={finding}
+            data-testid="sleeper-find"
+            className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-sm text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
+          >
+            {finding ? "Finding…" : "Find my leagues"}
+          </button>
+        </div>
+
+        {sleeperErr && (
+          <div data-testid="sleeper-error" className="mt-3 text-sm text-rose-300">
+            {sleeperErr}
+          </div>
+        )}
+
+        {leagues && leagues.length > 0 && (
+          <ul data-testid="sleeper-leagues" className="mt-3 space-y-1">
+            {leagues.map((l) => (
+              <li key={l.league_id}>
+                <button
+                  type="button"
+                  onClick={() => useLeague(l)}
+                  className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-left text-sm text-zinc-200 hover:border-cyan-300/60"
+                >
+                  {l.name}
+                  <span className="ml-2 text-xs text-zinc-500">
+                    {l.total_rosters} teams
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {rosterSlots && (
+          <div data-testid="roster-summary" className="mt-4 space-y-2">
+            <div className="text-xs text-zinc-400">
+              Roster imported from {importedFrom}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {rosterSlots.map((s, i) => (
+                <span
+                  key={`${s}-${i}`}
+                  className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                    s === "BN"
+                      ? "border-zinc-800 text-zinc-500"
+                      : "border-cyan-300/40 text-cyan-200"
+                  }`}
+                >
+                  {s}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="max-w-2xl space-y-6">
