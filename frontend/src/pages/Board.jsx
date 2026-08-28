@@ -80,10 +80,16 @@ export default function Board() {
   const { boardId } = useParams();
   const [board, setBoard] = useState(null);
   const [rows, setRows] = useState([]);
-  const [version, setVersion] = useState(null);
   const [status, setStatus] = useState("loading");
   const [err, setErr] = useState("");
   const saveTimer = useRef(null);
+  // Always holds the most recently known board version (set on load and on
+  // every successful save). Reading this instead of a state value captured
+  // at drag time avoids submitting a stale version from a debounce closure.
+  const versionRef = useRef(null);
+  // Chains scheduled saves so a new save always waits for any in-flight
+  // save to finish, instead of racing it with an out-of-date version.
+  const saveChainRef = useRef(Promise.resolve());
 
   usePageTitle(board ? board.name : "Board");
 
@@ -97,7 +103,7 @@ export default function Board() {
       const data = await apiGet(`/boards/${boardId}`);
       setBoard(data);
       setRows(data.rows);
-      setVersion(data.version);
+      versionRef.current = data.version;
       setStatus("idle");
       setErr("");
     } catch (e) {
@@ -108,18 +114,25 @@ export default function Board() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Known limitation, accepted as-is: navigating away inside the 800ms
+  // debounce window discards the last pending reorder. A reliable async
+  // flush from this cleanup isn't worth the complexity for this feature.
   useEffect(() => () => clearTimeout(saveTimer.current), []);
 
-  const save = useCallback(async (nextRows, expectedVersion) => {
+  const save = useCallback(async (nextRows) => {
     setStatus("saving");
     try {
       const res = await apiPut(`/boards/${boardId}`, {
         order: nextRows.map((r) => r.playerId),
-        version: expectedVersion,
+        version: versionRef.current,
       });
-      setVersion(res.version);
+      versionRef.current = res.version;
       setStatus("saved");
     } catch (e) {
+      // Conflict detection is a substring match on the backend's error text
+      // because apiPut doesn't expose the HTTP status code. This couples us
+      // to that exact wording ("changed since you loaded it") on a 409 —
+      // if either side changes, this check silently stops matching.
       if (String(e.message).includes("changed since")) {
         setErr("This board changed elsewhere. Reloading.");
         await load();
@@ -147,7 +160,11 @@ export default function Board() {
     setRows(moved);
     setStatus("dirty");
     clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => save(moved, version), 800);
+    saveTimer.current = setTimeout(() => {
+      // Chain onto any save already in flight so saves never race each
+      // other; each save reads the latest versionRef when it actually runs.
+      saveChainRef.current = saveChainRef.current.then(() => save(moved));
+    }, 800);
   }
 
   if (status === "loading") {
@@ -167,7 +184,7 @@ export default function Board() {
           </p>
         </div>
         <span data-testid="save-status" className="text-xs text-zinc-400">
-          {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : status === "dirty" ? "Unsaved" : ""}
+          {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : status === "dirty" ? "Unsaved" : status === "error" ? "Save failed" : ""}
         </span>
       </div>
 
