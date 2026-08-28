@@ -16,14 +16,28 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
 const FORMATS = new Set(["standard", "half-ppr", "ppr"]);
 
-// Parses the request body as JSON, returning {} for an absent body.
-// Returns `undefined` (never a valid JSON.parse result) when the body is
-// present but malformed, so callers can turn that into a 400 response
-// instead of letting a SyntaxError fall through to the generic 500 handler.
+const DEFAULT_SEASON = 2026;
+const MIN_SEASON = 1990;
+const MAX_SEASON = 2100;
+
+// 5000 entries x 64 chars caps the stored order at ~330KB including JSON
+// overhead, which stays under DynamoDB's 400KB per-item limit.
+const MAX_ORDER_ENTRIES = 5000;
+const MAX_PLAYER_ID_LENGTH = 64;
+
+// Parses the request body as JSON, returning {} for an absent body and
+// `undefined` for anything that isn't a JSON object — malformed text, but also
+// a body of literal "null", an array, or a bare string, all of which parse
+// successfully yet would throw on property access further down. Callers turn
+// that single `undefined` into one clean 400 rather than letting a SyntaxError
+// or TypeError fall through to the generic 500 handler.
 function parseJsonBody(event) {
   if (!event.body) return {};
   try {
-    return JSON.parse(event.body);
+    const parsed = JSON.parse(event.body);
+    const isObject =
+      parsed !== null && typeof parsed === "object" && !Array.isArray(parsed);
+    return isObject ? parsed : undefined;
   } catch {
     return undefined;
   }
@@ -83,7 +97,16 @@ exports.handler = async (event) => {
 
       const name = String(body.name || "My Board").slice(0, 80);
       const sport = String(body.sport || "nfl").toLowerCase();
-      const season = Number(body.season || 2026);
+
+      // Guard before the PutCommand: NaN and Infinity are not valid DynamoDB
+      // numbers, so an unchecked season would surface as a 500 from the SDK
+      // rather than a 400 from us.
+      const season = Number(body.season || DEFAULT_SEASON);
+      if (!Number.isInteger(season) || season < MIN_SEASON || season > MAX_SEASON) {
+        return json(400, {
+          error: `season must be an integer between ${MIN_SEASON} and ${MAX_SEASON}`,
+        });
+      }
 
       const item = {
         boardId: randomUUID(),
@@ -132,8 +155,8 @@ exports.handler = async (event) => {
       if (!Array.isArray(body.order)) {
         return json(400, { error: "order must be an array" });
       }
-      if (body.order.length > 5000) {
-        return json(400, { error: "order exceeds 5000 entries" });
+      if (body.order.length > MAX_ORDER_ENTRIES) {
+        return json(400, { error: `order exceeds ${MAX_ORDER_ENTRIES} entries` });
       }
 
       const expectedVersion = Number(body.version);
@@ -142,6 +165,16 @@ exports.handler = async (event) => {
       }
 
       const order = body.order.map(String);
+
+      // Bound each entry as well as the count. Real player ids are Sleeper's,
+      // ~4 characters; without a per-entry cap, MAX_ORDER_ENTRIES long strings
+      // could push the item past DynamoDB's 400KB limit and fail as a 500.
+      if (order.some((id) => id.length > MAX_PLAYER_ID_LENGTH)) {
+        return json(400, {
+          error: `playerId exceeds ${MAX_PLAYER_ID_LENGTH} characters`,
+        });
+      }
+
       if (new Set(order).size !== order.length) {
         return json(400, { error: "order contains duplicate playerIds" });
       }
