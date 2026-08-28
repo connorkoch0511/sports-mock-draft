@@ -1238,13 +1238,14 @@ In `frontend/src/pages/Home.jsx`, add after the `createDraft` function:
     setErr("");
     try {
       await apiDelete(`/boards/${id}`);
-    } catch (e) {
-      setErr(e.message || "Failed to delete board");
-    } finally {
-      // Drop it locally either way — a board the server no longer has
-      // should not linger in the list.
+      // Only forget locally once the server has actually deleted it.
+      // DELETE is idempotent server-side, so a resolved call always means
+      // it is safe to drop. Forgetting on failure would strand a board
+      // that still exists, with no way for the user to reach it again.
       forgetBoard(id);
       setBoards(listBoards());
+    } catch (e) {
+      setErr(e.message || "Failed to delete board");
     }
   };
 ```
