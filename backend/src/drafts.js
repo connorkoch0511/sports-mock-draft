@@ -172,6 +172,11 @@ exports.handler = async (event) => {
       const body = event.body ? JSON.parse(event.body) : {};
       const teams = Math.max(2, Math.min(32, Number(body.teams || 12)));
       const rounds = Math.max(1, Math.min(30, Number(body.rounds || 15)));
+      const requestedTeam = Number(body.userTeam || 1);
+      const userTeam =
+        Number.isInteger(requestedTeam) && requestedTeam >= 1 && requestedTeam <= teams
+          ? requestedTeam
+          : 1;
 
       const id = randomUUID();
       const picks = buildSnakeOrder(teams, rounds);
@@ -187,6 +192,7 @@ exports.handler = async (event) => {
         year,
         teams,
         rounds,
+        userTeam,
         picks,
         picked: [],
         currentIndex: 0,
@@ -221,6 +227,7 @@ exports.handler = async (event) => {
           year: d.year || 2025,
           teams: d.teams,
           rounds: d.rounds,
+          userTeam: d.userTeam || 1,
           picked: d.picked || [],
           currentIndex: d.currentIndex,
           currentRound: current?.round || d.rounds,
