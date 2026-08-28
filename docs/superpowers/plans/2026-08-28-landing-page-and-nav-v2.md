@@ -510,7 +510,17 @@ In the same file, change the `<header>` so the toggle comes first and the brand 
     <header className="relative flex items-center gap-3 py-4">
 ```
 
-Then reorder the two children so the `<button ref={toggleRef} …>` element appears **before** the `<Link to="/" …>` element. Change nothing else about either — same refs, same handlers, same classes, same `data-testid`, same aria attributes.
+Then reorder the children to `button` → `nav` → `Link`. The toggle comes first, the
+conditional menu block second, and the brand `Link` last. Change nothing else about any
+of them — same refs, same handlers, same classes, same `data-testid`, same aria attributes.
+
+**The menu must sit between the toggle and the brand link, not after both.** The menu is
+`position: absolute`, so it is out of flow and the visual result is unchanged — hamburger
+far left, brand immediately right. But DOM order sets tab order: with the brand link
+between the toggle and the menu, tabbing from the toggle lands on the brand instead of
+inside the menu, which silently defeats the mutation-verified "Escape returns focus to
+the toggle" test. Putting the disclosure content immediately after its trigger is also
+the standard pattern.
 
 - [ ] **Step 5: Re-anchor the menu panel**
 
