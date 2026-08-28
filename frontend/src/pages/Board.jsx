@@ -131,6 +131,11 @@ export default function Board() {
       });
       versionRef.current = res.version;
       setStatus("saved");
+      // A successful save retires any message left over from a previous
+      // failure or conflict (e.g. the "changed elsewhere" notice) — without
+      // this, a stale banner from an earlier 409 would sit on screen
+      // indefinitely, contradicting the "Saved" status right next to it.
+      setErr("");
     } catch (e) {
       // Conflict detection is a substring match on the backend's error text
       // because apiPut doesn't expose the HTTP status code. This couples us
