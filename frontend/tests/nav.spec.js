@@ -46,13 +46,21 @@ test("the menu closes after navigating", async ({ page }) => {
   await expect(page.getByTestId("nav-menu")).toHaveCount(0);
 });
 
-test("Escape closes the menu", async ({ page }) => {
+test("Escape closes the menu and returns focus to the toggle", async ({ page }) => {
   await page.goto("/");
 
   await page.getByTestId("nav-toggle").click();
   await expect(page.getByTestId("nav-menu")).toBeVisible();
+
+  // Move focus off the toggle and into the menu, as a keyboard user would,
+  // so that returning focus to the toggle on Escape is actually exercised
+  // rather than incidentally already true from the click that opened it.
+  await page.keyboard.press("Tab");
+  await expect(page.getByTestId("nav-menu").getByRole("link", { name: "Home" })).toBeFocused();
+
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("nav-menu")).toHaveCount(0);
+  await expect(page.getByTestId("nav-toggle")).toBeFocused();
 });
 
 test("clicking outside closes the menu", async ({ page }) => {
