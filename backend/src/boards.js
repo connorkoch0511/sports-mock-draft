@@ -14,17 +14,40 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
 const FORMATS = new Set(["standard", "half-ppr", "ppr"]);
 
-async function loadPool(playersTable, sport, format) {
-  const res = await ddb.send(
-    new QueryCommand({
-      TableName: playersTable,
-      KeyConditionExpression: "#s = :sport",
-      ExpressionAttributeNames: { "#s": "sport" },
-      ExpressionAttributeValues: { ":sport": sport },
-    })
-  );
+// Parses the request body as JSON, returning {} for an absent body.
+// Returns `undefined` (never a valid JSON.parse result) when the body is
+// present but malformed, so callers can turn that into a 400 response
+// instead of letting a SyntaxError fall through to the generic 500 handler.
+function parseJsonBody(event) {
+  if (!event.body) return {};
+  try {
+    return JSON.parse(event.body);
+  } catch {
+    return undefined;
+  }
+}
 
-  return (res.Items || [])
+async function loadPool(playersTable, sport, format) {
+  // A Query page tops out at 1MB; the players table (~3,900 items) is close
+  // enough to that ceiling that a single page could silently drop players,
+  // so page through ExclusiveStartKey/LastEvaluatedKey until exhausted.
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: playersTable,
+        KeyConditionExpression: "#s = :sport",
+        ExpressionAttributeNames: { "#s": "sport" },
+        ExpressionAttributeValues: { ":sport": sport },
+        ExclusiveStartKey,
+      })
+    );
+    items.push(...(res.Items || []));
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+
+  return items
     .filter((p) => p && ALLOWED_POS.has(p.position))
     // Only ranked players belong on a big board. The table holds ~3,900 NFL
     // players; a few hundred have ADP. The rest are practice-squad depth that
@@ -50,7 +73,8 @@ exports.handler = async (event) => {
 
   try {
     if (method === "POST" && !boardId) {
-      const body = event.body ? JSON.parse(event.body) : {};
+      const body = parseJsonBody(event);
+      if (body === undefined) return json(400, { error: "Invalid JSON body" });
 
       const format = String(body.format || "standard").toLowerCase();
       if (!FORMATS.has(format)) return json(400, { error: "Invalid format" });
