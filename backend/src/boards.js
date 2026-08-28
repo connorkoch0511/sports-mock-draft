@@ -4,6 +4,8 @@ const {
   GetCommand,
   PutCommand,
   QueryCommand,
+  UpdateCommand,
+  DeleteCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
 const { json } = require("./lib/http");
@@ -121,6 +123,68 @@ exports.handler = async (event) => {
         rows,
         changelog,
       });
+    }
+
+    if (method === "PUT" && boardId) {
+      const body = parseJsonBody(event);
+      if (body === undefined) return json(400, { error: "Invalid JSON body" });
+
+      if (!Array.isArray(body.order)) {
+        return json(400, { error: "order must be an array" });
+      }
+      if (body.order.length > 5000) {
+        return json(400, { error: "order exceeds 5000 entries" });
+      }
+
+      const expectedVersion = Number(body.version);
+      if (!Number.isInteger(expectedVersion)) {
+        return json(400, { error: "version must be an integer" });
+      }
+
+      const order = body.order.map(String);
+      if (new Set(order).size !== order.length) {
+        return json(400, { error: "order contains duplicate playerIds" });
+      }
+
+      try {
+        const res = await ddb.send(
+          new UpdateCommand({
+            TableName: boardsTable,
+            Key: { boardId },
+            UpdateExpression:
+              "SET #o = :order, updatedAt = :now, version = :next",
+            ConditionExpression: "attribute_exists(boardId) AND version = :expected",
+            ExpressionAttributeNames: { "#o": "order" },
+            ExpressionAttributeValues: {
+              ":order": order,
+              ":now": Date.now(),
+              ":next": expectedVersion + 1,
+              ":expected": expectedVersion,
+            },
+            ReturnValues: "ALL_NEW",
+          })
+        );
+        return json(200, { ok: true, version: res.Attributes.version });
+      } catch (e) {
+        if (e.name === "ConditionalCheckFailedException") {
+          const current = await ddb.send(
+            new GetCommand({ TableName: boardsTable, Key: { boardId } })
+          );
+          if (!current.Item) return json(404, { error: "Board not found" });
+          return json(409, {
+            error: "Board changed since you loaded it",
+            currentVersion: current.Item.version,
+          });
+        }
+        throw e;
+      }
+    }
+
+    if (method === "DELETE" && boardId) {
+      await ddb.send(
+        new DeleteCommand({ TableName: boardsTable, Key: { boardId } })
+      );
+      return json(200, { ok: true });
     }
 
     return json(404, { error: "Not found" });
