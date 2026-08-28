@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { DRAFT_ID, MOCK_PLAYERS, makeDraftState } from "./fixtures.js";
 
 test("pick schedule updates with the selected slot", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/draft/new");
 
   await page.getByTestId("slot-select").selectOption("3");
   await expect(page.getByTestId("pick-schedule")).toContainText("3, 22, 27");
@@ -34,7 +34,7 @@ test("selected slot is sent when creating a draft", async ({ page }) => {
     })
   );
 
-  await page.goto("/");
+  await page.goto("/draft/new");
   await page.getByTestId("slot-select").selectOption("7");
   await page.getByRole("button", { name: "Start Mock Draft" }).click();
 
@@ -42,7 +42,7 @@ test("selected slot is sent when creating a draft", async ({ page }) => {
 });
 
 test("random slot disables the selector", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/draft/new");
 
   await page.getByTestId("random-slot").click();
   await expect(page.getByTestId("slot-select")).toBeDisabled();

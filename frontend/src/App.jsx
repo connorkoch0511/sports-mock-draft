@@ -1,5 +1,6 @@
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home.jsx";
+import NewDraft from "./pages/NewDraft.jsx";
 import Draft from "./pages/Draft.jsx";
 import Results from "./pages/Results.jsx";
 import Board from "./pages/Board.jsx";
@@ -16,6 +17,7 @@ export default function App() {
         <div className="flex-1 min-h-0">
           <Routes>
             <Route path="/" element={<Home />} />
+            <Route path="/draft/new" element={<NewDraft />} />
             <Route path="/draft/:draftId" element={<Draft />} />
             <Route path="/draft/:draftId/results" element={<Results />} />
             <Route path="/board/:boardId" element={<Board />} />
