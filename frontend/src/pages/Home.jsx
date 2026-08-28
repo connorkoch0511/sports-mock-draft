@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost } from "../lib/api";
+import { apiPost, apiDelete } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
+import { picksForSlot, largestGap } from "../lib/snake";
+import { listBoards, rememberBoard, forgetBoard } from "../lib/boardRegistry";
 
 function Card({ title, desc }) {
   return (
@@ -20,6 +22,15 @@ export default function Home() {
   const [err, setErr] = useState("");
   const [format, setFormat] = useState("standard"); // "standard" | "half-ppr" | "ppr"
   const [year, setYear] = useState(2025);
+  const [slot, setSlot] = useState(1);
+  const [randomSlot, setRandomSlot] = useState(false);
+  const [boards, setBoards] = useState(() => listBoards());
+
+  const safeSlot = Math.min(Math.max(1, slot), teams);
+  const schedule = useMemo(
+    () => picksForSlot(safeSlot, teams, rounds),
+    [safeSlot, teams, rounds]
+  );
 
   usePageTitle("Home");
 
@@ -27,12 +38,44 @@ export default function Home() {
     setLoading(true);
     setErr("");
     try {
-      const draft = await apiPost("/drafts", { teams, rounds, sport: "nfl", format, year });
+      const userTeam = randomSlot
+        ? Math.floor(Math.random() * teams) + 1
+        : safeSlot;
+      const draft = await apiPost("/drafts", {
+        teams, rounds, sport: "nfl", format, year, userTeam,
+      });
       nav(`/draft/${draft.draftId}`);
     } catch (e) {
       setErr(e.message || "Failed to create draft");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const createBoard = async () => {
+    setErr("");
+    try {
+      const name = `My ${format.toUpperCase()} Board`;
+      const { boardId } = await apiPost("/boards", { name, format, season: year });
+      rememberBoard({ id: boardId, name });
+      setBoards(listBoards());
+      nav(`/board/${boardId}`);
+    } catch (e) {
+      setErr(e.message || "Failed to create board");
+    }
+  };
+
+  const deleteBoard = async (id) => {
+    setErr("");
+    try {
+      await apiDelete(`/boards/${id}`);
+    } catch (e) {
+      setErr(e.message || "Failed to delete board");
+    } finally {
+      // Drop it locally either way — a board the server no longer has
+      // should not linger in the list.
+      forgetBoard(id);
+      setBoards(listBoards());
     }
   };
 
@@ -91,6 +134,42 @@ export default function Home() {
                   onChange={(e) => setRounds(Number(e.target.value))}
                 />
               </label>
+
+              <label className="space-y-1 sm:col-span-2">
+                <div className="flex items-center justify-between text-sm text-zinc-300">
+                  <span>Your draft slot</span>
+                  <button
+                    type="button"
+                    onClick={() => setRandomSlot((v) => !v)}
+                    data-testid="random-slot"
+                    className={`rounded-full border px-3 py-0.5 text-xs ${
+                      randomSlot
+                        ? "border-cyan-300/60 bg-cyan-300/10 text-cyan-200"
+                        : "border-zinc-800 text-zinc-400 hover:border-zinc-600"
+                    }`}
+                  >
+                    Random
+                  </button>
+                </div>
+                <select
+                  data-testid="slot-select"
+                  disabled={randomSlot}
+                  className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-zinc-100 outline-none focus:border-cyan-300/60 disabled:opacity-40"
+                  value={safeSlot}
+                  onChange={(e) => setSlot(Number(e.target.value))}
+                >
+                  {Array.from({ length: teams }, (_, i) => i + 1).map((n) => (
+                    <option key={n} value={n}>Slot {n} of {teams}</option>
+                  ))}
+                </select>
+                {!randomSlot && (
+                  <div data-testid="pick-schedule" className="text-xs text-zinc-500">
+                    Your picks: {schedule.slice(0, 8).join(", ")}
+                    {schedule.length > 8 ? ", …" : ""}
+                    {schedule.length > 1 && ` · ${largestGap(schedule)}-pick longest wait`}
+                  </div>
+                )}
+              </label>
             </div>
 
             <label className="space-y-1">
@@ -124,6 +203,45 @@ export default function Home() {
               <div className="text-xs text-zinc-400">
                 Tip: Once inside the draft, use <span className="text-zinc-200">Auto Pick</span> to simulate quickly.
               </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-white">My boards</div>
+                <button
+                  type="button"
+                  onClick={createBoard}
+                  data-testid="create-board"
+                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs text-zinc-200 hover:border-zinc-600"
+                >
+                  + New board
+                </button>
+              </div>
+              {boards.length === 0 ? (
+                <div className="text-sm text-zinc-500">
+                  No boards yet. Create one to rank players your way.
+                </div>
+              ) : (
+                <ul className="space-y-1" data-testid="board-list">
+                  {boards.map((b) => (
+                    <li key={b.id} className="flex items-center gap-2">
+                      <button
+                        onClick={() => nav(`/board/${b.id}`)}
+                        className="flex-1 rounded-2xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-left text-sm text-zinc-200 hover:border-zinc-600"
+                      >
+                        {b.name}
+                      </button>
+                      <button
+                        onClick={() => deleteBoard(b.id)}
+                        aria-label={`Delete ${b.name}`}
+                        className="rounded-2xl border border-zinc-800 px-3 py-2 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
+                      >
+                        Delete
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
 
