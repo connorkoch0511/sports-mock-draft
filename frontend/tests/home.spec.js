@@ -1,12 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
-import { DRAFT_ID } from "./fixtures.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
-
-const API = "http://localhost:9999";
 
 test.describe("Home page", () => {
   test("renders hero and calls to action", async ({ page }) => {
@@ -32,10 +29,6 @@ test.describe("Home page", () => {
   });
 
   test("screenshot — home page", async ({ page }) => {
-    await page.route(`${API}/drafts`, async (route) => {
-      await route.fulfill({ json: { draftId: DRAFT_ID } });
-    });
-
     await page.goto("/");
     await expect(page.getByRole("heading", { name: /Draft smarter/i })).toBeVisible();
 
