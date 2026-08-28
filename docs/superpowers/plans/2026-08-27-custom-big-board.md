@@ -766,7 +766,7 @@ git commit -m "Add userTeam draft slot to draft create and read"
 In `frontend/package.json`, add to `scripts` (keep `test` as Playwright — these are separate runners):
 
 ```json
-    "test:unit": "node --test src/**/*.test.js",
+    "test:unit": "node --test \"src/**/*.test.js\"",
 ```
 
 - [ ] **Step 2: Write the failing tests**
