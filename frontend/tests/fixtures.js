@@ -63,6 +63,7 @@ export function makeDraftState({ currentIndex = 0, completedPicks = [] } = {}) {
     year: 2025,
     teams: 12,
     rounds: 15,
+    userTeam: 1,
     picked: completedPicks.map(({ player }) => player.id),
     currentIndex,
     currentRound: current?.round ?? 15,
@@ -86,6 +87,7 @@ export function makeCompletedDraft() {
     year: 2025,
     teams: 4,
     rounds: 3,
+    userTeam: 1,
     picked: MOCK_PLAYERS.slice(0, 12).map((p) => p.id),
     currentIndex: 12,
     currentRound: 3,
@@ -93,5 +95,33 @@ export function makeCompletedDraft() {
     currentTeam: null,
     completed: true,
     picks,
+  };
+}
+
+export const BOARD_ID = "test-board-xyz789";
+
+export function makeBoardState({ order = null, added = 0, removed = 0 } = {}) {
+  const source = order
+    ? order.map((id) => MOCK_PLAYERS.find((p) => p.id === id))
+    : MOCK_PLAYERS.slice(0, 10);
+
+  return {
+    boardId: BOARD_ID,
+    name: "My PPR Board",
+    sport: "nfl",
+    format: "ppr",
+    season: 2026,
+    version: 1,
+    changelog: { added, removed },
+    rows: source.map((p, i) => ({
+      playerId: p.id,
+      name: p.name,
+      position: p.position,
+      team: p.team,
+      myRank: i + 1,
+      consensusRank: p.rank,
+      delta: p.rank - (i + 1),
+      isNew: false,
+    })),
   };
 }
