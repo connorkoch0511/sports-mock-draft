@@ -7,6 +7,12 @@ const {
   QueryCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
+const {
+  DEFAULT_ROSTER,
+  parseRosterSlots,
+  rosterNeed,
+  kDefBlocked,
+} = require("./lib/roster");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -83,26 +89,11 @@ function getRosterCounts(draft, teamNum, playerById) {
   return counts;
 }
 
-// Targets by end of draft (you can tune later)
-function needScore(counts, pos, round) {
-  const target = { QB: 1, RB: 2, WR: 2, TE: 1, K: 1, DEF: 1 };
-
-  // early-round strategy: prioritize RB/WR more; push K/DEF late
-  const earlyBoost =
-    round <= 6
-      ? { RB: 2, WR: 2, QB: 0.7, TE: 0.7, K: 0.1, DEF: 0.1 }
-      : { RB: 1, WR: 1, QB: 1, TE: 1, K: 1, DEF: 1 };
-
-  const missing = Math.max(0, (target[pos] || 0) - (counts[pos] || 0));
-  return missing * (earlyBoost[pos] || 1);
-}
-
 function pickBestForTeam(draft, teamNum, players) {
   const pickedSet = new Set(draft.picked || []);
-  const currentPick = draft.picks[draft.currentIndex];
-  const round = currentPick?.round || 1;
-
   const counts = draft.__counts || { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
+  const roster = parseRosterSlots(draft.rosterSlots || DEFAULT_ROSTER);
+  const blockKDef = kDefBlocked(counts, roster);
 
   let best = null;
   let bestScore = -Infinity;
@@ -114,12 +105,13 @@ function pickBestForTeam(draft, teamNum, players) {
     // Rank dominates (lower rank = better)
     const base = p.rank != null ? (100000 - Number(p.rank)) : 0;
 
-    // Needs still matters (especially early)
-    const needs = needScore(counts, p.position, round) * 500;
+    // Roster need: starters first, then FLEX, then nothing — bench is
+    // best-available.
+    const needs = rosterNeed(counts, p.position, roster) * 500;
 
-    // Hard push K/DEF later (but not impossible)
+    // Hold K/DEF until every other starter slot is filled.
     const kDefPenalty =
-      round <= 10 && (p.position === "K" || p.position === "DEF") ? -20000 : 0;
+      blockKDef && (p.position === "K" || p.position === "DEF") ? -20000 : 0;
 
     // Small tie-breaker (stable)
     const tiebreak = (p.name || "").length;
@@ -171,12 +163,15 @@ exports.handler = async (event) => {
     if (method === "POST" && path === "/drafts") {
       const body = event.body ? JSON.parse(event.body) : {};
       const teams = Math.max(2, Math.min(32, Number(body.teams || 12)));
-      const rounds = Math.max(1, Math.min(30, Number(body.rounds || 15)));
+      const rounds = Math.max(1, Math.min(40, Number(body.rounds || 15)));
       const requestedTeam = Number(body.userTeam || 1);
       const userTeam =
         Number.isInteger(requestedTeam) && requestedTeam >= 1 && requestedTeam <= teams
           ? requestedTeam
           : 1;
+      const rosterSlots = Array.isArray(body.rosterSlots)
+        ? body.rosterSlots.slice(0, 60).map((s) => String(s).toUpperCase())
+        : DEFAULT_ROSTER;
 
       const id = randomUUID();
       const picks = buildSnakeOrder(teams, rounds);
@@ -193,6 +188,7 @@ exports.handler = async (event) => {
         teams,
         rounds,
         userTeam,
+        rosterSlots,
         picks,
         picked: [],
         currentIndex: 0,
@@ -228,6 +224,7 @@ exports.handler = async (event) => {
           teams: d.teams,
           rounds: d.rounds,
           userTeam: d.userTeam || 1,
+          rosterSlots: d.rosterSlots || DEFAULT_ROSTER,
           picked: d.picked || [],
           currentIndex: d.currentIndex,
           currentRound: current?.round || d.rounds,
