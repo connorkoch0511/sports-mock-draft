@@ -23,7 +23,7 @@ export default function Boards() {
         format,
         season: BOARD_SEASON,
       });
-      rememberBoard({ id: boardId, name });
+      rememberBoard({ id: boardId, name, format });
       setBoards(listBoards());
       nav(`/board/${boardId}`);
     } catch (e) {

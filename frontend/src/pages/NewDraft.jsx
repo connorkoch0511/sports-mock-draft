@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
+import { listBoards } from "../lib/boardRegistry";
 import {
   fetchUser,
   fetchLeagues,
@@ -31,6 +32,8 @@ export default function NewDraft() {
   const [slot, setSlot] = useState(1);
   const [randomSlot, setRandomSlot] = useState(false);
   const [rosterSlots, setRosterSlots] = useState(null);
+  const [boardId, setBoardId] = useState("");
+  const [myBoards] = useState(() => listBoards());
   const [username, setUsername] = useState("");
   const [leagues, setLeagues] = useState(null);
   const [sleeperErr, setSleeperErr] = useState("");
@@ -44,6 +47,10 @@ export default function NewDraft() {
     () => picksForSlot(safeSlot, teams, rounds),
     [safeSlot, teams, rounds]
   );
+
+  const selectedBoard = myBoards.find((b) => b.id === boardId) || null;
+  const boardFormatMismatch =
+    selectedBoard && selectedBoard.format && selectedBoard.format !== format;
 
   const createDraft = async () => {
     setLoading(true);
@@ -60,6 +67,7 @@ export default function NewDraft() {
         year: DRAFT_YEAR,
         userTeam,
         ...(rosterSlots?.length ? { rosterSlots } : {}),
+        ...(boardId ? { boardId } : {}),
       });
       nav(`/draft/${draft.draftId}`);
     } catch (e) {
@@ -264,6 +272,32 @@ export default function NewDraft() {
             <option value="ppr">PPR</option>
           </select>
         </label>
+
+        {myBoards.length > 0 && (
+          <label className="space-y-1 block">
+            <div className="text-sm text-zinc-300">Use my board</div>
+            <select
+              data-testid="board-select"
+              value={boardId}
+              onChange={(e) => setBoardId(e.target.value)}
+              className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-zinc-100 outline-none focus:border-cyan-300/60"
+            >
+              <option value="">Consensus ADP (no board)</option>
+              {myBoards.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                  {b.format ? ` · ${b.format.toUpperCase()}` : ""}
+                </option>
+              ))}
+            </select>
+            {boardFormatMismatch && (
+              <div data-testid="board-format-note" className="text-xs text-amber-300/90">
+                This board was built for {selectedBoard.format.toUpperCase()}. Its ranks
+                still apply, but they were not made for {format.toUpperCase()} scoring.
+              </div>
+            )}
+          </label>
+        )}
 
         {err ? (
           <div className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-red-200 text-sm">
