@@ -117,7 +117,7 @@ function pickBestForTeam(draft, teamNum, players) {
     // and every bot takes the same position with its first pick.
     const needs = Math.min(rosterNeed(counts, p.position, roster), 1) * 500;
 
-    // Hold K/DEF until every other starter slot is filled.
+    // Hold K/DEF until the team is down to its last few picks.
     const kDefPenalty =
       blockKDef && (p.position === "K" || p.position === "DEF") ? -20000 : 0;
 
