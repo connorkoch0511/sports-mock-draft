@@ -181,6 +181,8 @@ exports.handler = async (event) => {
         Array.isArray(body.rosterSlots) && body.rosterSlots.length
           ? body.rosterSlots.slice(0, 60).map((s) => String(s).toUpperCase())
           : DEFAULT_ROSTER;
+      const rawBoardId = typeof body.boardId === "string" ? body.boardId.trim() : "";
+      const boardId = rawBoardId.length > 0 && rawBoardId.length <= 64 ? rawBoardId : null;
 
       const id = randomUUID();
       const picks = buildSnakeOrder(teams, rounds);
@@ -198,6 +200,7 @@ exports.handler = async (event) => {
         rounds,
         userTeam,
         rosterSlots,
+        boardId,
         picks,
         picked: [],
         currentIndex: 0,
@@ -234,6 +237,7 @@ exports.handler = async (event) => {
           rounds: d.rounds,
           userTeam: d.userTeam || 1,
           rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
+          boardId: d.boardId || null,
           picked: d.picked || [],
           currentIndex: d.currentIndex,
           currentRound: current?.round || d.rounds,
