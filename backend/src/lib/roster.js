@@ -60,15 +60,28 @@ function rosterNeed(counts, position, roster) {
 }
 
 /**
- * True while any non-K/DEF starter slot is still empty, FLEX included.
- * Replaces a hardcoded `round <= 10`, which meant kickers in round 11 of a
- * 33-round draft.
+ * True while the team should still be drafting non-K/DEF value instead of
+ * locking in its kicker/defense.
+ *
+ * Gates on how many picks the team has left, not on whether its other
+ * starters are filled: K and DEF still carry a nonzero `rosterNeed` (and its
+ * +500 score bonus) the instant their own slot opens, which is enough to
+ * beat any realistic rank gap. Filling every other starter slot doesn't
+ * change that, so gating on "other starters full" let K/DEF get drafted as
+ * early as pick 9 in a 16-round league (and identically in a 33-round one).
+ *
+ * Instead, block while `picksRemaining > kDefSlotsNeeded + 1`, where
+ * `kDefSlotsNeeded` is the team's still-unfilled K and DEF starter slots.
+ * That leaves just enough of the team's final picks free to fill K/DEF and
+ * scales with the draft's length: a 16-round draft takes K/DEF in roughly
+ * its last two or three picks, a 33-round draft around picks 31-32, a
+ * 15-round legacy draft around 13-14.
  */
-function kDefBlocked(counts, roster) {
-  for (const pos of ["QB", "RB", "WR", "TE"]) {
-    if ((counts[pos] || 0) < (roster.starters[pos] || 0)) return true;
-  }
-  return flexFilled(counts, roster) < roster.flex;
+function kDefBlocked(counts, roster, picksRemaining) {
+  const kDefSlotsNeeded =
+    Math.max(0, (roster.starters.K || 0) - (counts.K || 0)) +
+    Math.max(0, (roster.starters.DEF || 0) - (counts.DEF || 0));
+  return picksRemaining > kDefSlotsNeeded + 1;
 }
 
 module.exports = {

@@ -92,8 +92,13 @@ function getRosterCounts(draft, teamNum, playerById) {
 function pickBestForTeam(draft, teamNum, players) {
   const pickedSet = new Set(draft.picked || []);
   const counts = draft.__counts || { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
-  const roster = parseRosterSlots(draft.rosterSlots || DEFAULT_ROSTER);
-  const blockKDef = kDefBlocked(counts, roster);
+  const roster = parseRosterSlots(
+    draft.rosterSlots?.length ? draft.rosterSlots : DEFAULT_ROSTER
+  );
+  const picksRemaining = draft.picks.filter(
+    (p, i) => i >= draft.currentIndex && p.team === teamNum
+  ).length;
+  const blockKDef = kDefBlocked(counts, roster, picksRemaining);
 
   let best = null;
   let bestScore = -Infinity;
@@ -106,8 +111,11 @@ function pickBestForTeam(draft, teamNum, players) {
     const base = p.rank != null ? (100000 - Number(p.rank)) : 0;
 
     // Roster need: starters first, then FLEX, then nothing — bench is
-    // best-available.
-    const needs = rosterNeed(counts, p.position, roster) * 500;
+    // best-available. Clamped to 1 so "needed at all" is what scores, not
+    // how many slots are missing — otherwise a league needing three WRs
+    // outweighs an RB by a fixed 500-point moat that rank can never cross,
+    // and every bot takes the same position with its first pick.
+    const needs = Math.min(rosterNeed(counts, p.position, roster), 1) * 500;
 
     // Hold K/DEF until every other starter slot is filled.
     const kDefPenalty =
@@ -169,9 +177,10 @@ exports.handler = async (event) => {
         Number.isInteger(requestedTeam) && requestedTeam >= 1 && requestedTeam <= teams
           ? requestedTeam
           : 1;
-      const rosterSlots = Array.isArray(body.rosterSlots)
-        ? body.rosterSlots.slice(0, 60).map((s) => String(s).toUpperCase())
-        : DEFAULT_ROSTER;
+      const rosterSlots =
+        Array.isArray(body.rosterSlots) && body.rosterSlots.length
+          ? body.rosterSlots.slice(0, 60).map((s) => String(s).toUpperCase())
+          : DEFAULT_ROSTER;
 
       const id = randomUUID();
       const picks = buildSnakeOrder(teams, rounds);
@@ -224,7 +233,7 @@ exports.handler = async (event) => {
           teams: d.teams,
           rounds: d.rounds,
           userTeam: d.userTeam || 1,
-          rosterSlots: d.rosterSlots || DEFAULT_ROSTER,
+          rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
           picked: d.picked || [],
           currentIndex: d.currentIndex,
           currentRound: current?.round || d.rounds,

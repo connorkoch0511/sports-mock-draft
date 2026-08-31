@@ -209,7 +209,7 @@ export default function NewDraft() {
               className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-zinc-100 outline-none ring-0 focus:border-sky-300/60 focus:shadow-[0_0_0_4px_rgba(59,130,246,0.10)]"
               type="number"
               min={1}
-              max={30}
+              max={40}
               value={rounds}
               onChange={(e) => setRounds(Number(e.target.value))}
             />

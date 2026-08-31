@@ -103,19 +103,40 @@ test("need is zero everywhere once all starters are filled — bench is best-ava
   }
 });
 
-test("K and DEF are blocked while any other starter is missing", () => {
+test("K and DEF stay blocked while many picks remain, regardless of other starters", () => {
   const r = parseRosterSlots(JOES);
-  assert.strictEqual(kDefBlocked(counts(), r), true);
-  assert.strictEqual(kDefBlocked(counts({ QB: 1, RB: 2, WR: 3 }), r), true);
+  // Neither K nor DEF filled yet: kDefSlotsNeeded is 2, so blocked while
+  // picksRemaining > 3 — whether or not the other starters are done.
+  assert.strictEqual(kDefBlocked(counts(), r, 16), true);
+  assert.strictEqual(kDefBlocked(counts({ QB: 1, RB: 2, WR: 3, TE: 1 }), r, 16), true);
 });
 
-test("K and DEF unblock only after the FLEX slot is also filled", () => {
+test("K and DEF unblock once picks remaining drop to slots-still-needed plus one", () => {
   const r = parseRosterSlots(JOES);
-  const startersNoFlex = counts({ QB: 1, RB: 2, WR: 3, TE: 1 });
-  assert.strictEqual(kDefBlocked(startersNoFlex, r), true);
+  const c = counts(); // K and DEF both still needed: threshold is 2 + 1 = 3
+  assert.strictEqual(kDefBlocked(c, r, 4), true);
+  assert.strictEqual(kDefBlocked(c, r, 3), false);
+  assert.strictEqual(kDefBlocked(c, r, 1), false);
+});
 
-  const withFlex = counts({ QB: 1, RB: 3, WR: 3, TE: 1 });
-  assert.strictEqual(kDefBlocked(withFlex, r), false);
+test("the threshold tightens as K/DEF slots are filled", () => {
+  const r = parseRosterSlots(JOES);
+  const kFilled = counts({ K: 1 }); // only DEF still needed: threshold is 1 + 1 = 2
+  assert.strictEqual(kDefBlocked(kFilled, r, 3), true);
+  assert.strictEqual(kDefBlocked(kFilled, r, 2), false);
+
+  const bothFilled = counts({ K: 1, DEF: 1 }); // nothing needed: threshold is 0 + 1 = 1
+  assert.strictEqual(kDefBlocked(bothFilled, r, 2), true);
+  assert.strictEqual(kDefBlocked(bothFilled, r, 1), false);
+});
+
+test("the gate scales across draft lengths: a 33-round-sized remainder blocks, a near-exhausted one does not", () => {
+  const r = parseRosterSlots(JOES);
+  const c = counts();
+  // Early in a 33-round draft the team still has 32 picks left: blocked.
+  assert.strictEqual(kDefBlocked(c, r, 32), true);
+  // In the draft's final few picks: unblocked.
+  assert.strictEqual(kDefBlocked(c, r, 2), false);
 });
 
 test("does not mutate its inputs", () => {
