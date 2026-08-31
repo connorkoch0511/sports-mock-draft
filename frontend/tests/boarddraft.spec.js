@@ -112,6 +112,47 @@ test("the Big Board renders in the board's order, not ADP order", async ({ page 
   await expect(first).toContainText("+2");
 });
 
+test("the board is fetched exactly once, even after a pick", async ({ page }) => {
+  await mockPlayers(page);
+
+  // load() is called on initial mount AND again after every pick — the same
+  // draft state is returned each time so the "board fetched once" assertion
+  // below isolates the board-fetch behavior from draft-state changes.
+  const state = { ...makeDraftState(), boardId: BID };
+  await page.route(`${API}/drafts/${DRAFT_ID}`, async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: state });
+    }
+  });
+
+  let boardRequests = 0;
+  await page.route(`${API}/boards/${BID}`, async (route) => {
+    boardRequests++;
+    await route.fulfill({
+      json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS, changelog: { added: 0, removed: 0 } },
+    });
+  });
+
+  let pickPayload = null;
+  await page.route(`${API}/drafts/${DRAFT_ID}/pick`, async (route) => {
+    pickPayload = JSON.parse(route.request().postData() || "{}");
+    await route.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  // Do NOT pause — players are clickable only when not paused.
+
+  const firstPlayer = page.getByRole("button", { name: /CeeDee Lamb/ }).first();
+  await expect(firstPlayer).toBeEnabled();
+  await firstPlayer.click();
+
+  // Confirms the pick — and the post-pick load() that refetches draft state —
+  // actually completed, so the board-fetch count below reflects a full cycle.
+  await expect(() => expect(pickPayload?.playerId).toBe("p3")).toPass();
+
+  expect(boardRequests).toBe(1);
+});
+
 test("a deleted board still leaves the draft playable", async ({ page }) => {
   await mockPlayers(page);
   await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>

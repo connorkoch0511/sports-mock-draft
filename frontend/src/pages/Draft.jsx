@@ -44,25 +44,6 @@ export default function Draft() {
       );
       setDraft(d);
       setPlayers(p.players || []);
-
-      if (d.boardId) {
-        try {
-          const b = await apiGet(`/boards/${d.boardId}`);
-          setBoardRows(b.rows || []);
-          setBoardFailed(false);
-        } catch {
-          // A board can be deleted after a draft was started from it. The
-          // draft stays fully playable; only the Big Board's ORDER falls
-          // back to consensus.
-          setBoardRows(null);
-          setBoardFailed(true);
-        }
-      } else {
-        // Clear any board state from a previously loaded draft, so navigating
-        // from a board-backed draft to a plain one does not keep the old order.
-        setBoardRows(null);
-        setBoardFailed(false);
-      }
     } catch (e) {
       setErr(e.message || "Failed to load");
     }
@@ -72,6 +53,43 @@ export default function Draft() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId]);
+
+  // Fetch the board exactly once per draft (keyed on the boardId string, not
+  // the draft object), so refetching draft state after each pick does not
+  // re-fetch the (heavy) board endpoint. Attaching a board to an in-progress
+  // draft is out of scope, so boardId cannot change during a draft's lifetime.
+  useEffect(() => {
+    const boardId = draft?.boardId;
+
+    if (!boardId) {
+      // Clear any board state from a previously loaded draft, so navigating
+      // from a board-backed draft to a plain one does not keep the old order.
+      setBoardRows(null);
+      setBoardFailed(false);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const b = await apiGet(`/boards/${boardId}`);
+        if (cancelled) return;
+        setBoardRows(b.rows || []);
+        setBoardFailed(false);
+      } catch {
+        if (cancelled) return;
+        // A board can be deleted after a draft was started from it. The
+        // draft stays fully playable; only the Big Board's ORDER falls
+        // back to consensus.
+        setBoardRows(null);
+        setBoardFailed(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [draft?.boardId]);
 
   usePageTitle(draft ? `Draft ${draftId}` : "Draft");
 
