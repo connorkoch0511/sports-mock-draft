@@ -106,3 +106,52 @@ test("the original json() export is unchanged and never compresses", () => {
   assert.strictEqual(res.headers["Content-Encoding"], undefined);
   assert.deepStrictEqual(JSON.parse(res.body), BIG);
 });
+
+test("gzip;q=0 is a refusal, not consent", () => {
+  const json = responder({ headers: { "accept-encoding": "gzip;q=0" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+  assert.strictEqual(res.isBase64Encoded, undefined);
+});
+
+test("gzip;q=0.000 is also a refusal", () => {
+  const json = responder({ headers: { "accept-encoding": "gzip;q=0.000" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+});
+
+test("a positive q-value still accepts gzip", () => {
+  const json = responder({ headers: { "accept-encoding": "gzip;q=0.8" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], "gzip");
+});
+
+test("a wildcard accepts gzip", () => {
+  const json = responder({ headers: { "accept-encoding": "*" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], "gzip");
+});
+
+test("a refused wildcard does not accept gzip", () => {
+  const json = responder({ headers: { "accept-encoding": "*;q=0" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+});
+
+test("gzip is still found among several codings with spacing", () => {
+  const json = responder({ headers: { "accept-encoding": "br;q=1.0, gzip ; q=0.5 , deflate" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], "gzip");
+});
+
+test("a coding merely containing 'gzip' does not count", () => {
+  const json = responder({ headers: { "accept-encoding": "notgzip" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+});
+
+test("a malformed q-value fails closed to no compression", () => {
+  const json = responder({ headers: { "accept-encoding": "gzip;q=banana" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+});

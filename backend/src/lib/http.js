@@ -32,10 +32,33 @@ function json(statusCode, body) {
 function acceptsGzip(event) {
   const headers = event && event.headers;
   if (!headers || typeof headers !== "object") return false;
+
+  let value = null;
   for (const key of Object.keys(headers)) {
     if (key.toLowerCase() === "accept-encoding") {
-      return String(headers[key] || "").toLowerCase().includes("gzip");
+      value = String(headers[key] || "");
+      break;
     }
+  }
+  if (!value) return false;
+
+  // RFC 9110: a comma-separated list of codings, each optionally carrying a
+  // ";q=" weight. q=0 means "not acceptable" -- a refusal, not consent, which
+  // a substring match for "gzip" reads backwards. An absent q means 1.0.
+  for (const part of value.split(",")) {
+    const [rawCoding, ...params] = part.split(";");
+    const coding = rawCoding.trim().toLowerCase();
+    if (coding !== "gzip" && coding !== "*") continue;
+
+    const qParam = params
+      .map((p) => p.trim().toLowerCase())
+      .find((p) => p.startsWith("q="));
+    if (!qParam) return true;
+
+    const q = Number(qParam.slice(2));
+    // A malformed weight fails closed: sending plain JSON is always safe,
+    // sending gzip to a client that cannot decode it is not.
+    if (Number.isFinite(q) && q > 0) return true;
   }
   return false;
 }
