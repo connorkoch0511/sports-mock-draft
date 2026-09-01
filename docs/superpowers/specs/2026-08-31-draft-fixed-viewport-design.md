@@ -53,10 +53,12 @@ change and confirmed it was identical afterward.
 
 ### Why the breakpoint is also wrong
 
-The app container is `max-w-[1400px]`. A `2xl` (1536px) breakpoint therefore cannot mean
-"the container got wider" — above 1400px the container stops growing. Meanwhile the three
-columns are `420px + minmax(0,1fr) + 360px`: at a 1280px viewport the container is about
-1216px, leaving roughly 404px for the middle column. They fit at `xl`.
+The draft page's own content wrapper is `max-w-7xl` (1280px) — tighter than the app
+shell's `max-w-[1400px]`, so it is the binding cap. A `2xl` (1536px) breakpoint therefore
+cannot mean "the content got wider": measured at a 1536px viewport the grid's content box
+is 1232px, exactly `max-w-7xl` minus `px-6`. Meanwhile the three columns are
+`420px + minmax(0,1fr) + 360px`, which at a 1280px viewport leaves about 356px for the
+middle column. They fit at `xl`.
 
 Gating on `2xl` forces the roster panel to wrap onto a second row at exactly the widths
 people use most.
@@ -87,9 +89,17 @@ to a user. The nav stays fixed above it, which is a small improvement.
 
 ### `frontend/src/pages/Draft.jsx`
 
-- Both page wrappers: `min-h-full` → `h-full`. With a bounded ancestor this is now a
-  definite height, so the grid's `flex-1 min-h-0` bounds the row, and each panel's
+- Both page wrappers: `min-h-full` → `min-h-full xl:h-full`. From `xl` up this is a
+  definite height, so the grid's `flex-1 min-h-0` bounds the row and each panel's
   `flex-1 min-h-0 overflow-auto` finally clips and scrolls.
+
+  **The `xl:` gate is load-bearing, not decoration.** Binding the height unconditionally
+  breaks every width below `xl`: the grid stacks into two rows (`lg`) or three (below
+  `lg`), and each panel is handed a fraction of a now-fixed height rather than being
+  allowed to extend the page. Measured with an unconditional `h-full`, the Big Board
+  scroller was 86px at 1024x768, 68px at 768x1024, and **0px at 390x844** — 25 player
+  rows in the DOM, none of them visible or clickable. Below `xl` the page must fall back
+  to document flow, where the routes wrapper scrolls it like any other page.
 - The grid's `2xl:grid-cols-[420px_minmax(0,1fr)_360px]` → `xl:`
 - The roster panel's `2xl:col-span-1` → `xl:col-span-1`, and `2xl:sticky 2xl:top-6` → `xl:`
 
@@ -125,6 +135,10 @@ Measurement-based, mirroring the check that found the bug.
 
 - At 1280, 1440, and 1536 with a loaded draft, `document.documentElement.scrollHeight` is
   within a small tolerance of `window.innerHeight` — the page does not scroll
+- **Below `xl` the Big Board still lists players.** At 390x844, 768x1024, and 1024x768,
+  more than two player rows are visible inside the Big Board scroller. This is the guard
+  on the `xl:` gate above; without it the compression regression is invisible, because
+  every other test in this suite runs at 1280 or wider
 - At 1440, each of the three panels is present and its `scrollHeight` exceeds its
   `clientHeight`, proving content is being clipped and scrolled internally rather than the
   panels having simply collapsed to nothing

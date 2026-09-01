@@ -242,7 +242,7 @@ export default function Draft() {
   const canManualPick = !paused && !busy && !draft.completed && isMyTurn;
 
   return (
-    <div className="relative min-h-full w-full overflow-x-hidden">
+    <div className="relative min-h-full xl:h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -250,7 +250,7 @@ export default function Draft() {
       </div>
 
       {/* Content */}
-      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full flex flex-col gap-4">
+      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full xl:h-full flex flex-col gap-4">
         {/* Top bar */}
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -313,9 +313,9 @@ export default function Draft() {
         </div>
 
         {/* 3-column app layout */}
-        <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
           {/* Big Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
+          <div data-testid="panel-big-board" className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Big Board</h2>
               <div className="text-xs text-zinc-400">
@@ -394,7 +394,7 @@ export default function Draft() {
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
+            <div data-testid="scroll-big-board" className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
               {pagedPlayers.map((p) => (
                 <button
                   key={p.id}
@@ -440,7 +440,7 @@ export default function Draft() {
           </div>
 
           {/* Draft Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col gap-3">
+          <div data-testid="panel-draft-board" className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Draft Board</h2>
               <div className="text-xs text-zinc-400">Snake draft</div>
@@ -481,7 +481,7 @@ export default function Draft() {
             })()}
 
             {/* Table (horizontal scroll only) */}
-            <div className="flex-1 min-h-0 overflow-auto rounded-2xl border border-zinc-900">
+            <div data-testid="scroll-draft-board" className="flex-1 min-h-0 overflow-auto rounded-2xl border border-zinc-900">
               <table className="w-full text-sm min-w-[620px] md:min-w-[760px]">
                 <thead className="bg-black/70 sticky top-0 z-10">
                   <tr className="text-left">
@@ -525,13 +525,13 @@ export default function Draft() {
           </div>
 
           {/* Team Rosters (sticky right rail) */}
-          <div className="2xl:sticky 2xl:top-6 min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] lg:col-span-2 2xl:col-span-1">
+          <div data-testid="panel-rosters" className="xl:sticky xl:top-6 min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] lg:col-span-2 xl:col-span-1">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Team Rosters</h2>
               <div className="text-xs text-zinc-400">Live</div>
             </div>
 
-            <div className="mt-3 flex-1 min-h-0 overflow-auto space-y-3 pr-1">
+            <div data-testid="scroll-rosters" className="mt-3 flex-1 min-h-0 overflow-auto space-y-3 pr-1">
               {Array.from({ length: draft.teams }, (_, i) => i + 1).map((teamNum) => (
                 <div key={teamNum} className="rounded-2xl border border-zinc-900 bg-black/60 p-3">
                   <div className="flex items-center justify-between">
