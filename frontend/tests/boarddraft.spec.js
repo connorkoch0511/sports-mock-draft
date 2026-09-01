@@ -200,6 +200,30 @@ test("no board means no affirmation", async ({ page }) => {
 });
 
 test("a board that fails to load shows the failure, not the affirmation", async ({ page }) => {
+  // NOTE on coverage: this test does a single board fetch that fails, so
+  // `boardMeta` is null here because it was never set to anything else — it
+  // starts null via useState(null) and the failing fetch never runs the
+  // success branch. That means the `board-active-note` count-0 assertion
+  // below would pass identically even if `setBoardMeta(null)` were deleted
+  // from Draft.jsx's catch branch; it pins the rendered outcome (no
+  // affirmation note on a failed load), not the clearing logic in the catch.
+  //
+  // The catch's own `setBoardMeta(null)` can only matter if boardMeta was
+  // previously non-null when the catch runs, which needs the board effect
+  // (keyed on `draft?.boardId`) to fire a second time with a different
+  // boardId inside one mount — e.g. a prior successful board load in this
+  // draft followed by a failure. A single draft's boardId does not change
+  // during its lifetime (see the comment above the effect in Draft.jsx), so
+  // that sequence does not occur from a single draft's data changing.
+  // Even granting an SPA navigation between two different drafts without an
+  // unmount (same <Route path="/draft/:draftId">), the catch branch also
+  // unconditionally calls `setBoardRows(null)`, and both board-active-note
+  // and board-format-note require `boardRows?.length > 0` in addition to
+  // boardMeta. So whenever the catch runs, boardRows is already null and
+  // neither note can render regardless of what setBoardMeta(null) does —
+  // no rendered-DOM assertion can ever distinguish that line's presence
+  // from its absence. It is defensive, not dead: safe to keep, but there is
+  // no genuine UI-level test to write for it, so none is added here.
   await seedBoard(page);
   await mockPlayers(page);
   await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
@@ -231,8 +255,15 @@ test("a board in a different format is flagged, naming both formats", async ({ p
 
   const note = page.getByTestId("board-format-note");
   await expect(note).toBeVisible();
-  await expect(note).toContainText(/ppr/i);
-  await expect(note).toContainText(/standard/i);
+  // Pin which format is attributed to which, not just that both words
+  // appear: the board's format ("ppr") must follow "ranked for", and the
+  // draft's format ("standard") must follow "this draft is". This mirrors
+  // Draft.jsx's actual template ("This board is ranked for
+  // {boardMeta.format} — this draft is {draft.format}.") verbatim, so
+  // swapping boardMeta.format and draft.format in that template would flip
+  // the words and fail this assertion — a substring-only check on each word
+  // independently would not have caught that.
+  await expect(note).toContainText("This board is ranked for ppr — this draft is standard.");
 });
 
 test("a matching format shows no mismatch note", async ({ page }) => {
