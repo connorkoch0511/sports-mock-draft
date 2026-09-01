@@ -1,1 +1,4 @@
 .superpowers/
+backend/aws-sam-cli.pkg
+backend/.aws-sam/
+backend/response.json
