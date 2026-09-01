@@ -196,7 +196,9 @@ export default function NewDraft() {
             {rosterSlots.length !== rounds && (
               <div data-testid="roster-rounds-note" className="text-xs text-zinc-500">
                 This draft is {rounds} rounds, and the roster holds {rosterSlots.length} slots.
-                Both are expected — a rookie or partial draft fills only part of a roster.
+                {rounds < rosterSlots.length
+                  ? " Both are expected — a rookie or partial draft fills only part of a roster."
+                  : " Both are expected — Sleeper's roster slots don't always include every taxi or IR spot, so a draft can run more rounds than the roster shows."}
               </div>
             )}
           </div>
