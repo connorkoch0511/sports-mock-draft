@@ -27,6 +27,19 @@ function stubSend(result) {
   return () => call;
 }
 
+// Success paths hit two tables in one request (e.g. auto-pick reads the
+// draft from drafts-test, then reads/queries the pool from players-test), so
+// a single fixed result isn't enough. Branch on the target table instead —
+// callers pass the exact result shape each command needs (`{ Item }` for a
+// Get, `{ Items }` for a Query). Any call to a table not in `map` (i.e. the
+// Put/Update write-back) gets `{}`, which drafts.js ignores.
+function stubByTable(map) {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const table = cmd?.input?.TableName;
+    return map[table] || {};
+  });
+}
+
 test.afterEach(() => mock.restoreAll());
 
 test("OPTIONS returns 200", async () => {
@@ -37,6 +50,18 @@ test("OPTIONS returns 200", async () => {
 test("OPTIONS carries the CORS origin header", async () => {
   const res = await handler(evt("OPTIONS", "/drafts"));
   assert.strictEqual(res.headers["Access-Control-Allow-Origin"], "*");
+});
+
+// This pins drafts.js's *current* local corsHeaders(), which is narrower
+// than lib/http.js's shared ALLOWED_METHODS ("GET,POST,PUT,DELETE,OPTIONS").
+// Task 4 replaces every response here with the shared `json()` helper and
+// deletes this local corsHeaders(), which will widen this header on purpose
+// (an approved change, not a regression). When that happens this assertion
+// is EXPECTED to fail — update it to "GET,POST,PUT,DELETE,OPTIONS" rather
+// than treating the failure as a bug.
+test("OPTIONS carries the current (pre-refactor) CORS methods header", async () => {
+  const res = await handler(evt("OPTIONS", "/drafts"));
+  assert.strictEqual(res.headers["Access-Control-Allow-Methods"], "GET,POST,OPTIONS");
 });
 
 test("GET of a missing draft is 404 with its error message", async () => {
@@ -61,6 +86,10 @@ test("pick on a missing draft is 404", async () => {
     evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" } })
   );
   assert.strictEqual(res.statusCode, 404);
+  // Distinguishes the intended "Draft not found" branch from the router's
+  // catch-all 404 ({ error: "Not found" }), which also returns 404 and would
+  // otherwise let a routing regression pass this test silently.
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
 });
 
 test("picking an already-picked player is 409", async () => {
@@ -91,6 +120,9 @@ test("auto-pick on a missing draft is 404", async () => {
     evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} })
   );
   assert.strictEqual(res.statusCode, 404);
+  // See the "pick on a missing draft" test above: pins the branch, not just
+  // the status code, since the router catch-all is also a 404.
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
 });
 
 test("auto-pick in a completed draft is 409", async () => {
@@ -101,6 +133,7 @@ test("auto-pick in a completed draft is 409", async () => {
     evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} })
   );
   assert.strictEqual(res.statusCode, 409);
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft already completed" });
 });
 
 test("sim-to-end on a missing draft is 404", async () => {
@@ -109,6 +142,183 @@ test("sim-to-end on a missing draft is 404", async () => {
     evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", body: {} })
   );
   assert.strictEqual(res.statusCode, 404);
+  // See the "pick on a missing draft" test above: pins the branch, not just
+  // the status code, since the router catch-all is also a 404.
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
+});
+
+test("POST /drafts success returns a draftId", async () => {
+  stubSend({}); // PutCommand result is ignored
+  const res = await handler(
+    evt("POST", "/drafts", { body: { teams: 8, rounds: 3, sport: "nfl", format: "standard" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.deepStrictEqual(Object.keys(body), ["draftId"]);
+  assert.strictEqual(typeof body.draftId, "string");
+  assert.ok(body.draftId.length > 0);
+});
+
+test("GET /drafts/{id} found returns the full draft object", async () => {
+  const draftItem = {
+    draftId: "d1",
+    sport: "nfl",
+    format: "standard",
+    year: 2024,
+    teams: 4,
+    rounds: 2,
+    userTeam: 2,
+    rosterSlots: ["QB", "RB"],
+    boardId: "board-1",
+    picked: ["p1"],
+    currentIndex: 1,
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: "p1", player: { id: "p1", name: "A" } },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+      { overall: 3, round: 2, team: 2, playerId: null, player: null },
+      { overall: 4, round: 2, team: 1, playerId: null, player: null },
+    ],
+  };
+  stubSend({ Item: draftItem }); // GET only issues one GetCommand
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  // Full top-level key set, so a field silently added or dropped in the
+  // refactor fails this test.
+  assert.deepStrictEqual(body, {
+    draftId: "d1",
+    sport: "nfl",
+    format: "standard",
+    year: 2024,
+    teams: 4,
+    rounds: 2,
+    userTeam: 2,
+    rosterSlots: ["QB", "RB"],
+    boardId: "board-1",
+    picked: ["p1"],
+    currentIndex: 1,
+    currentRound: 1,
+    currentPick: 2,
+    currentTeam: 2,
+    completed: false,
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: "p1", player: { id: "p1", name: "A" } },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+      { overall: 3, round: 2, team: 2, playerId: null, player: null },
+      { overall: 4, round: 2, team: 1, playerId: null, player: null },
+    ],
+  });
+});
+
+test("pick success returns { ok: true }", async () => {
+  const draftItem = {
+    draftId: "d1",
+    sport: "nfl",
+    format: "standard",
+    picked: [],
+    picks: [{ overall: 1, round: 1, team: 1, playerId: null, player: null }],
+    currentIndex: 0,
+  };
+  const playerItem = {
+    sport: "nfl",
+    playerId: "p1",
+    id: "p1",
+    name: "Player One",
+    position: "RB",
+    team: "SF",
+    rank: { standard: 5 },
+    adp: { standard: 5.5 },
+    tier: { standard: 1 },
+  };
+  stubByTable({
+    "drafts-test": { Item: draftItem },
+    "players-test": { Item: playerItem },
+  });
+  const res = await handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body), { ok: true });
+});
+
+test("auto-pick success returns { ok: true, picked }", async () => {
+  const draftItem = {
+    draftId: "d1",
+    sport: "nfl",
+    format: "standard",
+    picked: [],
+    picks: [{ overall: 1, round: 1, team: 1, playerId: null, player: null }],
+    currentIndex: 0,
+  };
+  // A single-player pool makes the "best" pick deterministic regardless of
+  // the scoring internals in pickBestForTeam: with only one candidate, it's
+  // the only thing that can be chosen.
+  const poolItems = [
+    {
+      sport: "nfl",
+      id: "p1",
+      playerId: "p1",
+      name: "Player One",
+      position: "RB",
+      team: "SF",
+      rank: { standard: 10 },
+      adp: { standard: 12.3 },
+      tier: { standard: 2 },
+    },
+  ];
+  stubByTable({
+    "drafts-test": { Item: draftItem },
+    "players-test": { Items: poolItems },
+  });
+  const res = await handler(
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body), {
+    ok: true,
+    picked: {
+      id: "p1",
+      name: "Player One",
+      position: "RB",
+      team: "SF",
+      rank: 10,
+      adp: 12.3,
+      tier: 2,
+    },
+  });
+});
+
+test("sim-to-end success returns { ok: true, completed }", async () => {
+  const draftItem = {
+    draftId: "d1",
+    sport: "nfl",
+    format: "standard",
+    picked: [],
+    picks: [{ overall: 1, round: 1, team: 1, playerId: null, player: null }],
+    currentIndex: 0,
+  };
+  const poolItems = [
+    {
+      sport: "nfl",
+      id: "p1",
+      playerId: "p1",
+      name: "Player One",
+      position: "RB",
+      team: "SF",
+      rank: { standard: 10 },
+      adp: { standard: 12.3 },
+      tier: { standard: 2 },
+    },
+  ];
+  stubByTable({
+    "drafts-test": { Item: draftItem },
+    "players-test": { Items: poolItems },
+  });
+  const res = await handler(
+    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", body: {} })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body), { ok: true, completed: true });
 });
 
 test("an unrouted path is 404 Not found", async () => {
