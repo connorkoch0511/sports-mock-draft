@@ -132,9 +132,14 @@ Measurement-based, mirroring the check that found the bug.
   the `xl` breakpoint engaged — asserted on geometry, not on class names
 - **A long page still scrolls.** Seed `localStorage.perfectpick.myBoards` with enough
   entries to exceed the viewport (the registry caps at 50, which is ample), load `/boards`,
-  and assert `scrollHeight > innerHeight` and that the last board is reachable by scrolling.
+  and assert the last board is off-screen initially and **reachable by scrolling** to it.
   This is the guard against the shell change clipping content everywhere else — the failure
   that would be worse than the bug being fixed.
+
+  The assertion is reachability, not `scrollHeight > innerHeight`. Once the routes wrapper
+  is the scroller, `document.documentElement.scrollHeight` equals `innerHeight` on every
+  page, correct or not — so a document-scroll assertion would fail here on a working page,
+  and would be vacuous on the draft page.
 
 A panel collapsing to zero height would satisfy a naive "page does not scroll" assertion,
 which is why the second case checks the panels have real, scrollable content.
