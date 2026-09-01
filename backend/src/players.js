@@ -16,16 +16,26 @@ exports.handler = async (event) => {
   const sport = String(qs.sport || "nfl").toLowerCase();
   const format = String(qs.format || "standard").toLowerCase();
 
-  const res = await ddb.send(
-    new QueryCommand({
-      TableName: table,
-      KeyConditionExpression: "#s = :sport",
-      ExpressionAttributeNames: { "#s": "sport" },
-      ExpressionAttributeValues: { ":sport": sport },
-    })
-  );
+  // A Query page tops out at 1MB; the players table (~3,900 items) is close
+  // enough to that ceiling that a single page could silently drop players,
+  // so page through ExclusiveStartKey/LastEvaluatedKey until exhausted.
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "#s = :sport",
+        ExpressionAttributeNames: { "#s": "sport" },
+        ExpressionAttributeValues: { ":sport": sport },
+        ExclusiveStartKey,
+      })
+    );
+    items.push(...(res.Items || []));
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
 
-  const players = (res.Items || [])
+  const players = items
     .map((p) => ({
       id: p.id || p.playerId,
       name: p.name,
