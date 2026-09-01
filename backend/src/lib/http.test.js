@@ -71,6 +71,22 @@ test("CORS headers are identical on both paths", () => {
   assert.strictEqual(gz.headers["Content-Type"], "application/json");
 });
 
+test("Vary: Accept-Encoding is present on the compressed response", () => {
+  const res = responder(evt({ "accept-encoding": "gzip" }))(200, BIG);
+  assert.strictEqual(res.headers["Vary"], "Accept-Encoding");
+});
+
+test("Vary: Accept-Encoding is present on the plain response", () => {
+  const res = responder(evt({}))(200, BIG);
+  assert.strictEqual(res.headers["Vary"], "Accept-Encoding");
+});
+
+test("Vary: Accept-Encoding is present on a small body that stays uncompressed", () => {
+  const res = responder(evt({ "accept-encoding": "gzip" }))(404, { error: "Not found" });
+  assert.strictEqual(res.isBase64Encoded, undefined);
+  assert.strictEqual(res.headers["Vary"], "Accept-Encoding");
+});
+
 test("the status code passes through on both paths", () => {
   assert.strictEqual(responder(evt({}))(201, BIG).statusCode, 201);
   assert.strictEqual(responder(evt({ "accept-encoding": "gzip" }))(409, BIG).statusCode, 409);

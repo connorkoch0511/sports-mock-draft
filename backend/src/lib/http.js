@@ -55,7 +55,11 @@ function responder(event) {
 
   return function json(statusCode, body) {
     const payload = JSON.stringify(body);
-    const headers = { "Content-Type": "application/json", ...corsHeaders() };
+    const headers = {
+      "Content-Type": "application/json",
+      "Vary": "Accept-Encoding",
+      ...corsHeaders(),
+    };
 
     if (!gzipOk || Buffer.byteLength(payload) < MIN_COMPRESS_BYTES) {
       return { statusCode, headers, body: payload };
