@@ -113,9 +113,37 @@ test("an unranked off-board player still sorts last", () => {
 });
 
 test("off-board ranked players keep their order relative to each other", () => {
-  const out = orderByBoard(CROSS_POOL, CROSS_ROWS);
-  const offBoard = out.filter((p) => p.id === "p2" || p.id === "p6").map((p) => p.id);
-  assert.deepStrictEqual(offBoard, ["p2", "p6"]);
+  // The better-ranked player sits LATER in the pool than the worse-ranked
+  // one, so this only passes if the comparator sorts by rank -- preserving
+  // pool arrival order would put them the other way around.
+  const pool = [
+    { id: "worse-rank-earlier-slot", name: "Worse", position: "RB", rank: 5 },
+    { id: "better-rank-later-slot", name: "Better", position: "WR", rank: 1 },
+  ];
+  const rows = [{ playerId: "ghost", myRank: 1, consensusRank: null, delta: null }];
+
+  const out = orderByBoard(pool, rows);
+
+  const offBoard = out
+    .filter((p) => p.id === "worse-rank-earlier-slot" || p.id === "better-rank-later-slot")
+    .map((p) => p.id);
+  assert.deepStrictEqual(offBoard, ["better-rank-later-slot", "worse-rank-earlier-slot"]);
+});
+
+test("off-board players sort by consensus rank, not their arrival order in the pool", () => {
+  // Deliberately out of rank order: rank ascends as pool index descends.
+  // Sorting by rank and preserving pool order produce different answers.
+  const pool = [
+    { id: "d", name: "D", position: "RB", rank: 4 },
+    { id: "c", name: "C", position: "WR", rank: 3 },
+    { id: "b", name: "B", position: "TE", rank: 2 },
+    { id: "a", name: "A", position: "QB", rank: 1 },
+  ];
+  const rows = [{ playerId: "ghost", myRank: 1, consensusRank: null, delta: null }];
+
+  const out = orderByBoard(pool, rows);
+
+  assert.deepStrictEqual(out.map((p) => p.id), ["a", "b", "c", "d"]);
 });
 
 test("a tie between a board rank and a pool rank goes to the board player", () => {
@@ -184,4 +212,24 @@ test("all-unranked off-board players preserve pool order among themselves", () =
   const out = orderByBoard(pool, rows);
 
   assert.deepStrictEqual(out.map((p) => p.id), ["on", "u1", "u2"]);
+});
+
+test("board players unranked in the draft's format still lead, in myRank order", () => {
+  // A PPR board driving a standard draft: board1/board2 are unranked in
+  // this pool's format (p.rank is null) but still carry an explicit
+  // myRank, which must win over ranked off-board players.
+  const pool = [
+    { id: "board1", name: "Board1", position: "QB", rank: null },
+    { id: "off1",   name: "Off1",   position: "RB", rank: 10 },
+    { id: "board2", name: "Board2", position: "WR", rank: null },
+    { id: "off2",   name: "Off2",   position: "TE", rank: 20 },
+  ];
+  const rows = [
+    { playerId: "board1", myRank: 1, consensusRank: null, delta: null },
+    { playerId: "board2", myRank: 2, consensusRank: null, delta: null },
+  ];
+
+  const out = orderByBoard(pool, rows);
+
+  assert.deepStrictEqual(out.map((p) => p.id), ["board1", "board2", "off1", "off2"]);
 });
