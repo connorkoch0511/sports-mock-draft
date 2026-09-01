@@ -28,16 +28,26 @@ function corsHeaders() {
 }
 
 async function loadPlayersForSport(table, sport, format) {
-  const res = await ddb.send(
-    new QueryCommand({
-      TableName: table,
-      KeyConditionExpression: "#s = :sport",
-      ExpressionAttributeNames: { "#s": "sport" },
-      ExpressionAttributeValues: { ":sport": sport },
-    })
-  );
+  // A Query page tops out at 1MB; the players table (~3,900 items) is close
+  // enough to that ceiling that a single page could silently drop players,
+  // so page through ExclusiveStartKey/LastEvaluatedKey until exhausted.
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName: table,
+        KeyConditionExpression: "#s = :sport",
+        ExpressionAttributeNames: { "#s": "sport" },
+        ExpressionAttributeValues: { ":sport": sport },
+        ExclusiveStartKey,
+      })
+    );
+    items.push(...(res.Items || []));
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
 
-  const players = (res.Items || [])
+  const players = items
     .filter((p) => p && ALLOWED_POS.has(p.position))
     .map((p) => ({
       id: p.id || p.playerId,
