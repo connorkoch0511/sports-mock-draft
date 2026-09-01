@@ -120,6 +120,50 @@ test("storage that throws is a silent no-op, not an exception", () => {
   assert.deepStrictEqual(listDrafts(), []);
 });
 
+test("a stored array containing null yields only the usable entries", () => {
+  useFakeStorage({
+    "perfectpick.myDrafts": JSON.stringify([draft("d1"), null]),
+  });
+
+  assert.deepStrictEqual(listDrafts().map((d) => d.id), ["d1"]);
+});
+
+test("a stored array containing a string or number element yields only the usable entries", () => {
+  useFakeStorage({
+    "perfectpick.myDrafts": JSON.stringify([draft("d1"), "oops", 42]),
+  });
+
+  assert.deepStrictEqual(listDrafts().map((d) => d.id), ["d1"]);
+});
+
+test("a stored array containing an object with no id yields only the usable entries", () => {
+  useFakeStorage({
+    "perfectpick.myDrafts": JSON.stringify([draft("d1"), { teams: 12 }]),
+  });
+
+  assert.deepStrictEqual(listDrafts().map((d) => d.id), ["d1"]);
+});
+
+test("a usable entry missing optional fields is still returned", () => {
+  const { boardId, ...withoutBoardId } = draft("d1");
+  useFakeStorage({
+    "perfectpick.myDrafts": JSON.stringify([withoutBoardId]),
+  });
+
+  const all = listDrafts();
+  assert.strictEqual(all.length, 1, "must not be dropped for lacking boardId");
+  assert.strictEqual(all[0].id, "d1");
+  assert.strictEqual(all[0].boardId, undefined);
+});
+
+test("a fully valid list round-trips unchanged", () => {
+  useFakeStorage();
+  rememberDraft(draft("a"));
+  rememberDraft(draft("b"));
+
+  assert.deepStrictEqual(listDrafts().map((d) => d.id), ["b", "a"]);
+});
+
 test("the board registry's store is left alone", () => {
   const map = useFakeStorage({ "perfectpick.myBoards": '[{"id":"b1","name":"My Board"}]' });
   rememberDraft(draft("d1"));

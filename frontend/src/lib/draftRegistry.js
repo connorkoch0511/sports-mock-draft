@@ -7,7 +7,13 @@ const MAX_ENTRIES = 50;
 export function listDrafts() {
   try {
     const parsed = JSON.parse(localStorage.getItem(KEY));
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    // localStorage is user-writable and shared across every tab on the
+    // origin, so a corrupt element (null, a string, an object missing an
+    // id) is reachable without any bug in this app. Drop those silently
+    // rather than let them reach rendering code, same as an empty list
+    // beats an exception above.
+    return parsed.filter((d) => d && typeof d === "object" && typeof d.id === "string");
   } catch {
     return [];
   }
