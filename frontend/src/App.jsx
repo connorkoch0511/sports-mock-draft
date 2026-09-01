@@ -9,7 +9,7 @@ import NavBar from "./components/NavBar.jsx";
 
 export default function App() {
   return (
-    <div className="flex h-screen flex-col bg-[#070A0F] text-white">
+    <div className="flex h-dvh flex-col bg-[#070A0F] text-white">
       <div className="mx-auto flex w-full max-w-[1400px] flex-1 min-h-0 flex-col px-4 sm:px-6 lg:px-8">
         <div className="shrink-0">
           <NavBar />

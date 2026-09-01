@@ -125,3 +125,20 @@ export function makeBoardState({ order = null, added = 0, removed = 0 } = {}) {
     })),
   };
 }
+
+export const API_BASE = "http://localhost:9999";
+
+// Routes the two endpoints the draft page loads: the player pool and the
+// draft itself. Shared because several specs need an identical mock; a
+// drifted copy in one file would make its tests silently disagree with
+// the others about what the page is rendering.
+export function mockDraftApis(page, draftState) {
+  page.route(`${API_BASE}/players*`, async (route) => {
+    await route.fulfill({ json: { players: MOCK_PLAYERS } });
+  });
+  page.route(`${API_BASE}/drafts/${DRAFT_ID}`, async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({ json: draftState });
+    }
+  });
+}

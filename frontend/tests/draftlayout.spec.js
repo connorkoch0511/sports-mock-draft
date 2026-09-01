@@ -1,18 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { MOCK_PLAYERS, DRAFT_ID, makeDraftState } from "./fixtures.js";
-
-const API = "http://localhost:9999";
-
-function mockDraftApis(page, draftState) {
-  page.route(`${API}/players*`, async (route) => {
-    await route.fulfill({ json: { players: MOCK_PLAYERS } });
-  });
-  page.route(`${API}/drafts/${DRAFT_ID}`, async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({ json: draftState });
-    }
-  });
-}
+import { DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js";
 
 // Pausing stops the auto-pick timer so the layout is measured against a
 // stable DOM rather than one mutating between the two boundingBox() calls.
@@ -78,6 +65,38 @@ test.describe("Draft layout", () => {
       // vacuously -- require it to still be a real, visible panel.
       expect(metrics.client, `${id} clientHeight`).toBeGreaterThan(100);
     }
+  });
+
+  // The shell is h-dvh, and nothing outside it may impose a taller floor:
+  // a floor taller than the shell makes the document scrollable behind it,
+  // giving a second scrollbar and a clipped first paint.
+  //
+  // Scope, stated honestly: headless Chromium has no dynamic browser
+  // toolbar, so 100dvh and 100vh resolve to the same number here. This
+  // test therefore CANNOT catch a regression from h-dvh back to h-screen,
+  // nor a re-added `min-height: 100vh` on body or #root -- both measure
+  // identical to correct in this environment (verified: restoring those
+  // floors leaves this test green). It catches any floor LARGER than the
+  // viewport (verified: 120vh fails it) and anything else that makes the
+  // shell, #root, or body taller than the visible area. The vh-vs-dvh
+  // difference is only observable on a real mobile browser.
+  test("the shell is exactly viewport height, with nothing forcing it taller", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/");
+
+    const m = await page.evaluate(() => {
+      const shell = document.querySelector("#root > div");
+      return {
+        shell: Math.round(shell.getBoundingClientRect().height),
+        root: Math.round(document.querySelector("#root").getBoundingClientRect().height),
+        body: Math.round(document.body.getBoundingClientRect().height),
+        inner: window.innerHeight,
+      };
+    });
+
+    expect(m.shell, "shell height").toBe(m.inner);
+    expect(m.root, "#root height").toBe(m.inner);
+    expect(m.body, "body height").toBe(m.inner);
   });
 
   test("a long page still scrolls after the shell gains a fixed height", async ({ page }) => {

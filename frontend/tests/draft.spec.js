@@ -1,23 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
-import { MOCK_PLAYERS, DRAFT_ID, makeDraftState } from "./fixtures.js";
+import { MOCK_PLAYERS, DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
 
 const API = "http://localhost:9999";
-
-function mockDraftApis(page, draftState) {
-  page.route(`${API}/players*`, async (route) => {
-    await route.fulfill({ json: { players: MOCK_PLAYERS } });
-  });
-  page.route(`${API}/drafts/${DRAFT_ID}`, async (route) => {
-    if (route.request().method() === "GET") {
-      await route.fulfill({ json: draftState });
-    }
-  });
-}
 
 test.describe("Draft page", () => {
   test("renders Big Board, Draft Board, and Team Rosters panels", async ({ page }) => {

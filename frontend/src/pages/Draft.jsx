@@ -525,7 +525,7 @@ export default function Draft() {
           </div>
 
           {/* Team Rosters (sticky right rail) */}
-          <div data-testid="panel-rosters" className="xl:sticky xl:top-6 min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] lg:col-span-2 xl:col-span-1">
+          <div data-testid="panel-rosters" className="min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] lg:col-span-2 xl:col-span-1">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Team Rosters</h2>
               <div className="text-xs text-zinc-400">Live</div>
