@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { orderByBoard } from "../lib/boardOrder";
+import { useRememberDraft } from "../lib/useRememberDraft";
 
 const PICK_SECONDS = 60;
 
@@ -92,6 +93,7 @@ export default function Draft() {
   }, [draft?.boardId]);
 
   usePageTitle(draft ? `Draft ${draftId}` : "Draft");
+  useRememberDraft(draft);
 
   const PAGE_SIZE = 25;
 
