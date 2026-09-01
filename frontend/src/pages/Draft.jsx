@@ -27,6 +27,7 @@ export default function Draft() {
   const [busy, setBusy] = useState(false);
   const [boardRows, setBoardRows] = useState(null);
   const [boardFailed, setBoardFailed] = useState(false);
+  const [boardMeta, setBoardMeta] = useState(null);
 
   // Timer + pause
   const [paused, setPaused] = useState(false);
@@ -67,6 +68,7 @@ export default function Draft() {
       // from a board-backed draft to a plain one does not keep the old order.
       setBoardRows(null);
       setBoardFailed(false);
+      setBoardMeta(null);
       return;
     }
 
@@ -77,6 +79,7 @@ export default function Draft() {
         if (cancelled) return;
         setBoardRows(b.rows || []);
         setBoardFailed(false);
+        setBoardMeta({ name: b.name, format: b.format });
       } catch {
         if (cancelled) return;
         // A board can be deleted after a draft was started from it. The
@@ -84,6 +87,7 @@ export default function Draft() {
         // back to consensus.
         setBoardRows(null);
         setBoardFailed(true);
+        setBoardMeta(null);
       }
     })();
 
@@ -330,6 +334,19 @@ export default function Draft() {
                   : "Auto-picking other teams"}
               </div>
             </div>
+
+            {boardMeta && boardRows?.length > 0 && (
+              <div data-testid="board-active-note" className="rounded-2xl border border-cyan-900/50 bg-cyan-950/20 px-3 py-2 text-xs text-cyan-200">
+                Drafting off <span className="font-medium">{boardMeta.name}</span>
+              </div>
+            )}
+
+            {boardMeta && boardRows?.length > 0 && boardMeta.format !== draft.format && (
+              <div data-testid="board-format-note" className="rounded-2xl border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+                This board is ranked for {boardMeta.format} — this draft is {draft.format}.
+                Players are placed by rank, but the board's order reflects {boardMeta.format} scoring.
+              </div>
+            )}
 
             {boardFailed && (
               <div data-testid="board-load-note" className="rounded-2xl border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">

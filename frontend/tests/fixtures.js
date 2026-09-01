@@ -49,7 +49,12 @@ function buildSnakePicks(teams, rounds) {
 
 export const DRAFT_ID = "test-draft-abc123";
 
-export function makeDraftState({ currentIndex = 0, completedPicks = [] } = {}) {
+export function makeDraftState({
+  currentIndex = 0,
+  completedPicks = [],
+  boardId = null,
+  format = "standard",
+} = {}) {
   const picks = buildSnakePicks(12, 15);
   for (const { idx, player } of completedPicks) {
     picks[idx].playerId = player.id;
@@ -59,7 +64,8 @@ export function makeDraftState({ currentIndex = 0, completedPicks = [] } = {}) {
   return {
     draftId: DRAFT_ID,
     sport: "nfl",
-    format: "standard",
+    format,
+    boardId,
     year: 2025,
     teams: 12,
     rounds: 15,

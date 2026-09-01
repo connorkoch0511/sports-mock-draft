@@ -169,3 +169,85 @@ test("a deleted board still leaves the draft playable", async ({ page }) => {
   await expect(page.getByRole("button", { name: /Christian McCaffrey/ }).first()).toBeVisible();
   await expect(page.getByText(/on the clock/i).first()).toBeVisible();
 });
+
+test("the draft page names the board driving it", async ({ page }) => {
+  await seedBoard(page);
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({ json: makeDraftState({ currentIndex: 0, boardId: BID, format: "ppr" }) })
+  );
+  await page.route(`${API}/boards/${BID}`, (route) =>
+    route.fulfill({ json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS } })
+  );
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  await expect(page.getByTestId("board-active-note")).toContainText("My PPR Board");
+});
+
+test("no board means no affirmation", async ({ page }) => {
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({ json: makeDraftState({ currentIndex: 0 }) })
+  );
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+
+  await expect(page.getByTestId("board-active-note")).toHaveCount(0);
+});
+
+test("a board that fails to load shows the failure, not the affirmation", async ({ page }) => {
+  await seedBoard(page);
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({ json: makeDraftState({ currentIndex: 0, boardId: BID, format: "ppr" }) })
+  );
+  await page.route(`${API}/boards/${BID}`, (route) =>
+    route.fulfill({ status: 404, json: { error: "Board not found" } })
+  );
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  await expect(page.getByTestId("board-load-note")).toBeVisible();
+  await expect(page.getByTestId("board-active-note")).toHaveCount(0);
+});
+
+test("a board in a different format is flagged, naming both formats", async ({ page }) => {
+  await seedBoard(page);
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({ json: makeDraftState({ currentIndex: 0, boardId: BID, format: "standard" }) })
+  );
+  await page.route(`${API}/boards/${BID}`, (route) =>
+    route.fulfill({ json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS } })
+  );
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  const note = page.getByTestId("board-format-note");
+  await expect(note).toBeVisible();
+  await expect(note).toContainText(/ppr/i);
+  await expect(note).toContainText(/standard/i);
+});
+
+test("a matching format shows no mismatch note", async ({ page }) => {
+  await seedBoard(page);
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({ json: makeDraftState({ currentIndex: 0, boardId: BID, format: "ppr" }) })
+  );
+  await page.route(`${API}/boards/${BID}`, (route) =>
+    route.fulfill({ json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS } })
+  );
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByTestId("board-active-note")).toBeVisible();
+
+  await expect(page.getByTestId("board-format-note")).toHaveCount(0);
+});
