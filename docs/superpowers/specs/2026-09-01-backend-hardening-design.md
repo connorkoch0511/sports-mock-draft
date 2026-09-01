@@ -59,7 +59,7 @@ correctness gap in the one function that decides whether a client can decode the
 The compression spec deferred this, reasoning it meant "21 mechanical edits inside the
 handler that runs on every pick, auto-pick, and sim." Reading the file changes that
 estimate. Every hand-built return uses **one** shared `headers` const built once at
-`drafts.js:165`, and every body is a plain `JSON.stringify(...)`:
+`drafts.js:163`, and every body is a plain `JSON.stringify(...)`:
 
 ```js
 return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
@@ -121,7 +121,7 @@ Both replace their single `QueryCommand` with the accumulate-until-exhausted loo
   `boards.js` and `players.js`
 - All 19 hand-built returns become `json(status, body)`
 - The local `corsHeaders()` (lines 21-28) is deleted; the local `headers` const at line
-  165 is deleted with it
+  163 is deleted with it
 - The OPTIONS branch becomes `return json(200, {})`
 
 Response bodies, status codes, and field names are otherwise unchanged.
@@ -171,7 +171,12 @@ implementation — if it passes before the fix, it is not testing the fix.
   implementation
 - `format` and `sport` query parameters select the right rank/adp/tier values
 
-### Unit — `backend/src/drafts.test.js` (extend if present, else new)
+### Unit — `backend/src/drafts.test.js` (new)
+
+There is no test file for `drafts.js` today — the existing backend suites are
+`boards.test.js`, `lib/http.test.js`, `lib/reconcile.test.js`, and `lib/roster.test.js`.
+This file is created by this work and covers response shaping only, with a stubbed
+DynamoDB client:
 
 - Every migrated status code still returns its original status and error message
 - No response carries `isBase64Encoded` when the request sends no `Accept-Encoding`
