@@ -52,16 +52,24 @@ test("OPTIONS carries the CORS origin header", async () => {
   assert.strictEqual(res.headers["Access-Control-Allow-Origin"], "*");
 });
 
-// This pins drafts.js's *current* local corsHeaders(), which is narrower
-// than lib/http.js's shared ALLOWED_METHODS ("GET,POST,PUT,DELETE,OPTIONS").
-// Task 4 replaces every response here with the shared `json()` helper and
-// deletes this local corsHeaders(), which will widen this header on purpose
-// (an approved change, not a regression). When that happens this assertion
-// is EXPECTED to fail — update it to "GET,POST,PUT,DELETE,OPTIONS" rather
-// than treating the failure as a bug.
-test("OPTIONS carries the current (pre-refactor) CORS methods header", async () => {
+// Task 4 migrated drafts.js to the shared `json()` helper from lib/http.js
+// and deleted the local corsHeaders(), which intentionally widened this
+// header from "GET,POST,OPTIONS" to lib/http.js's ALLOWED_METHODS
+// ("GET,POST,PUT,DELETE,OPTIONS") -- an approved change, not a regression:
+// preflights are answered by the API Gateway and never reach this Lambda.
+test("OPTIONS carries the shared-helper CORS methods header", async () => {
   const res = await handler(evt("OPTIONS", "/drafts"));
-  assert.strictEqual(res.headers["Access-Control-Allow-Methods"], "GET,POST,OPTIONS");
+  assert.strictEqual(res.headers["Access-Control-Allow-Methods"], "GET,POST,PUT,DELETE,OPTIONS");
+});
+
+test("OPTIONS returns an empty JSON object body", async () => {
+  const res = await handler(evt("OPTIONS", "/drafts"));
+  assert.strictEqual(res.body, "{}");
+});
+
+test("OPTIONS response carries Vary: Accept-Encoding", async () => {
+  const res = await handler(evt("OPTIONS", "/drafts"));
+  assert.strictEqual(res.headers["Vary"], "Accept-Encoding");
 });
 
 test("GET of a missing draft is 404 with its error message", async () => {
@@ -182,6 +190,11 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
   stubSend({ Item: draftItem }); // GET only issues one GetCommand
   const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1" }));
   assert.strictEqual(res.statusCode, 200);
+  // Headers on a success-path response, so a headers regression on a success
+  // branch (not just the error branches covered elsewhere) is caught.
+  assert.strictEqual(res.headers["Content-Type"], "application/json");
+  assert.ok(res.headers["Access-Control-Allow-Origin"]);
+  assert.strictEqual(res.headers["Vary"], "Accept-Encoding");
   const body = JSON.parse(res.body);
   // Full top-level key set, so a field silently added or dropped in the
   // refactor fails this test.

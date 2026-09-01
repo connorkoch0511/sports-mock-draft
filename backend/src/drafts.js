@@ -13,19 +13,11 @@ const {
   rosterNeed,
   kDefBlocked,
 } = require("./lib/roster");
+const { responder } = require("./lib/http");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
-
-function corsHeaders() {
-  const origin = process.env.ALLOWED_ORIGIN || "*";
-  return {
-    "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  };
-}
 
 async function loadPlayersForSport(table, sport, format) {
   // A Query page tops out at 1MB; the players table (~3,900 items) is close
@@ -170,10 +162,10 @@ exports.handler = async (event) => {
   const path = event.rawPath || event.requestContext?.http?.path || event.path || "";
   const draftId = event.pathParameters?.draftId;
 
-  const headers = { "Content-Type": "application/json", ...corsHeaders() };
+  const json = responder(event);
 
   if (method === "OPTIONS") {
-    return { statusCode: 200, headers, body: "" };
+    return json(200, {});
   }
 
   try {
@@ -220,71 +212,63 @@ exports.handler = async (event) => {
 
       await ddb.send(new PutCommand({ TableName: draftsTable, Item: item }));
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ draftId: id }),
-      };
+      return json(200, { draftId: id });
     }
 
     // GET /drafts/{draftId}
     if (method === "GET" && draftId) {
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
+      if (!res.Item) return json(404, { error: "Draft not found" });
 
       const d = res.Item;
       const current = d.picks[d.currentIndex] || null;
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({
-          draftId: d.draftId,
-          sport: d.sport || "nfl",
-          format: d.format || "standard",
-          year: d.year || 2025,
-          teams: d.teams,
-          rounds: d.rounds,
-          userTeam: d.userTeam || 1,
-          rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
-          boardId: d.boardId || null,
-          picked: d.picked || [],
-          currentIndex: d.currentIndex,
-          currentRound: current?.round || d.rounds,
-          currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
-          currentTeam: current?.team || null,
-          completed: d.currentIndex >= d.picks.length,
-          picks: (d.picks || []).map((p) => ({
-            overall: p.overall,
-            round: p.round,
-            team: p.team,
-            playerId: p.playerId || null,
-            player: p.player || null, // already stored
-          })),
-        }),
-      };
+      return json(200, {
+        draftId: d.draftId,
+        sport: d.sport || "nfl",
+        format: d.format || "standard",
+        year: d.year || 2025,
+        teams: d.teams,
+        rounds: d.rounds,
+        userTeam: d.userTeam || 1,
+        rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
+        boardId: d.boardId || null,
+        picked: d.picked || [],
+        currentIndex: d.currentIndex,
+        currentRound: current?.round || d.rounds,
+        currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
+        currentTeam: current?.team || null,
+        completed: d.currentIndex >= d.picks.length,
+        picks: (d.picks || []).map((p) => ({
+          overall: p.overall,
+          round: p.round,
+          team: p.team,
+          playerId: p.playerId || null,
+          player: p.player || null, // already stored
+        })),
+      });
     }
 
     // POST /drafts/{draftId}/pick
     if (method === "POST" && draftId && path.endsWith("/pick")) {
       const body = event.body ? JSON.parse(event.body) : {};
       const playerId = String(body.playerId || "").trim();
-      if (!playerId) return { statusCode: 400, headers, body: JSON.stringify({ error: "Missing playerId" }) };
+      if (!playerId) return json(400, { error: "Missing playerId" });
 
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
+      if (!res.Item) return json(404, { error: "Draft not found" });
 
       const d = res.Item;
-      if ((d.picked || []).includes(playerId)) return { statusCode: 409, headers, body: JSON.stringify({ error: "Player already picked" }) };
-      if (d.currentIndex >= d.picks.length) return { statusCode: 409, headers, body: JSON.stringify({ error: "Draft already completed" }) };
+      if ((d.picked || []).includes(playerId)) return json(409, { error: "Player already picked" });
+      if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
 
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
 
       const snap = await getPlayerSnapshot(playersTable, sport, format, playerId);
-      if (!snap) return { statusCode: 400, headers, body: JSON.stringify({ error: "Invalid playerId" }) };
+      if (!snap) return json(400, { error: "Invalid playerId" });
 
-      if (!ALLOWED_POS.has(snap.position)) return { statusCode: 400, headers, body: JSON.stringify({ error: "Snapshot position is not allowed" }) };
+      if (!ALLOWED_POS.has(snap.position)) return json(400, { error: "Snapshot position is not allowed" });
 
       d.picks[d.currentIndex].playerId = playerId;
       d.picks[d.currentIndex].player = {
@@ -309,20 +293,16 @@ exports.handler = async (event) => {
         })
       );
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ ok: true }),
-      };
+      return json(200, { ok: true });
     }
 
     // POST /drafts/{draftId}/auto-pick
     if (method === "POST" && draftId && path.endsWith("/auto-pick")) {
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
+      if (!res.Item) return json(404, { error: "Draft not found" });
 
       const d = res.Item;
-      if (d.currentIndex >= d.picks.length) return { statusCode: 409, headers, body: JSON.stringify({ error: "Draft already completed" }) };
+      if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
 
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
@@ -332,7 +312,7 @@ exports.handler = async (event) => {
       d.__counts = getRosterCounts(d, teamNum, byId);
 
       const best = pickBestForTeam(d, teamNum, players);
-      if (!best) return { statusCode: 409, headers, body: JSON.stringify({ error: "No players left" }) };
+      if (!best) return json(409, { error: "No players left" });
 
       d.picks[d.currentIndex].playerId = best.id;
       d.picks[d.currentIndex].player = {
@@ -356,17 +336,13 @@ exports.handler = async (event) => {
         })
       );
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ ok: true, picked: best }),
-      };
+      return json(200, { ok: true, picked: best });
     }
 
     // POST /drafts/{draftId}/sim-to-end
     if (method === "POST" && draftId && path.endsWith("/sim-to-end")) {
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return { statusCode: 404, headers, body: JSON.stringify({ error: "Draft not found" }) };
+      if (!res.Item) return json(404, { error: "Draft not found" });
 
       const d = res.Item;
       const sport = (d.sport || "nfl").toLowerCase();
@@ -403,15 +379,11 @@ exports.handler = async (event) => {
         })
       );
 
-      return {
-        statusCode: 200,
-        headers,
-        body: JSON.stringify({ ok: true, completed: d.currentIndex >= d.picks.length }),
-      };
+      return json(200, { ok: true, completed: d.currentIndex >= d.picks.length });
     }
 
-    return { statusCode: 404, headers, body: JSON.stringify({ error: "Not found" }) };
+    return json(404, { error: "Not found" });
   } catch (e) {
-    return { statusCode: 500, headers, body: JSON.stringify({ error: e.message || "Server error" }) };
+    return json(500, { error: e.message || "Server error" });
   }
 };
