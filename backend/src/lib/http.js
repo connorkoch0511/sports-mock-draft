@@ -42,9 +42,21 @@ function acceptsGzip(event) {
   }
   if (!value) return false;
 
-  // RFC 9110: a comma-separated list of codings, each optionally carrying a
-  // ";q=" weight. q=0 means "not acceptable" -- a refusal, not consent, which
-  // a substring match for "gzip" reads backwards. An absent q means 1.0.
+  // RFC 9110 §12.5.3: a comma-separated list of codings, each optionally
+  // carrying a ";q=" weight. q=0 means "not acceptable" -- a refusal, not
+  // consent, which a substring match for "gzip" reads backwards. An absent
+  // q means 1.0.
+  //
+  // `*` matches "any available content coding not explicitly listed" -- so
+  // an explicit `gzip` entry always decides over a `*` entry, regardless of
+  // which one appears first in the header. Resolve a single q-value for
+  // each of "gzip" and "*" across the whole header (last occurrence wins,
+  // which is deterministic and the conventional reading of a repeated
+  // coding), then let the explicit gzip value decide if present, falling
+  // back to the wildcard only when gzip was never explicitly listed.
+  let gzipQ = null;
+  let starQ = null;
+
   for (const part of value.split(",")) {
     const [rawCoding, ...params] = part.split(";");
     const coding = rawCoding.trim().toLowerCase();
@@ -53,13 +65,21 @@ function acceptsGzip(event) {
     const qParam = params
       .map((p) => p.trim().toLowerCase())
       .find((p) => p.startsWith("q="));
-    if (!qParam) return true;
 
-    const q = Number(qParam.slice(2));
-    // A malformed weight fails closed: sending plain JSON is always safe,
-    // sending gzip to a client that cannot decode it is not.
-    if (Number.isFinite(q) && q > 0) return true;
+    let q = 1;
+    if (qParam) {
+      const parsed = Number(qParam.slice(2));
+      // A malformed weight fails closed: sending plain JSON is always safe,
+      // sending gzip to a client that cannot decode it is not.
+      q = Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    if (coding === "gzip") gzipQ = q;
+    else starQ = q;
   }
+
+  if (gzipQ !== null) return gzipQ > 0;
+  if (starQ !== null) return starQ > 0;
   return false;
 }
 

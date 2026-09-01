@@ -369,6 +369,7 @@ test("the player pool query pages until exhausted", async () => {
     },
   ];
   let queries = 0;
+  const queryStartKeys = [];
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     // The draft fetch is a Get (has Key); the pool fetch is a Query.
     // currentIndex 0 with two picks queued keeps the completed-draft check
@@ -376,6 +377,7 @@ test("the player pool query pages until exhausted", async () => {
     if (cmd?.input?.Key) {
       return { Item: { draftId: "d1", picked: [], picks: [{}, {}], currentIndex: 0 } };
     }
+    queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
     queries += 1;
     return page;
@@ -384,4 +386,50 @@ test("the player pool query pages until exhausted", async () => {
   await handler(evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} }));
 
   assert.strictEqual(queries >= 2, true, "should page past the first LastEvaluatedKey");
+});
+
+// The test above only proves the loop iterates twice -- a stub serving
+// pages purely by call index would pass that even if the handler never
+// read LastEvaluatedKey and just re-fetched page 1 forever. Assert the
+// cursor is actually threaded: the first Query has no ExclusiveStartKey,
+// and the second carries the first page's LastEvaluatedKey.
+test("the player pool query threads ExclusiveStartKey from the prior page's LastEvaluatedKey", async () => {
+  const pages = [
+    {
+      Items: [
+        { sport: "nfl", id: "a", playerId: "a", name: "A", position: "RB", team: "SF", rank: { standard: 1 } },
+      ],
+      LastEvaluatedKey: { sport: "nfl", id: "a" },
+    },
+    {
+      Items: [
+        { sport: "nfl", id: "b", playerId: "b", name: "B", position: "WR", team: "KC", rank: { standard: 2 } },
+      ],
+    },
+  ];
+  let queries = 0;
+  const queryStartKeys = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Key) {
+      return { Item: { draftId: "d1", picked: [], picks: [{}, {}], currentIndex: 0 } };
+    }
+    queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
+    const page = pages[queries] || { Items: [] };
+    queries += 1;
+    return page;
+  });
+
+  await handler(evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} }));
+
+  assert.strictEqual(queries, 2, "should query exactly twice for these two pages");
+  assert.strictEqual(
+    queryStartKeys[0],
+    undefined,
+    "the first Query must not carry an ExclusiveStartKey"
+  );
+  assert.deepStrictEqual(
+    queryStartKeys[1],
+    { sport: "nfl", id: "a" },
+    "the second Query must carry the first page's LastEvaluatedKey"
+  );
 });

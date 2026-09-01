@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Note (2026-09-01):** This plan is complete and historical — nothing executes it automatically. Its scope control of leaving `/drafts` uncompressed was intentionally superseded by `docs/superpowers/plans/2026-09-01-backend-hardening.md`, which migrated `drafts.js` onto the shared `responder()` helper. If you run the post-deploy verification script below by hand, the "`/drafts` must still be PLAIN" check will now fail — that is expected, not a regression. See the note at that assertion for detail.
+
 **Goal:** Gzip API responses so the draft page stops shipping 575 KB uncompressed, and stop sending three never-read fields on every player.
 
 **Architecture:** A new `responder(event)` in the shared `lib/http.js` returns a request-bound `json(statusCode, body)` that gzips when the client accepts it. `players.js` and `boards.js` each shadow the imported `json` with one line, so their existing call sites compress unchanged. `players.js` additionally drops `status`, `updatedAt`, and `playerId`. `drafts.js` is deliberately untouched.
@@ -481,6 +483,14 @@ curl -s -X DELETE "$API/boards/$BID" -o /dev/null
 
 Expected: `/players` and `/boards/:id` carry `content-encoding: gzip` and decode to JSON
 identical to the uncompressed response; `/drafts/:id` carries no `content-encoding`.
+
+> **Superseded (2026-09-01):** The `/drafts` control above was intentional scope-limiting at
+> the time this plan was written — see `docs/superpowers/plans/2026-09-01-backend-hardening.md`,
+> which deliberately migrated `drafts.js` onto the shared `responder()` and now gzips
+> `/drafts/:id` too. Running this script today, `/drafts/:id` **will** carry
+> `content-encoding: gzip` when the client accepts it, and the "UNEXPECTED: drafts is
+> compressed" branch above will fire. That is the intended outcome of the later plan, not a
+> regression here.
 
 If the compressed response is unreadable in a browser, `isBase64Encoded` is not behaving as
 expected on this stack — revert immediately rather than debugging in production, since two

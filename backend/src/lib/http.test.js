@@ -155,3 +155,43 @@ test("a malformed q-value fails closed to no compression", () => {
   const res = json(200, { pad: "x".repeat(4000) });
   assert.strictEqual(res.headers["Content-Encoding"], undefined);
 });
+
+// RFC 9110 §12.5.3: `*` matches "any available content coding not
+// explicitly listed". An explicit `gzip` entry always decides, no matter
+// where it sits relative to a `*` entry.
+
+test("gzip;q=0, * -- an explicit refusal is not overridden by a later wildcard", () => {
+  const json = responder({ headers: { "accept-encoding": "gzip;q=0, *" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+});
+
+test("*, gzip;q=0 -- an explicit refusal is not overridden by an earlier wildcard", () => {
+  const json = responder({ headers: { "accept-encoding": "*, gzip;q=0" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+});
+
+test("*;q=0.5, gzip;q=0 -- explicit gzip refusal wins over a permissive wildcard", () => {
+  const json = responder({ headers: { "accept-encoding": "*;q=0.5, gzip;q=0" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+});
+
+test("gzip;q=0.5, gzip;q=0 -- last occurrence of a repeated coding wins, refuses", () => {
+  const json = responder({ headers: { "accept-encoding": "gzip;q=0.5, gzip;q=0" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], undefined);
+});
+
+test("*, gzip -- explicit gzip with no q-value present accepts", () => {
+  const json = responder({ headers: { "accept-encoding": "*, gzip" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], "gzip");
+});
+
+test("deflate, * -- no explicit gzip entry, so the wildcard decides and accepts", () => {
+  const json = responder({ headers: { "accept-encoding": "deflate, *" } });
+  const res = json(200, { pad: "x".repeat(4000) });
+  assert.strictEqual(res.headers["Content-Encoding"], "gzip");
+});

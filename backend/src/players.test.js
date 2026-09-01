@@ -25,14 +25,22 @@ function player(id, rank, extra) {
 
 // Returns the given pages in order. Any call past the last page yields an
 // empty page, so an over-eager loop cannot hang.
+//
+// Also records the ExclusiveStartKey each call was sent with, so tests can
+// assert the cursor is actually threaded from one page's LastEvaluatedKey
+// into the next page's request -- not just that the loop iterates the
+// right number of times. A stub that serves pages purely by call index
+// would pass even if the handler never read LastEvaluatedKey at all.
 function stubPages(pages) {
   let call = 0;
-  mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
+  const startKeys = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    startKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[call] || { Items: [] };
     call += 1;
     return page;
   });
-  return () => call;
+  return { calls: () => call, startKeys };
 }
 
 async function get(query) {
@@ -46,7 +54,7 @@ async function get(query) {
 test.afterEach(() => mock.restoreAll());
 
 test("returns every page, not just the first", async () => {
-  const calls = stubPages([
+  const stub = stubPages([
     { Items: [player("a", 1)], LastEvaluatedKey: { sport: "nfl", id: "a" } },
     { Items: [player("b", 2)], LastEvaluatedKey: { sport: "nfl", id: "b" } },
     { Items: [player("c", 3)] },
@@ -54,17 +62,44 @@ test("returns every page, not just the first", async () => {
 
   const { body } = await get();
 
-  assert.strictEqual(calls(), 3, "should keep querying until no LastEvaluatedKey");
+  assert.strictEqual(stub.calls(), 3, "should keep querying until no LastEvaluatedKey");
   assert.deepStrictEqual(body.players.map((p) => p.id), ["a", "b", "c"]);
   assert.strictEqual(body.count, 3);
 });
 
+test("the cursor is threaded: each call's ExclusiveStartKey is the prior page's LastEvaluatedKey", async () => {
+  const stub = stubPages([
+    { Items: [player("a", 1)], LastEvaluatedKey: { sport: "nfl", id: "a" } },
+    { Items: [player("b", 2)], LastEvaluatedKey: { sport: "nfl", id: "b" } },
+    { Items: [player("c", 3)] },
+  ]);
+
+  await get();
+
+  assert.strictEqual(stub.calls(), 3);
+  assert.strictEqual(
+    stub.startKeys[0],
+    undefined,
+    "the first call must not carry an ExclusiveStartKey"
+  );
+  assert.deepStrictEqual(
+    stub.startKeys[1],
+    { sport: "nfl", id: "a" },
+    "the second call must carry the first page's LastEvaluatedKey"
+  );
+  assert.deepStrictEqual(
+    stub.startKeys[2],
+    { sport: "nfl", id: "b" },
+    "the third call must carry the second page's LastEvaluatedKey"
+  );
+});
+
 test("stops at the first page when there is no LastEvaluatedKey", async () => {
-  const calls = stubPages([{ Items: [player("a", 1)] }]);
+  const stub = stubPages([{ Items: [player("a", 1)] }]);
 
   const { body } = await get();
 
-  assert.strictEqual(calls(), 1, "must not query again once the key is absent");
+  assert.strictEqual(stub.calls(), 1, "must not query again once the key is absent");
   assert.strictEqual(body.count, 1);
 });
 
@@ -117,10 +152,10 @@ test("sorts by rank, with unranked players last", async () => {
 });
 
 test("OPTIONS returns 200 without querying DynamoDB", async () => {
-  const calls = stubPages([]);
+  const stub = stubPages([]);
 
   const res = await handler({ requestContext: { http: { method: "OPTIONS" } } });
 
   assert.strictEqual(res.statusCode, 200);
-  assert.strictEqual(calls(), 0);
+  assert.strictEqual(stub.calls(), 0);
 });
