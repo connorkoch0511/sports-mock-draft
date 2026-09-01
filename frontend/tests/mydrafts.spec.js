@@ -238,4 +238,18 @@ test("loading a draft does not write to storage once per render", async ({ page 
   // about a dozen. The threshold below sits well inside that gap.
   const writes = await page.evaluate(() => window.__writes);
   expect(writes, `writes to perfectpick.myDrafts (got ${writes})`).toBeLessThan(6);
+
+  // The write-count check above only bounds writes from above; it says
+  // nothing about whether the *last* write actually reflects completion.
+  // A hook keyed on [id] alone would satisfy the threshold above while
+  // never recording the completed:true write, silently under-writing.
+  // Guard that direction too: the registry entry must read as completed,
+  // and following it must land on results, not back on the draft page.
+  await page.goto("/drafts");
+  const row = page.getByTestId("draft-row").first();
+  await expect(row).toContainText(/completed/i);
+  await expect(row).not.toContainText(/in progress/i);
+
+  await row.getByRole("link").first().click();
+  await expect(page).toHaveURL(new RegExp(`/draft/${DRAFT_ID}/results$`));
 });

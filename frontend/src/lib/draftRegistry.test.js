@@ -145,7 +145,7 @@ test("a stored array containing an object with no id yields only the usable entr
 });
 
 test("a usable entry missing optional fields is still returned", () => {
-  const { boardId, ...withoutBoardId } = draft("d1");
+  const { boardId: _boardId, ...withoutBoardId } = draft("d1");
   useFakeStorage({
     "perfectpick.myDrafts": JSON.stringify([withoutBoardId]),
   });
