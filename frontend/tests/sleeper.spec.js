@@ -122,3 +122,42 @@ test("a user with no leagues shows an error", async ({ page }) => {
 
   await expect(page.getByTestId("sleeper-error")).toContainText("No 2026 leagues");
 });
+
+const SLEEPER_API = "https://api.sleeper.app/v1";
+
+async function importFirstLeague(page) {
+  await page.getByTestId("sleeper-username").fill("ck15");
+  await page.getByTestId("sleeper-find").click();
+  await page.getByTestId("sleeper-leagues").getByRole("button").first().click();
+}
+
+test("a rookie draft explains why rounds and roster slots differ", async ({ page }) => {
+  await mockSleeper(page);
+  // Registered after mockSleeper, so this handler wins: a 5-round rookie
+  // draft against the fixture league's 16 roster slots.
+  await page.route(`${SLEEPER_API}/draft/*`, (route) =>
+    route.fulfill({
+      json: { type: "snake", settings: { rounds: 5, teams: 12 }, draft_order: {} },
+    })
+  );
+
+  await page.goto("/draft/new");
+  await importFirstLeague(page);
+
+  await expect(page.getByLabel("Rounds")).toHaveValue("5");
+  const note = page.getByTestId("roster-rounds-note");
+  await expect(note).toBeVisible();
+  await expect(note).toContainText("5");
+  await expect(note).toContainText("16");
+});
+
+test("no explanation when rounds and roster slots agree", async ({ page }) => {
+  // The default fixture is 16 rounds against 16 roster slots.
+  await mockSleeper(page);
+
+  await page.goto("/draft/new");
+  await importFirstLeague(page);
+
+  await expect(page.getByTestId("roster-summary")).toBeVisible();
+  await expect(page.getByTestId("roster-rounds-note")).toHaveCount(0);
+});

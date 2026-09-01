@@ -177,7 +177,7 @@ export default function NewDraft() {
         {rosterSlots && (
           <div data-testid="roster-summary" className="mt-4 space-y-2">
             <div className="text-xs text-zinc-400">
-              Roster imported from {importedFrom}
+              Roster imported from {importedFrom} — {rosterSlots.length} roster slots
             </div>
             <div className="flex flex-wrap gap-1">
               {rosterSlots.map((s, i) => (
@@ -193,6 +193,12 @@ export default function NewDraft() {
                 </span>
               ))}
             </div>
+            {rosterSlots.length !== rounds && (
+              <div data-testid="roster-rounds-note" className="text-xs text-zinc-500">
+                This draft is {rounds} rounds, and the roster holds {rosterSlots.length} slots.
+                Both are expected — a rookie or partial draft fills only part of a roster.
+              </div>
+            )}
           </div>
         )}
       </div>
