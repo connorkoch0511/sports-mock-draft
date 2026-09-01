@@ -45,6 +45,7 @@ pattern already established for boards.
 | Storage | `localStorage`, key `perfectpick.myDrafts`, capped at 50 | Mirrors `boardRegistry.js` exactly. No accounts exist to key a server list on |
 | Where the write happens | One `useRememberDraft(draft)` hook, in `Draft.jsx` and `Results.jsx` | Creating a draft immediately navigates to `/draft/:id`, so recording on load covers creation, shared links, and revisits with a single code path |
 | What is recorded | Fields from the **fetched** draft, not the create request | The fetched object is server truth. A draft you opened by link records identically to one you started |
+| Board identity | Store `boardId`; resolve the name at render from `boardRegistry` | The draft object has no board name, and `Results.jsx` never fetches the board. Resolving late keeps one source of truth and survives a rename |
 | When it writes | Only when `draftId` or `completed` changes | A sim-to-end updates draft state on every pick; writing each time would hammer storage for no gain |
 | Removal | "Forget" — local only | There is no `DELETE /drafts` endpoint. The label must not imply a deletion that is not happening |
 | Placement | Its own `/drafts` page and nav item | Consistent with the existing decision not to pile everything onto Home |
@@ -72,7 +73,7 @@ Entry shape:
   rounds,      // number
   format,      // "standard" | "half-ppr" | "ppr"
   userTeam,    // the slot you drafted from
-  boardName,   // string or null — the board driving the draft, if any
+  boardId,     // string or null — the board driving the draft, if any
   completed,   // boolean
   updatedAt,   // epoch ms
 }
@@ -101,8 +102,16 @@ actually stored.
 
 Route `/drafts`. Renders `listDrafts()`.
 
-Each row shows format, `teams × rounds`, the slot drafted from, the driving board's name
-when present, and a relative timestamp. Rows carry a status: in-progress rows link to
+Each row shows format, `teams × rounds`, the slot drafted from, the driving board when
+present, and a relative timestamp.
+
+The entry stores `boardId`, not a board name. The fetched draft carries only `boardId` —
+`Draft.jsx` resolves the name through a second `GET /boards/:id`, and `Results.jsx` never
+fetches the board at all, so a name is simply not available at both of the hook's call
+sites. Instead `MyDrafts.jsx` resolves the name at render time from `listBoards()` in
+`boardRegistry.js`. That keeps one source of truth for board names, cannot drift when a
+board is renamed, and degrades honestly: a board that is not in your local registry shows
+as a generic "custom board" rather than a stale or invented name. Rows carry a status: in-progress rows link to
 `/draft/:id`, completed rows link to `/draft/:id/results`. Each row has a **Forget**
 control.
 
