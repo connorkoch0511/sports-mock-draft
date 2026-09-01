@@ -313,9 +313,9 @@ export default function Draft() {
         </div>
 
         {/* 3-column app layout */}
-        <div className="grid gap-4 lg:grid-cols-2 2xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
           {/* Big Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
+          <div data-testid="panel-big-board" className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Big Board</h2>
               <div className="text-xs text-zinc-400">
@@ -440,7 +440,7 @@ export default function Draft() {
           </div>
 
           {/* Draft Board */}
-          <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col gap-3">
+          <div data-testid="panel-draft-board" className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col gap-3">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Draft Board</h2>
               <div className="text-xs text-zinc-400">Snake draft</div>
@@ -525,7 +525,7 @@ export default function Draft() {
           </div>
 
           {/* Team Rosters (sticky right rail) */}
-          <div className="2xl:sticky 2xl:top-6 min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] lg:col-span-2 2xl:col-span-1">
+          <div data-testid="panel-rosters" className="xl:sticky xl:top-6 min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] lg:col-span-2 xl:col-span-1">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Team Rosters</h2>
               <div className="text-xs text-zinc-400">Live</div>
