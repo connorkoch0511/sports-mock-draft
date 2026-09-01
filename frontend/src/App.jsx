@@ -5,6 +5,7 @@ import Draft from "./pages/Draft.jsx";
 import Results from "./pages/Results.jsx";
 import Board from "./pages/Board.jsx";
 import Boards from "./pages/Boards.jsx";
+import MyDrafts from "./pages/MyDrafts.jsx";
 import NavBar from "./components/NavBar.jsx";
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/draft/new" element={<NewDraft />} />
+            <Route path="/drafts" element={<MyDrafts />} />
             <Route path="/draft/:draftId" element={<Draft />} />
             <Route path="/draft/:draftId/results" element={<Results />} />
             <Route path="/board/:boardId" element={<Board />} />
