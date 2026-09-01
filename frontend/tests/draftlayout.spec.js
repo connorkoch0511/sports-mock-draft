@@ -25,6 +25,7 @@ async function openPausedDraft(page) {
 
 test.describe("Draft layout", () => {
   test("roster panel sits beside the other columns at 1440px", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await openPausedDraft(page);
 
     const draftBoard = await page.getByTestId("panel-draft-board").boundingBox();
@@ -63,6 +64,7 @@ test.describe("Draft layout", () => {
   }
 
   test("panels scroll their own overflowing content", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
     await openPausedDraft(page);
 
     // Both lists paginate at 25 rows, which is more than fits in a 900px
@@ -72,6 +74,9 @@ test.describe("Draft layout", () => {
         .getByTestId(id)
         .evaluate((el) => ({ scroll: el.scrollHeight, client: el.clientHeight }));
       expect(metrics.scroll, `${id} scrollHeight`).toBeGreaterThan(metrics.client);
+      // A collapsed panel (clientHeight 0) would satisfy the assertion above
+      // vacuously -- require it to still be a real, visible panel.
+      expect(metrics.client, `${id} clientHeight`).toBeGreaterThan(100);
     }
   });
 
@@ -98,4 +103,30 @@ test.describe("Draft layout", () => {
     await last.scrollIntoViewIfNeeded();
     await expect(last).toBeInViewport();
   });
+
+  // Below xl the three-column layout does not apply, so the height must NOT be
+  // bound -- the page falls back to document flow and the routes wrapper
+  // scrolls it. Binding the height at these widths compresses each stacked
+  // panel to a fraction of the viewport; at 390px it collapsed the Big Board
+  // to 0px and no player was clickable.
+  for (const [width, height] of [
+    [390, 844],
+    [768, 1024],
+    [1024, 768],
+  ]) {
+    test(`big board still lists players at ${width}x${height}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await openPausedDraft(page);
+
+      const visibleRows = await page.getByTestId("scroll-big-board").evaluate((el) => {
+        const panel = el.getBoundingClientRect();
+        return Array.from(el.querySelectorAll("button")).filter((b) => {
+          const r = b.getBoundingClientRect();
+          return r.bottom > panel.top && r.top < panel.bottom;
+        }).length;
+      });
+
+      expect(visibleRows, "player rows visible in the Big Board").toBeGreaterThan(2);
+    });
+  }
 });
