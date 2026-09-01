@@ -8,7 +8,7 @@ const {
   DeleteCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
-const { json } = require("./lib/http");
+const { json, responder } = require("./lib/http");
 const { reconcile } = require("./lib/reconcile");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -79,6 +79,7 @@ async function loadPool(playersTable, sport, format) {
 }
 
 exports.handler = async (event) => {
+  const json = responder(event);
   const boardsTable = process.env.BOARDS_TABLE;
   const playersTable = process.env.PLAYERS_TABLE;
 
