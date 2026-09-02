@@ -31,7 +31,17 @@ export default function Boards() {
     }
   };
 
-  const deleteBoard = async (id) => {
+  const deleteBoard = async (b) => {
+    // A board is hand-ranked work with no undo, and it sits one nav item away
+    // from My drafts, which already confirms. Same destructive action, same
+    // gate, same copy shape.
+    if (
+      !window.confirm(
+        `Delete the board "${b.name}"? This cannot be undone, and your rankings will be lost.`
+      )
+    ) {
+      return;
+    }
     setErr("");
     try {
       // DELETE /boards/:id is idempotent (a DynamoDB DeleteCommand that
@@ -40,8 +50,8 @@ export default function Boards() {
       // registry once the server confirms the delete — on failure, keep
       // it listed so the user can retry instead of losing their way back
       // to a board that still exists.
-      await apiDelete(`/boards/${id}`);
-      forgetBoard(id);
+      await apiDelete(`/boards/${b.id}`);
+      forgetBoard(b.id);
       setBoards(listBoards());
     } catch (e) {
       setErr(e.message || "Failed to delete board");
@@ -100,7 +110,7 @@ export default function Boards() {
                 {b.name}
               </button>
               <button
-                onClick={() => deleteBoard(b.id)}
+                onClick={() => deleteBoard(b)}
                 aria-label={`Delete ${b.name}`}
                 className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
               >
