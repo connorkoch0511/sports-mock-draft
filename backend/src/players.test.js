@@ -276,11 +276,17 @@ test("an unranked player carries no availability fields", () => {
   // Same rule as stats: ranked players only, so the payload does not grow for
   // the ~3,600 nobody drafts.
   const unranked = player("b", 0, { rank: {}, adp: {}, tier: {} });
+  // All three, not just one: a regression that dropped the rank guard around
+  // only depthChartOrder would slip past a test that checks injuryStatus alone.
   unranked.injuryStatus = "IR";
+  unranked.injuryBodyPart = "Knee";
+  unranked.depthChartOrder = 1;
 
   stubPages([{ Items: [unranked] }]);
 
   return get().then(({ body }) => {
-    assert.ok(!("injuryStatus" in body.players[0]));
+    for (const k of ["injuryStatus", "injuryBodyPart", "depthChartOrder"]) {
+      assert.ok(!(k in body.players[0]), `${k} must not appear on an unranked player`);
+    }
   });
 });
