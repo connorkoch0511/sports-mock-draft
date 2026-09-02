@@ -27,9 +27,18 @@ export function rememberDraft({
   userTeam,
   boardId = null,
   completed = false,
+  // Not passed by useRememberDraft.js -- only NewDraft.jsx knows a draft is
+  // new, at the moment it holds the POST /drafts response. When omitted
+  // (the common case: the draft page's load effect re-remembering an
+  // already-known draft), the existing entry's `owned` is carried forward
+  // below rather than defaulting to false, which would erase ownership the
+  // instant the draft page's own effect fires after creation.
+  owned,
 }) {
   try {
+    const existing = listDrafts().find((d) => d.id === id);
     const drafts = listDrafts().filter((d) => d.id !== id);
+    const resolvedOwned = owned !== undefined ? Boolean(owned) : Boolean(existing?.owned);
     drafts.unshift({
       id,
       teams,
@@ -38,6 +47,7 @@ export function rememberDraft({
       userTeam,
       boardId,
       completed,
+      owned: resolvedOwned,
       updatedAt: Date.now(),
     });
     localStorage.setItem(KEY, JSON.stringify(drafts.slice(0, MAX_ENTRIES)));

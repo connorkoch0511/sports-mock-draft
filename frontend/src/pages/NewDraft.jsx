@@ -4,6 +4,7 @@ import { apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
 import { listBoards } from "../lib/boardRegistry";
+import { rememberDraft } from "../lib/draftRegistry";
 import {
   fetchUser,
   fetchLeagues,
@@ -69,6 +70,21 @@ export default function NewDraft() {
         ...(rosterSlots?.length ? { rosterSlots } : {}),
         ...(boardId ? { boardId } : {}),
       });
+      // This is the only place that knows a draft is new -- it holds the
+      // POST /drafts response. Mark it owned here; the draft page's own
+      // load effect re-remembers this id moments later (see
+      // useRememberDraft.js) and must not know to pass owned itself, so
+      // rememberDraft carries this flag forward on its own.
+      rememberDraft({
+        id: draft.draftId,
+        teams,
+        rounds,
+        format,
+        userTeam,
+        boardId: boardId || null,
+        completed: false,
+        owned: true,
+      });
       nav(`/draft/${draft.draftId}`);
     } catch (e) {
       setErr(e.message || "Failed to create draft");
@@ -95,7 +111,7 @@ export default function NewDraft() {
     }
   };
 
-  const useLeague = async (league) => {
+  const applyLeague = async (league) => {
     setSleeperErr("");
     try {
       const draft = await fetchLeagueDraft(league.league_id);
@@ -161,7 +177,7 @@ export default function NewDraft() {
               <li key={l.league_id}>
                 <button
                   type="button"
-                  onClick={() => useLeague(l)}
+                  onClick={() => applyLeague(l)}
                   className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-left text-sm text-zinc-200 hover:border-cyan-300/60"
                 >
                   {l.name}

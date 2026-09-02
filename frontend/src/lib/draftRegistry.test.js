@@ -164,6 +164,53 @@ test("a fully valid list round-trips unchanged", () => {
   assert.deepStrictEqual(listDrafts().map((d) => d.id), ["b", "a"]);
 });
 
+test("rememberDraft defaults to owned:false when not specified", () => {
+  useFakeStorage();
+  rememberDraft(draft("d1"));
+
+  assert.strictEqual(listDrafts()[0].owned, false);
+});
+
+test("rememberDraft honors an explicit owned:true", () => {
+  useFakeStorage();
+  rememberDraft(draft("d1", { owned: true }));
+
+  assert.strictEqual(listDrafts()[0].owned, true);
+});
+
+test("rememberDraft preserves an existing entry's owned flag through the create-then-hook-overwrite sequence", () => {
+  useFakeStorage();
+  // NewDraft.jsx marks ownership at the moment of creation, the only place
+  // that knows the draft is new.
+  rememberDraft(draft("d1", { owned: true }));
+  // The draft page loads moments later; its useRememberDraft effect fires
+  // and calls rememberDraft again for the same id WITHOUT an owned field --
+  // this call shape matches useRememberDraft.js exactly. rememberDraft is a
+  // full replace, not a merge, so if the owned flag were not carried
+  // forward here it would be erased immediately and the whole fix would
+  // silently do nothing.
+  rememberDraft(draft("d1", { completed: true }));
+
+  const all = listDrafts();
+  assert.strictEqual(all.length, 1, "must not duplicate");
+  assert.strictEqual(all[0].owned, true, "owned must survive the hook's overwrite");
+  assert.strictEqual(all[0].completed, true, "the hook's own update must still apply");
+});
+
+test("rememberDraft without owned defaults to false for a brand-new id (no existing entry to preserve)", () => {
+  useFakeStorage();
+  rememberDraft(draft("never-seen-before"));
+
+  assert.strictEqual(listDrafts()[0].owned, false);
+});
+
+test("a legacy entry stored with no owned key at all reads as falsy, not throwing", () => {
+  const legacy = draft("d1"); // draft() never sets `owned` unless asked
+  useFakeStorage({ "perfectpick.myDrafts": JSON.stringify([legacy]) });
+
+  assert.ok(!listDrafts()[0].owned, "a pre-fix stored entry must read as not owned");
+});
+
 test("the board registry's store is left alone", () => {
   const map = useFakeStorage({ "perfectpick.myBoards": '[{"id":"b1","name":"My Board"}]' });
   rememberDraft(draft("d1"));

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { usePageTitle } from "../lib/usePageTitle";
 import { listDrafts, forgetDraft } from "../lib/draftRegistry";
 import { listBoards } from "../lib/boardRegistry";
+import { apiDelete } from "../lib/api";
 
 const FORMAT_LABEL = {
   standard: "Standard",
@@ -10,18 +11,30 @@ const FORMAT_LABEL = {
   ppr: "PPR",
 };
 
+function describe(d) {
+  // Format+teams alone collides constantly -- 12-team PPR is the default,
+  // so two unrelated drafts both read "PPR, 12 teams". Rounds and pick
+  // narrow it further, and the relative time makes even two drafts with
+  // identical settings distinguishable, since they were not remembered at
+  // the exact same millisecond. This string backs both the aria-label and
+  // the delete confirmation, so it is the only thing standing between a
+  // careful user and deleting the wrong one.
+  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams, ${d.rounds} rounds, pick ${d.userTeam}, updated ${relativeTime(d.updatedAt)}`;
+}
+
 function relativeTime(ts) {
   const seconds = Math.max(0, Math.round((Date.now() - ts) / 1000));
   if (seconds < 60) return "just now";
-  const minutes = Math.round(seconds / 60);
+  const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
+  const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 export default function MyDrafts() {
   const [drafts, setDrafts] = useState(() => listDrafts());
+  const [err, setErr] = useState("");
   const boards = listBoards();
 
   usePageTitle("My Drafts");
@@ -29,6 +42,23 @@ export default function MyDrafts() {
   const forget = (id) => {
     forgetDraft(id);
     setDrafts(listDrafts());
+  };
+
+  // Server first, then local: on failure the row stays listed so the user can
+  // retry rather than losing their way back to a draft that still exists.
+  // DELETE is idempotent, so a resolved call always means it is safe to drop.
+  const remove = async (d) => {
+    if (!window.confirm(`Delete this ${describe(d)} draft? This cannot be undone, and anyone you shared it with will lose access.`)) {
+      return;
+    }
+    setErr("");
+    try {
+      await apiDelete(`/drafts/${d.id}`);
+      forgetDraft(d.id);
+      setDrafts(listDrafts());
+    } catch (e) {
+      setErr(e.message || "Failed to delete draft");
+    }
   };
 
   return (
@@ -39,6 +69,12 @@ export default function MyDrafts() {
           Drafts you have started or opened on this device.
         </p>
       </div>
+
+      {err && (
+        <div data-testid="my-drafts-error" className="mb-4 rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
+          {err}
+        </div>
+      )}
 
       {drafts.length === 0 ? (
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-8 text-center text-sm text-zinc-500">
@@ -83,12 +119,24 @@ export default function MyDrafts() {
                   type="button"
                   onClick={() => forget(d.id)}
                   data-testid="forget-draft"
-                  aria-label={`Forget draft ${d.id}`}
+                  aria-label={`Forget ${describe(d)} draft`}
                   title="Removes it from this list only. The draft still exists and its link still works."
-                  className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
+                  className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
                 >
                   Forget
                 </button>
+                {d.owned && (
+                  <button
+                    type="button"
+                    onClick={() => remove(d)}
+                    data-testid="delete-draft"
+                    aria-label={`Delete ${describe(d)} draft`}
+                    title="Deletes the draft for everyone. Anyone you shared it with will lose access."
+                    className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
+                  >
+                    Delete
+                  </button>
+                )}
               </li>
             );
           })}

@@ -48,8 +48,10 @@ occurrence of either key in `boards.test.js`.
 
 ### 3. Accumulated papercuts
 
-- `relativeTime` in `MyDrafts.jsx` rounds rather than floors, so 45 minutes renders "1h ago"
-  and 90 minutes renders "2h ago".
+- `relativeTime` in `MyDrafts.jsx` rounds rather than floors. **90 minutes renders "2h ago"**,
+  and worse, **23.5 hours renders "1d ago"** for a draft from earlier the same day. (45
+  minutes is unaffected — it returns from the minutes branch before any hour rounding
+  happens, so it correctly reads "45m ago".)
 - The Forget button's `aria-label` is `Forget draft {id}`, which reads a raw UUID to a
   screen reader. `Boards.jsx` uses the board's name.
 - `/drafts` has no screenshot test, while Home, Draft, and Results do, and the README
@@ -72,7 +74,7 @@ occurrence of either key in `boards.test.js`.
 | Forget vs Delete | Two separate controls | Sharing is an explicit feature; one careless click must not break someone else's link |
 | Delete confirmation | Required before the call | Irreversible and affects other people. The only destructive action in the app |
 | Ordering | Server first, then local | Copies `Boards.jsx`: on failure the row stays listed so the user can retry rather than losing their way back |
-| `relativeTime` | Floor, not round | "1h ago" at 45 minutes is simply wrong |
+| `relativeTime` | Floor, not round | "2h ago" at 90 minutes, and "1d ago" at 23.5 hours, are both simply wrong |
 | The two `setState`-in-effect lint errors | **Left alone** | Fixing them changes render behavior. That belongs in its own reviewed change, not a cosmetic sweep |
 
 ---
