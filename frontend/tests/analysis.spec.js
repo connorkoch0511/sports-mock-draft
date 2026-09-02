@@ -178,7 +178,7 @@ test("an unrelated query parameter survives switching tabs", async ({ page }) =>
 
 test("the tier haul is shown", async ({ page }) => {
   await openResults(page, makeCompletedDraft(), "?view=analysis");
-  // The fixture's first twelve players are all tier 1 or 2.
+  // Team 1 takes McCaffrey (tier 1) plus two tier-2 receivers.
   await expect(page.getByTestId("tier-haul")).toContainText("Tier 1");
 });
 

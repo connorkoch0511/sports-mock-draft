@@ -55,6 +55,10 @@ test.describe("New Draft page", () => {
 });
 
 test("screenshot — new draft", async ({ page }) => {
+  // fullPage is inert here: the shell is h-dvh and the routes wrapper is the
+  // scroller, so the document is always exactly viewport height. Size the
+  // viewport to the page's own content instead, or the image is clipped.
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/draft/new");
   await expect(page.getByLabel("Teams")).toBeVisible();
 

@@ -189,7 +189,7 @@ test("screenshot — board editor", async ({ page }) => {
   // The shell is h-dvh and the routes wrapper scrolls, so the document is
   // always viewport height and fullPage captures nothing extra. Grow the
   // viewport instead.
-  await page.setViewportSize({ width: 1280, height: 1010 });
+  await page.setViewportSize({ width: 1280, height: 920 });
   await mockBoard(page, makeBoardState());
   await page.goto(`/board/${BOARD_ID}`);
   await expect(page.getByTestId("board-row").first()).toBeVisible();
@@ -198,6 +198,10 @@ test("screenshot — board editor", async ({ page }) => {
 });
 
 test("screenshot — boards list", async ({ page }) => {
+  // fullPage is inert here: the shell is h-dvh and the routes wrapper is the
+  // scroller, so the document is always exactly viewport height. Size the
+  // viewport to the page's own content instead, or the image is clipped.
+  await page.setViewportSize({ width: 1280, height: 760 });
   await page.goto("/");
   await page.evaluate(
     (id) =>
