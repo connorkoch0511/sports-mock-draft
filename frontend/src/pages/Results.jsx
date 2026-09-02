@@ -1,14 +1,19 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiGet } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useRememberDraft } from "../lib/useRememberDraft";
+import { analyzeDraft } from "../lib/draftAnalysis";
 
 export default function Results() {
   const { draftId } = useParams();
   const [draft, setDraft] = useState(null);
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Anything unrecognised -- including an absent parameter -- is the pick log,
+  // so an old link with no ?view keeps behaving exactly as it did.
+  const view = searchParams.get("view") === "analysis" ? "analysis" : "picks";
 
   useEffect(() => {
     apiGet(`/drafts/${draftId}`)
@@ -111,7 +116,49 @@ export default function Results() {
         </div>
       </div>
 
+      <div className="mb-4 flex gap-2">
+        <button
+          type="button"
+          data-testid="view-tab-picks"
+          onClick={() =>
+            // Merge rather than replace: setSearchParams({}) would drop any
+            // other parameter that happens to be on the URL.
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete("view");
+              return next;
+            })
+          }
+          className={`rounded-2xl border px-4 py-2 text-sm ${
+            view === "picks"
+              ? "border-cyan-300/60 bg-cyan-950/30 text-cyan-200"
+              : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:border-zinc-600"
+          }`}
+        >
+          Pick Log
+        </button>
+        <button
+          type="button"
+          data-testid="view-tab-analysis"
+          onClick={() =>
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.set("view", "analysis");
+              return next;
+            })
+          }
+          className={`rounded-2xl border px-4 py-2 text-sm ${
+            view === "analysis"
+              ? "border-cyan-300/60 bg-cyan-950/30 text-cyan-200"
+              : "border-zinc-800 bg-zinc-950/70 text-zinc-400 hover:border-zinc-600"
+          }`}
+        >
+          Analysis
+        </button>
+      </div>
+
       {/* Layout */}
+      {view === "picks" && (
       <div className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
         {/* Pick Log */}
         <div className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-4">
@@ -181,6 +228,97 @@ export default function Results() {
           ))}
         </div>
       </div>
+      )}
+
+      {view === "analysis" && (() => {
+        const a = analyzeDraft(draft);
+        const fmt = (n) => (n > 0 ? `+${n}` : `${n}`);
+
+        return (
+          <div data-testid="analysis-panel" className="space-y-4">
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+              <div className="text-sm text-zinc-400">Team {a.you.team}</div>
+              <div className="mt-1 text-3xl font-semibold">
+                {fmt(a.you.valueCaptured)}
+                <span className="ml-2 text-base font-normal text-zinc-400">
+                  value captured
+                </span>
+              </div>
+              <div className="mt-1 text-sm text-zinc-400">
+                {a.you.rank} of {a.teams.length} in this draft. Positive means players
+                fell to you; negative means you reached.
+              </div>
+              {a.scoreable.without > 0 && (
+                <div data-testid="unscoreable-note" className="mt-2 text-xs text-zinc-500">
+                  {a.scoreable.without} of {a.scoreable.with + a.scoreable.without} picks
+                  had no ADP to compare against and are excluded.
+                </div>
+              )}
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              {a.you.bestPick && (
+                <div data-testid="best-vs-adp" className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+                  <div className="text-sm text-zinc-400">Best vs ADP</div>
+                  <div className="mt-1 font-medium">{a.you.bestPick.player.name}</div>
+                  <div className="text-xs text-zinc-500">
+                    pick {a.you.bestPick.overall} · {fmt(a.you.bestPick.delta)}
+                  </div>
+                </div>
+              )}
+              {a.you.biggestReach && (
+                <div data-testid="worst-vs-adp" className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+                  <div className="text-sm text-zinc-400">Worst vs ADP</div>
+                  <div className="mt-1 font-medium">{a.you.biggestReach.player.name}</div>
+                  <div className="text-xs text-zinc-500">
+                    pick {a.you.biggestReach.overall} · {fmt(a.you.biggestReach.delta)}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+              <div className="text-sm text-zinc-400">Roster shape</div>
+              <div className="mt-2 flex flex-wrap gap-1">
+                {a.you.rosterShape.filled.map((s, i) => (
+                  <span key={`f${i}`} className="rounded-full border border-cyan-300/40 px-2 py-0.5 text-[10px] text-cyan-200">
+                    {s}
+                  </span>
+                ))}
+                {a.you.rosterShape.unfilled.map((s, i) => (
+                  <span key={`u${i}`} className="rounded-full border border-zinc-800 px-2 py-0.5 text-[10px] text-zinc-600">
+                    {s}
+                  </span>
+                ))}
+              </div>
+              {a.you.rosterShape.unfilled.length > 0 && (
+                <div className="mt-2 text-xs text-zinc-500">
+                  Unfilled: {a.you.rosterShape.unfilled.join(", ")}
+                </div>
+              )}
+            </div>
+
+            {a.you.longestWait && (
+              <div className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+                <div className="text-sm text-zinc-400">Your longest wait</div>
+                <div className="mt-1 text-sm">
+                  {a.you.longestWait.span} picks between {a.you.longestWait.from} and{" "}
+                  {a.you.longestWait.to}
+                </div>
+                <div className="mt-2 text-xs text-zinc-500">
+                  Gone in that span:{" "}
+                  {a.you.longestWait.playersGone.map((p) => p.name).join(", ") || "nobody"}
+                </div>
+              </div>
+            )}
+
+            <div className="text-xs text-zinc-600">
+              This grades how the draft went, not how the team will do — the app has no
+              projections or bye weeks.
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

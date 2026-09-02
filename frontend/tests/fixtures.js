@@ -84,7 +84,16 @@ export function makeCompletedDraft() {
   const picks = buildSnakePicks(4, 3);
   MOCK_PLAYERS.slice(0, 12).forEach((player, i) => {
     picks[i].playerId = player.id;
-    picks[i].player = { id: player.id, name: player.name, position: player.position, team: player.team };
+    // Production stores the full seven-field snapshot taken at draft time.
+    picks[i].player = {
+      id: player.id,
+      name: player.name,
+      position: player.position,
+      team: player.team,
+      rank: player.rank,
+      adp: player.adp,
+      tier: player.tier,
+    };
   });
   return {
     draftId: DRAFT_ID,
@@ -94,6 +103,7 @@ export function makeCompletedDraft() {
     teams: 4,
     rounds: 3,
     userTeam: 1,
+    rosterSlots: ["QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF"],
     picked: MOCK_PLAYERS.slice(0, 12).map((p) => p.id),
     currentIndex: 12,
     currentRound: 3,
