@@ -1,10 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert");
+const { mock } = require("node:test");
+const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
 const { handler } = require("./boards");
 
-// Every case here is rejected by validation BEFORE any DynamoDB call, so these
-// run without credentials, mocks, or a live table. Do not add a case whose
-// happy path reaches ddb.send() — it would need AWS to pass.
+// This file holds two kinds of case. Most are rejected by validation BEFORE
+// any DynamoDB call, so they run without credentials, mocks, or a live
+// table. The rest — the pool-pagination cases below — deliberately do reach
+// ddb.send(), and stub DynamoDBDocumentClient.prototype.send to fake it.
 
 function event(method, body, boardId) {
   return {
@@ -103,4 +106,69 @@ test("PUT still rejects a non-integer version", async () => {
 test("OPTIONS preflight still returns 200", async () => {
   const { code } = await status(event("OPTIONS"));
   assert.strictEqual(code, 200);
+});
+
+process.env.BOARDS_TABLE = "boards-test";
+process.env.PLAYERS_TABLE = "players-test";
+
+function poolPlayer(id, rank) {
+  return {
+    sport: "nfl",
+    playerId: id,
+    name: `Player ${id}`,
+    position: "RB",
+    team: "SF",
+    rank: { standard: rank },
+  };
+}
+
+test.afterEach(() => mock.restoreAll());
+
+test("GET pages the player pool until the cursor is exhausted", async () => {
+  const pages = [
+    { Items: [poolPlayer("a", 1)], LastEvaluatedKey: { sport: "nfl", playerId: "a" } },
+    { Items: [poolPlayer("b", 2)] },
+  ];
+  let query = 0;
+
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    // The board fetch is a Get (carries Key); the pool fetch is a Query.
+    if (cmd?.input?.Key) {
+      return { Item: { boardId: "b1", name: "B", sport: "nfl", format: "standard", version: 1, order: [] } };
+    }
+    const page = pages[query] || { Items: [] };
+    query += 1;
+    return page;
+  });
+
+  const res = await handler(event("GET", undefined, "b1"));
+  const body = JSON.parse(res.body);
+
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(query, 2, "should query again while LastEvaluatedKey is present");
+  assert.deepStrictEqual(body.rows.map((r) => r.playerId).sort(), ["a", "b"]);
+});
+
+test("the second pool query carries the first page's cursor", async () => {
+  // Without this, a loop that never advances ExclusiveStartKey re-fetches
+  // page one forever -- returning plausible data while burning the Lambda's
+  // timeout on repeated 1MB reads.
+  const cursor = { sport: "nfl", playerId: "a" };
+  const seen = [];
+
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Key) {
+      return { Item: { boardId: "b1", name: "B", sport: "nfl", format: "standard", version: 1, order: [] } };
+    }
+    seen.push(cmd.input.ExclusiveStartKey);
+    return seen.length === 1
+      ? { Items: [poolPlayer("a", 1)], LastEvaluatedKey: cursor }
+      : { Items: [poolPlayer("b", 2)] };
+  });
+
+  await handler(event("GET", undefined, "b1"));
+
+  assert.strictEqual(seen.length, 2);
+  assert.strictEqual(seen[0], undefined, "first query starts with no cursor");
+  assert.deepStrictEqual(seen[1], cursor, "second query resumes from the first page's key");
 });
