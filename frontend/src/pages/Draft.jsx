@@ -342,9 +342,9 @@ export default function Draft() {
             )}
 
             {boardMeta && boardRows?.length > 0 && boardMeta.format !== draft.format && (
-              <div data-testid="board-format-note" className="rounded-2xl border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
-                This board is ranked for {boardMeta.format} — this draft is {draft.format}.
-                Players are placed by rank, but the board's order reflects {boardMeta.format} scoring.
+              <div data-testid="draft-board-format-note" className="rounded-2xl border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+                This board is ranked for {boardMeta.format.toUpperCase()} — this draft is {draft.format.toUpperCase()}.
+                Players are placed by rank, but the board's order reflects {boardMeta.format.toUpperCase()} scoring.
               </div>
             )}
 

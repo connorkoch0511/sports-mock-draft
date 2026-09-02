@@ -218,7 +218,7 @@ test("a board that fails to load shows the failure, not the affirmation", async 
   // Even granting an SPA navigation between two different drafts without an
   // unmount (same <Route path="/draft/:draftId">), the catch branch also
   // unconditionally calls `setBoardRows(null)`, and both board-active-note
-  // and board-format-note require `boardRows?.length > 0` in addition to
+  // and draft-board-format-note require `boardRows?.length > 0` in addition to
   // boardMeta. So whenever the catch runs, boardRows is already null and
   // neither note can render regardless of what setBoardMeta(null) does —
   // no rendered-DOM assertion can ever distinguish that line's presence
@@ -253,17 +253,17 @@ test("a board in a different format is flagged, naming both formats", async ({ p
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
-  const note = page.getByTestId("board-format-note");
+  const note = page.getByTestId("draft-board-format-note");
   await expect(note).toBeVisible();
   // Pin which format is attributed to which, not just that both words
-  // appear: the board's format ("ppr") must follow "ranked for", and the
-  // draft's format ("standard") must follow "this draft is". This mirrors
+  // appear: the board's format ("PPR") must follow "ranked for", and the
+  // draft's format ("STANDARD") must follow "this draft is". This mirrors
   // Draft.jsx's actual template ("This board is ranked for
   // {boardMeta.format} — this draft is {draft.format}.") verbatim, so
   // swapping boardMeta.format and draft.format in that template would flip
   // the words and fail this assertion — a substring-only check on each word
   // independently would not have caught that.
-  await expect(note).toContainText("This board is ranked for ppr — this draft is standard.");
+  await expect(note).toContainText("This board is ranked for PPR — this draft is STANDARD.");
 });
 
 test("a matching format shows no mismatch note", async ({ page }) => {
@@ -280,5 +280,5 @@ test("a matching format shows no mismatch note", async ({ page }) => {
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByTestId("board-active-note")).toBeVisible();
 
-  await expect(page.getByTestId("board-format-note")).toHaveCount(0);
+  await expect(page.getByTestId("draft-board-format-note")).toHaveCount(0);
 });
