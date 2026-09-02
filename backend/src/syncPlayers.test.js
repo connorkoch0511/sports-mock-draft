@@ -104,29 +104,61 @@ test("mergeStats attaches curated stats to matching players", () => {
   const players = [{ id: "1", name: "A" }, { id: "2", name: "B" }];
   const stats = { "1": { gp: 17, rec_tgt: 100, opp_off_yd: 9 } };
 
-  mergeStats(players, stats, 2025);
+  const matched = mergeStats(players, stats, 2025);
 
   assert.deepStrictEqual(players[0].stats, { gp: 17, rec_tgt: 100 });
   assert.strictEqual(players[0].statsSeason, 2025);
+  assert.strictEqual(matched, 1, "should report exactly one player matched");
 });
 
 test("mergeStats leaves a player with no stats entirely untouched", () => {
   const { mergeStats } = require("./syncPlayers");
   const players = [{ id: "2", name: "B" }];
 
-  mergeStats(players, { "1": { gp: 17 } }, 2025);
+  const matched = mergeStats(players, { "1": { gp: 17 } }, 2025);
 
   assert.ok(!("stats" in players[0]), "no empty stats object");
   assert.ok(!("statsSeason" in players[0]), "and no dangling season");
+  assert.strictEqual(matched, 0, "no player in the feed matches the roster, so nothing matched");
 });
 
 test("mergeStats does not disturb existing fields", () => {
   const { mergeStats } = require("./syncPlayers");
   const players = [{ id: "1", name: "A", adp: { ppr: 5 }, rank: { ppr: 3 } }];
 
-  mergeStats(players, { "1": { gp: 17 } }, 2025);
+  const matched = mergeStats(players, { "1": { gp: 17 } }, 2025);
 
   assert.deepStrictEqual(players[0].adp, { ppr: 5 });
   assert.deepStrictEqual(players[0].rank, { ppr: 3 });
   assert.strictEqual(players[0].name, "A");
+  assert.strictEqual(matched, 1);
+});
+
+test("mergeStats' matched count reflects players who actually curated, not the roster size", () => {
+  const { mergeStats } = require("./syncPlayers");
+  const players = [{ id: "1" }, { id: "2" }, { id: "3" }, { id: "4" }];
+  // "2" played but recorded nothing curated (pos_rank_ppr alone, no gp>0) --
+  // should not count. "3" is absent from the feed entirely. Only "1" and "4"
+  // should be counted as matched.
+  const stats = {
+    "1": { gp: 10, rec_yd: 400 },
+    "2": { pos_rank_ppr: 12 },
+    "4": { gp: 3, rush_yd: 50 },
+  };
+
+  const matched = mergeStats(players, stats, 2025);
+
+  assert.strictEqual(matched, 2, "matched must count exactly the players that received a stats object");
+});
+
+test("pickStats returns null for a player with pos_rank_ppr but gp=0 or missing", () => {
+  // This is the exact case Sleeper emits for a player who never played: a
+  // derived rank field with no games played backing it up.
+  assert.strictEqual(pickStats({ pos_rank_ppr: 667 }), null);
+  assert.strictEqual(pickStats({ gp: 0, pos_rank_ppr: 667 }), null);
+});
+
+test("pickStats returns stats once gp > 0, even with only one other curated field", () => {
+  const out = pickStats({ gp: 1, pos_rank_ppr: 667 });
+  assert.deepStrictEqual(out, { gp: 1, pos_rank_ppr: 667 });
 });
