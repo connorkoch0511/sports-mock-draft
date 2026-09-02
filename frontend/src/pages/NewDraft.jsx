@@ -4,6 +4,7 @@ import { apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
 import { listBoards } from "../lib/boardRegistry";
+import { rememberDraft } from "../lib/draftRegistry";
 import {
   fetchUser,
   fetchLeagues,
@@ -68,6 +69,21 @@ export default function NewDraft() {
         userTeam,
         ...(rosterSlots?.length ? { rosterSlots } : {}),
         ...(boardId ? { boardId } : {}),
+      });
+      // This is the only place that knows a draft is new -- it holds the
+      // POST /drafts response. Mark it owned here; the draft page's own
+      // load effect re-remembers this id moments later (see
+      // useRememberDraft.js) and must not know to pass owned itself, so
+      // rememberDraft carries this flag forward on its own.
+      rememberDraft({
+        id: draft.draftId,
+        teams,
+        rounds,
+        format,
+        userTeam,
+        boardId: boardId || null,
+        completed: false,
+        owned: true,
       });
       nav(`/draft/${draft.draftId}`);
     } catch (e) {

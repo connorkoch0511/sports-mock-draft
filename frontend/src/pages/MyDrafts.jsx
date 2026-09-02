@@ -12,7 +12,14 @@ const FORMAT_LABEL = {
 };
 
 function describe(d) {
-  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams`;
+  // Format+teams alone collides constantly -- 12-team PPR is the default,
+  // so two unrelated drafts both read "PPR, 12 teams". Rounds and pick
+  // narrow it further, and the relative time makes even two drafts with
+  // identical settings distinguishable, since they were not remembered at
+  // the exact same millisecond. This string backs both the aria-label and
+  // the delete confirmation, so it is the only thing standing between a
+  // careful user and deleting the wrong one.
+  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams, ${d.rounds} rounds, pick ${d.userTeam}, updated ${relativeTime(d.updatedAt)}`;
 }
 
 function relativeTime(ts) {
@@ -41,7 +48,7 @@ export default function MyDrafts() {
   // retry rather than losing their way back to a draft that still exists.
   // DELETE is idempotent, so a resolved call always means it is safe to drop.
   const remove = async (d) => {
-    if (!window.confirm(`Delete this ${describe(d)} draft? This cannot be undone, and any link you shared will stop working.`)) {
+    if (!window.confirm(`Delete this ${describe(d)} draft? This cannot be undone, and anyone you shared it with will lose access.`)) {
       return;
     }
     setErr("");
@@ -118,16 +125,18 @@ export default function MyDrafts() {
                 >
                   Forget
                 </button>
-                <button
-                  type="button"
-                  onClick={() => remove(d)}
-                  data-testid="delete-draft"
-                  aria-label={`Delete ${describe(d)} draft`}
-                  title="Deletes the draft for everyone. Any link you shared will stop working."
-                  className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
-                >
-                  Delete
-                </button>
+                {d.owned && (
+                  <button
+                    type="button"
+                    onClick={() => remove(d)}
+                    data-testid="delete-draft"
+                    aria-label={`Delete ${describe(d)} draft`}
+                    title="Deletes the draft for everyone. Anyone you shared it with will lose access."
+                    className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
+                  >
+                    Delete
+                  </button>
+                )}
               </li>
             );
           })}

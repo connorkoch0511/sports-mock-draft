@@ -13,6 +13,7 @@ const IN_PROGRESS = {
   userTeam: 4,
   boardId: null,
   completed: false,
+  owned: true,
   updatedAt: Date.now(),
 };
 
@@ -24,6 +25,7 @@ const COMPLETED = {
   userTeam: 2,
   boardId: "board-1",
   completed: true,
+  owned: true,
   updatedAt: Date.now() - 60_000,
 };
 
@@ -379,6 +381,126 @@ test("the remove controls describe the draft, not its id", async ({ page }) => {
     expect(label, `${id} aria-label`).not.toContain(IN_PROGRESS.id);
     expect(label, `${id} aria-label`).toMatch(/ppr/i);
   }
+});
+
+test("two same-shape drafts (same format and team count) get distinct aria-labels", async ({ page }) => {
+  // Both are PPR, 12 teams -- the exact collision from the bug report,
+  // where the old describe() produced "PPR, 12 teams" for both and
+  // getByLabel(...) matched two elements instead of one.
+  const twinA = {
+    id: "twin-a",
+    teams: 12,
+    rounds: 15,
+    format: "ppr",
+    userTeam: 4,
+    boardId: null,
+    completed: false,
+    owned: true,
+    updatedAt: Date.now(),
+  };
+  const twinB = {
+    id: "twin-b",
+    teams: 12,
+    rounds: 12,
+    format: "ppr",
+    userTeam: 9,
+    boardId: null,
+    completed: false,
+    owned: true,
+    updatedAt: Date.now() - 5 * 60_000,
+  };
+  await seed(page, [twinA, twinB]);
+  await page.goto("/drafts");
+
+  const rows = page.getByTestId("draft-row");
+  await expect(rows).toHaveCount(2);
+
+  const labelA = await rows.nth(0).getByTestId("delete-draft").getAttribute("aria-label");
+  const labelB = await rows.nth(1).getByTestId("delete-draft").getAttribute("aria-label");
+  expect(labelA).not.toEqual(labelB);
+
+  // The regression this guards against: getByLabel resolving to more than
+  // one element because both rows' accessible names collided.
+  await expect(page.getByLabel(labelA)).toHaveCount(1);
+  await expect(page.getByLabel(labelB)).toHaveCount(1);
+});
+
+test("a draft opened by link (never created locally) shows Forget but not Delete", async ({ page }) => {
+  await seed(page, []);
+  await page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: [] } }));
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: draftState() }));
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+  await waitForRegistryWrite(page);
+
+  await page.goto("/drafts");
+  const row = page.getByTestId("draft-row").first();
+  await expect(row.getByTestId("forget-draft")).toBeVisible();
+  await expect(row.getByTestId("delete-draft")).toHaveCount(0);
+});
+
+test("a draft created through the New Draft flow shows both Forget and Delete", async ({ page }) => {
+  const NEW_ID = "new-draft-owned-xyz";
+  await page.route(`${DRAFTS_API}/drafts`, async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ json: { draftId: NEW_ID } });
+    } else {
+      await route.fallback();
+    }
+  });
+  await page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: [] } }));
+  await page.route(`${API}/drafts/${NEW_ID}`, (r) =>
+    r.fulfill({
+      json: {
+        draftId: NEW_ID,
+        sport: "nfl",
+        format: "standard",
+        year: 2025,
+        teams: 12,
+        rounds: 15,
+        userTeam: 1,
+        rosterSlots: [],
+        boardId: null,
+        picked: [],
+        currentIndex: 0,
+        currentRound: 1,
+        currentPick: 1,
+        currentTeam: 1,
+        completed: false,
+        picks: [],
+      },
+    })
+  );
+
+  await page.goto("/draft/new");
+  await page.getByRole("button", { name: /Start Mock Draft/i }).click();
+  await expect(page).toHaveURL(`/draft/${NEW_ID}`);
+
+  // Prove the ownership flag survives the real sequence: NewDraft.jsx marks
+  // it owned at creation, then the draft page mounts and its
+  // useRememberDraft effect fires -- a full-replace rememberDraft call that
+  // does not itself know about ownership. If the flag were not carried
+  // forward, it would be erased right here, before this test ever reaches
+  // /drafts.
+  await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+  await waitForRegistryWrite(page);
+
+  await page.goto("/drafts");
+  const row = page.getByTestId("draft-row").first();
+  await expect(row.getByTestId("forget-draft")).toBeVisible();
+  await expect(row.getByTestId("delete-draft")).toBeVisible();
+});
+
+test("a legacy entry with no owned key shows Forget but not Delete", async ({ page }) => {
+  const legacy = { ...IN_PROGRESS };
+  delete legacy.owned;
+  await seed(page, [legacy]);
+  await page.goto("/drafts");
+
+  const row = page.getByTestId("draft-row").first();
+  await expect(row.getByTestId("forget-draft")).toBeVisible();
+  await expect(row.getByTestId("delete-draft")).toHaveCount(0);
 });
 
 test("screenshot — my drafts", async ({ page }) => {
