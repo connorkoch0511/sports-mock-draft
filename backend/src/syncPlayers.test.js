@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const {
+  handler,
   STATS_FIELDS,
   pickStats,
   hasPlayedGames,
@@ -84,4 +85,12 @@ test("resolveStatsSeason reports the season it actually used", () => {
   return resolveStatsSeason(2026, async (y) => seasons[y] || {}).then((r) => {
     assert.strictEqual(r.season, 2025);
   });
+});
+
+test("the Lambda entry point is still exported", () => {
+  // template.yaml invokes this as syncPlayers.handler. Adding test exports by
+  // assigning a fresh object to module.exports would drop it, silently break
+  // the nightly sync that rewrites the entire players table, and leave every
+  // other test in this file passing. This is the one assertion that notices.
+  assert.strictEqual(typeof handler, "function");
 });
