@@ -1,4 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
 
 const IN_PROGRESS = {
   id: "draft-in-progress",
@@ -268,4 +273,102 @@ test("loading a draft does not write to storage once per render", async ({ page 
 
   await row.getByRole("link").first().click();
   await expect(page).toHaveURL(new RegExp(`/draft/${DRAFT_ID}/results$`));
+});
+
+const DRAFTS_API = "http://localhost:9999";
+
+test("delete removes the draft server-side and drops the row", async ({ page }) => {
+  await seed(page, [IN_PROGRESS]);
+  let deleted = null;
+  await page.route(`${DRAFTS_API}/drafts/${IN_PROGRESS.id}`, (route) => {
+    if (route.request().method() === "DELETE") {
+      deleted = route.request().url();
+      return route.fulfill({ json: { ok: true } });
+    }
+    return route.fallback();
+  });
+  page.on("dialog", (d) => d.accept());
+
+  await page.goto("/drafts");
+  await page.getByTestId("draft-row").first().getByTestId("delete-draft").click();
+
+  await expect(page.getByTestId("draft-row")).toHaveCount(0);
+  expect(deleted).toContain(IN_PROGRESS.id);
+});
+
+test("dismissing the confirmation deletes nothing", async ({ page }) => {
+  await seed(page, [IN_PROGRESS]);
+  let called = false;
+  await page.route(`${DRAFTS_API}/drafts/${IN_PROGRESS.id}`, (route) => {
+    if (route.request().method() === "DELETE") called = true;
+    return route.fulfill({ json: { ok: true } });
+  });
+  page.on("dialog", (d) => d.dismiss());
+
+  await page.goto("/drafts");
+  await page.getByTestId("draft-row").first().getByTestId("delete-draft").click();
+
+  await expect(page.getByTestId("draft-row")).toHaveCount(1);
+  expect(called, "no request should be made when the confirmation is dismissed").toBe(false);
+});
+
+test("a failed delete leaves the row listed and says so", async ({ page }) => {
+  await seed(page, [IN_PROGRESS]);
+  await page.route(`${DRAFTS_API}/drafts/${IN_PROGRESS.id}`, (route) => {
+    if (route.request().method() === "DELETE") {
+      return route.fulfill({ status: 500, json: { error: "Server error" } });
+    }
+    return route.fallback();
+  });
+  page.on("dialog", (d) => d.accept());
+
+  await page.goto("/drafts");
+  await page.getByTestId("draft-row").first().getByTestId("delete-draft").click();
+
+  await expect(page.getByTestId("draft-row")).toHaveCount(1);
+  await expect(page.getByTestId("my-drafts-error")).toBeVisible();
+});
+
+test("forget makes no network request at all", async ({ page }) => {
+  await seed(page, [IN_PROGRESS]);
+  let requests = 0;
+  await page.route(`${DRAFTS_API}/**`, (route) => {
+    requests += 1;
+    return route.fulfill({ json: {} });
+  });
+
+  await page.goto("/drafts");
+  await page.getByTestId("draft-row").first().getByTestId("forget-draft").click();
+
+  await expect(page.getByTestId("draft-row")).toHaveCount(0);
+  expect(requests, "forget must stay local -- it is not delete").toBe(0);
+});
+
+test("relative time floors rather than rounds", async ({ page }) => {
+  const fortyFiveMinutes = { ...IN_PROGRESS, updatedAt: Date.now() - 45 * 60 * 1000 };
+  await seed(page, [fortyFiveMinutes]);
+
+  await page.goto("/drafts");
+
+  // 45 minutes is 45m, not "1h ago".
+  await expect(page.getByTestId("draft-row").first()).toContainText("45m ago");
+});
+
+test("the remove controls describe the draft, not its id", async ({ page }) => {
+  await seed(page, [IN_PROGRESS]);
+  await page.goto("/drafts");
+
+  const row = page.getByTestId("draft-row").first();
+  for (const id of ["forget-draft", "delete-draft"]) {
+    const label = await row.getByTestId(id).getAttribute("aria-label");
+    expect(label, `${id} aria-label`).not.toContain(IN_PROGRESS.id);
+    expect(label, `${id} aria-label`).toMatch(/ppr/i);
+  }
+});
+
+test("screenshot — my drafts", async ({ page }) => {
+  await seed(page, [IN_PROGRESS, COMPLETED]);
+  await page.goto("/drafts");
+  await expect(page.getByTestId("my-drafts-list")).toBeVisible();
+  await page.screenshot({ path: `${SCREENSHOTS}/drafts.png`, fullPage: false });
 });
