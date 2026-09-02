@@ -62,3 +62,56 @@ test("no unscoreable note when every pick has an ADP", async ({ page }) => {
   await openResults(page, makeCompletedDraft(), "?view=analysis");
   await expect(page.getByTestId("unscoreable-note")).toHaveCount(0);
 });
+
+test("a completed draft links to its analysis from My Drafts", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "perfectpick.myDrafts",
+      JSON.stringify([
+        {
+          id: "test-draft-abc123",
+          teams: 4,
+          rounds: 3,
+          format: "standard",
+          userTeam: 1,
+          boardId: null,
+          completed: true,
+          owned: true,
+          updatedAt: Date.now(),
+        },
+      ])
+    )
+  );
+
+  await page.goto("/drafts");
+  await page.getByTestId("analysis-link").click();
+
+  await expect(page).toHaveURL(/\/draft\/test-draft-abc123\/results\?view=analysis$/);
+});
+
+test("an in-progress draft has no analysis link", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "perfectpick.myDrafts",
+      JSON.stringify([
+        {
+          id: "in-progress-1",
+          teams: 4,
+          rounds: 3,
+          format: "standard",
+          userTeam: 1,
+          boardId: null,
+          completed: false,
+          owned: true,
+          updatedAt: Date.now(),
+        },
+      ])
+    )
+  );
+
+  await page.goto("/drafts");
+  await expect(page.getByTestId("draft-row")).toHaveCount(1);
+  await expect(page.getByTestId("analysis-link")).toHaveCount(0);
+});

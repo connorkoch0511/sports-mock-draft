@@ -115,6 +115,16 @@ export default function MyDrafts() {
                     {boardName ? ` · off ${boardName}` : ""} · {relativeTime(d.updatedAt)}
                   </div>
                 </Link>
+                {d.completed && (
+                  <Link
+                    to={`/draft/${d.id}/results?view=analysis`}
+                    data-testid="analysis-link"
+                    aria-label={`Analysis of ${describe(d)} draft`}
+                    className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-400 hover:border-cyan-300/40 hover:text-cyan-200"
+                  >
+                    Analysis
+                  </Link>
+                )}
                 <button
                   type="button"
                   onClick={() => forget(d.id)}
