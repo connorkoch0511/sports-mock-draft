@@ -200,4 +200,80 @@ test.describe("Draft page", () => {
 
     await page.screenshot({ path: `${SCREENSHOTS}/draft.png`, fullPage: false });
   });
+
+});
+
+// --- Pinning the Big Board row before it is restructured -------------------
+//
+// Every manual pick goes through this row. It is one <button> calling
+// makePick, and the advice work turns it into a container holding that button
+// plus a separate control. These three describe what it does today and must
+// pass UNMODIFIED afterwards -- needing to edit one is the signal that
+// something moved which should not have.
+//
+// Note: no Pause click. canManualPick is `!paused && !busy && !completed &&
+// isMyTurn`, so pausing disables the row for your own turn too.
+
+test("clicking a Big Board row drafts that player", async ({ page }) => {
+  const state = makeDraftState({ currentIndex: 0 });
+  page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
+  page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+
+  let picked = null;
+  page.route(`${API}/drafts/${DRAFT_ID}/pick`, (r) => {
+    picked = JSON.parse(r.request().postData() || "{}").playerId;
+    return r.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
+  await expect(row).toBeEnabled();
+  await row.click();
+
+  await expect(() => expect(picked).toBe("p1")).toPass();
+});
+
+test("Big Board rows are disabled when picking is not allowed", async ({ page }) => {
+  // Pause is the stable way to reach canManualPick === false. Driving it via
+  // "not your turn" instead would let the autopick effect loop against a
+  // static mock, and the row would end up disabled by `busy` rather than by
+  // the condition under test.
+  const state = makeDraftState({ currentIndex: 0 });
+  page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
+  page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+
+  let calls = 0;
+  page.route(`${API}/drafts/${DRAFT_ID}/pick`, (r) => {
+    calls += 1;
+    return r.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
+  await expect(row).toBeEnabled();
+
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  await expect(row).toBeDisabled();
+  expect(calls).toBe(0);
+});
+
+test("a Big Board row can be drafted from the keyboard", async ({ page }) => {
+  const state = makeDraftState({ currentIndex: 0 });
+  page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
+  page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+
+  let picked = null;
+  page.route(`${API}/drafts/${DRAFT_ID}/pick`, (r) => {
+    picked = JSON.parse(r.request().postData() || "{}").playerId;
+    return r.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
+  await expect(row).toBeEnabled();
+  await row.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(() => expect(picked).toBe("p1")).toPass();
 });
