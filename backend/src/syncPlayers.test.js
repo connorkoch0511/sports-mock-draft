@@ -162,3 +162,34 @@ test("pickStats returns stats once gp > 0, even with only one other curated fiel
   const out = pickStats({ gp: 1, pos_rank_ppr: 667 });
   assert.deepStrictEqual(out, { gp: 1, pos_rank_ppr: 667 });
 });
+
+const { pickAvailability } = require("./syncPlayers");
+
+test("pickAvailability keeps an injury status and body part", () => {
+  const out = pickAvailability({ injury_status: "Questionable", injury_body_part: "Hamstring" });
+  assert.strictEqual(out.injuryStatus, "Questionable");
+  assert.strictEqual(out.injuryBodyPart, "Hamstring");
+});
+
+test("pickAvailability keeps a depth chart order", () => {
+  assert.strictEqual(pickAvailability({ depth_chart_order: 2 }).depthChartOrder, 2);
+});
+
+test("pickAvailability omits what the source does not have", () => {
+  const out = pickAvailability({ injury_status: "IR" });
+  assert.ok(!("injuryBodyPart" in out));
+  assert.ok(!("depthChartOrder" in out));
+});
+
+test("pickAvailability returns null for a healthy player with no depth entry", () => {
+  // The overwhelming majority. Returning {} would add a key to ~2,200 items
+  // for no information.
+  assert.strictEqual(pickAvailability({}), null);
+  assert.strictEqual(pickAvailability(null), null);
+});
+
+test("pickAvailability ignores practice_participation", () => {
+  // Measured empty for every injured player in the live blob.
+  const out = pickAvailability({ practice_participation: "Limited" });
+  assert.strictEqual(out, null);
+});

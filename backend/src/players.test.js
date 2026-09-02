@@ -245,3 +245,42 @@ test("the seven existing fields are unchanged when stats are present", () => {
     }
   });
 });
+
+test("a ranked player's availability fields are returned", () => {
+  stubPages([
+    {
+      Items: [
+        { ...player("a", 1), injuryStatus: "Questionable", injuryBodyPart: "Hamstring", depthChartOrder: 1 },
+      ],
+    },
+  ]);
+
+  return get().then(({ body }) => {
+    assert.strictEqual(body.players[0].injuryStatus, "Questionable");
+    assert.strictEqual(body.players[0].injuryBodyPart, "Hamstring");
+    assert.strictEqual(body.players[0].depthChartOrder, 1);
+  });
+});
+
+test("availability keys are absent when the item has none", () => {
+  stubPages([{ Items: [player("a", 1)] }]);
+
+  return get().then(({ body }) => {
+    for (const k of ["injuryStatus", "injuryBodyPart", "depthChartOrder"]) {
+      assert.ok(!(k in body.players[0]), `${k} should not appear`);
+    }
+  });
+});
+
+test("an unranked player carries no availability fields", () => {
+  // Same rule as stats: ranked players only, so the payload does not grow for
+  // the ~3,600 nobody drafts.
+  const unranked = player("b", 0, { rank: {}, adp: {}, tier: {} });
+  unranked.injuryStatus = "IR";
+
+  stubPages([{ Items: [unranked] }]);
+
+  return get().then(({ body }) => {
+    assert.ok(!("injuryStatus" in body.players[0]));
+  });
+});
