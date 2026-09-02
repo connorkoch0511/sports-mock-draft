@@ -95,7 +95,7 @@ export default function NewDraft() {
     }
   };
 
-  const useLeague = async (league) => {
+  const applyLeague = async (league) => {
     setSleeperErr("");
     try {
       const draft = await fetchLeagueDraft(league.league_id);
@@ -161,7 +161,7 @@ export default function NewDraft() {
               <li key={l.league_id}>
                 <button
                   type="button"
-                  onClick={() => useLeague(l)}
+                  onClick={() => applyLeague(l)}
                   className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-left text-sm text-zinc-200 hover:border-cyan-300/60"
                 >
                   {l.name}
