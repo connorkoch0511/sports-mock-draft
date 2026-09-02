@@ -47,12 +47,36 @@ keeps the `/players` payload close to what it is today. That matters: `status`,
 `updatedAt` and `playerId` were deliberately trimmed from that response during the
 compression work, and undoing that saving would be a regression.
 
+### Production data, which this spec originally said was unavailable
+
+**This section previously claimed the app had no snap share, target volume, or performance
+data of any kind.** That was wrong. It was checked after this spec was approved, and Sleeper
+publishes season stats on the same free endpoint the sync already calls. They are now synced
+and live: a ranked player carries `stats` and `statsSeason`, joined at 269 of 269 with zero
+misses.
+
+So the advice can reason about what a player actually did, not only where he was drafted:
+
+| Signal | From |
+|---|---|
+| Opportunity | `rec_tgt`, `rush_att` |
+| Snap share | `off_snp` / `tm_off_snp` |
+| Scoring chances | `rec_rz_tgt` |
+| Last season's finish | `pos_rank_ppr`, `pts_ppr` |
+| Durability | `gp` |
+
+**Absence is itself a signal.** 35 ranked players carry no stats at all, because they are
+rookies or did not play in 2025 — Jeremiyah Love, Carnell Tate, Ricky Pearsall. "No prior
+production" is a real thing to tell a drafter, and the sync now guarantees it means exactly
+that: `pickStats` requires games played, so a stats object is never manufactured for someone
+who never took a snap.
+
 ### What it still cannot do
 
-No projections, no snap share, no target volume, no bye weeks. This gives **draft-strategy
-reasoning** — value, scarcity, need, tier cliffs, availability — not player-performance
-analysis. The recommendation will be explicit about that rather than implying it knows
-more than it does.
+No projections and no bye weeks. Everything here is **prior-season history plus current
+draft context** — what a player did and where he sits now, never a forecast. Last year's RB1
+on a new team behind a new line is exactly where that distinction bites, so the season
+travels with every stat-derived reason and the page says which year it is showing.
 
 ---
 
@@ -114,7 +138,13 @@ Factors:
   pick, derived from `picksForSlot` in `snake.js`.
 - **Tier cliff** — the tier gap between this player and the next available at his position.
 - **Availability** — a hard penalty for IR and Out, a soft one for Questionable, naming the
-  body part when known. A large depth-chart order is a mild negative.
+  body part when known. A large depth-chart order is a mild negative. **These fields are not
+  yet synced** — `injuryStatus`, `injuryBodyPart` and `depthChartOrder` appear nowhere in
+  `syncPlayers.js` or `players.js` today, so this work still includes that backend change.
+- **Production** — opportunity and efficiency from the season stats now on every ranked
+  player: target or carry volume, snap share, red-zone looks, and last season's positional
+  finish. A ranked player with **no** stats gets an explicit "no prior production" note
+  rather than silence, since 35 of them are rookies or did not play.
 
 ### `frontend/src/pages/Draft.jsx`
 
