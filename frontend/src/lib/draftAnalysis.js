@@ -58,8 +58,18 @@ export function analyzeDraft(draft) {
 
   const yours = teams.find((t) => t.team === userTeam) || null;
 
+  // A rank is only meaningful when every team has had the same number of
+  // picks. Mid-draft, a team yet to pick scores 0 and sorts above anyone
+  // negative, so an unstarted draft would read "1 of 12".
+  // ...and only once somebody has actually picked: with zero picks every team
+  // ties at 0, which is equal but says nothing.
+  const counts = teams.map((t) => t.picks.length);
+  const comparable =
+    counts.length > 0 && counts[0] > 0 && counts.every((c) => c === counts[0]);
+
   return {
     scoreable,
+    comparable,
     teams,
     you: yours
       ? {

@@ -245,8 +245,10 @@ export default function Results() {
                 </span>
               </div>
               <div className="mt-1 text-sm text-zinc-400">
-                {a.you.rank} of {a.teams.length} in this draft. Positive means players
-                fell to you; negative means you reached.
+                {a.comparable
+                  ? `${a.you.rank} of ${a.teams.length} in this draft. `
+                  : "Ranking waits until every team has had the same number of picks. "}
+                Positive means players fell to you; negative means you reached.
               </div>
               {a.scoreable.without > 0 && (
                 <div data-testid="unscoreable-note" className="mt-2 text-xs text-zinc-500">
@@ -296,7 +298,30 @@ export default function Results() {
                   Unfilled: {a.you.rosterShape.unfilled.join(", ")}
                 </div>
               )}
+              {a.you.rosterShape.extra.length > 0 && (
+                <div data-testid="roster-extra" className="mt-1 text-xs text-zinc-500">
+                  No slot for:{" "}
+                  {a.you.rosterShape.extra
+                    .map((e) => `${e.count} ${e.position}`)
+                    .join(", ")}
+                </div>
+              )}
             </div>
+
+            {Object.keys(a.you.tierCounts).length > 0 && (
+              <div data-testid="tier-haul" className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+                <div className="text-sm text-zinc-400">Tier haul</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {Object.entries(a.you.tierCounts)
+                    .sort(([x], [y]) => Number(x) - Number(y))
+                    .map(([tier, count]) => (
+                      <span key={tier} className="rounded-2xl border border-zinc-800 px-3 py-1 text-xs text-zinc-300">
+                        Tier {tier}: <span className="font-medium text-zinc-100">{count}</span>
+                      </span>
+                    ))}
+                </div>
+              </div>
+            )}
 
             {a.you.longestWait && (
               <div className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">

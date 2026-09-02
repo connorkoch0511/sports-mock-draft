@@ -1,6 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { DRAFT_ID, makeCompletedDraft } from "./fixtures.js";
 
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
+
 const API = "http://localhost:9999";
 
 async function openResults(page, draft = makeCompletedDraft(), query = "") {
@@ -168,4 +174,49 @@ test("an unrelated query parameter survives switching tabs", async ({ page }) =>
   await page.getByTestId("view-tab-picks").click();
   await expect(page).toHaveURL(/keep=me/);
   await expect(page).not.toHaveURL(/view=/);
+});
+
+test("the tier haul is shown", async ({ page }) => {
+  await openResults(page, makeCompletedDraft(), "?view=analysis");
+  // The fixture's first twelve players are all tier 1 or 2.
+  await expect(page.getByTestId("tier-haul")).toContainText("Tier 1");
+});
+
+test("players with no roster slot are named", async ({ page }) => {
+  const draft = makeCompletedDraft();
+  // One dedicated RB slot, but team 1 drafts three players -- two have nowhere
+  // to go, and the page should say so rather than silently dropping them.
+  draft.rosterSlots = ["RB"];
+  await openResults(page, draft, "?view=analysis");
+
+  await expect(page.getByTestId("roster-extra")).toBeVisible();
+});
+
+test("no rank is claimed while the teams have picked unequally", async ({ page }) => {
+  const draft = makeCompletedDraft();
+  // Strip team 2's picks so the pick counts are uneven.
+  draft.picks = draft.picks.filter((p) => p.team !== 2);
+  draft.completed = false;
+
+  await openResults(page, draft, "?view=analysis");
+  const panel = page.getByTestId("analysis-panel");
+
+  await expect(panel).toContainText(/Ranking waits until/i);
+  await expect(panel).not.toContainText(/of 4 in this draft/i);
+});
+
+test("a rank is claimed once every team has picked equally", async ({ page }) => {
+  await openResults(page, makeCompletedDraft(), "?view=analysis");
+  await expect(page.getByTestId("analysis-panel")).toContainText("4 of 4 in this draft");
+});
+
+test("screenshot — draft analysis", async ({ page }) => {
+  // The shell is h-dvh and the routes wrapper scrolls, so the document is
+  // always viewport height and fullPage captures nothing extra. Grow the
+  // viewport instead.
+  await page.setViewportSize({ width: 1280, height: 1010 });
+  await openResults(page, makeCompletedDraft(), "?view=analysis");
+  await expect(page.getByTestId("analysis-panel")).toBeVisible();
+
+  await page.screenshot({ path: `${SCREENSHOTS}/analysis.png`, fullPage: false });
 });

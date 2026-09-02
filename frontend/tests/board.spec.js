@@ -1,5 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { BOARD_ID, makeBoardState } from "./fixtures.js";
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
+
 
 async function mockBoard(page, state, { onSave } = {}) {
   await page.route(`**/boards/${BOARD_ID}`, async (route) => {
@@ -177,4 +183,36 @@ test("a successful save clears a stale conflict notice", async ({ page }) => {
 
   await expect(page.getByTestId("save-status")).toContainText("Saved", { timeout: 5000 });
   await expect(page.getByText("changed elsewhere")).toHaveCount(0);
+});
+
+test("screenshot — board editor", async ({ page }) => {
+  // The shell is h-dvh and the routes wrapper scrolls, so the document is
+  // always viewport height and fullPage captures nothing extra. Grow the
+  // viewport instead.
+  await page.setViewportSize({ width: 1280, height: 1010 });
+  await mockBoard(page, makeBoardState());
+  await page.goto(`/board/${BOARD_ID}`);
+  await expect(page.getByTestId("board-row").first()).toBeVisible();
+
+  await page.screenshot({ path: `${SCREENSHOTS}/board.png`, fullPage: false });
+});
+
+test("screenshot — boards list", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(
+    (id) =>
+      localStorage.setItem(
+        "perfectpick.myBoards",
+        JSON.stringify([
+          { id, name: "My PPR Board", format: "ppr", updatedAt: Date.now() },
+          { id: "b2", name: "Standard Sleepers", format: "standard", updatedAt: Date.now() - 90000 },
+        ])
+      ),
+    BOARD_ID
+  );
+
+  await page.goto("/boards");
+  await expect(page.getByTestId("board-list")).toBeVisible();
+
+  await page.screenshot({ path: `${SCREENSHOTS}/boards.png`, fullPage: false });
 });
