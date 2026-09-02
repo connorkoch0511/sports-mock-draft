@@ -43,7 +43,12 @@ test.describe("Draft page", () => {
     await page.getByPlaceholder("Search player…").fill("Kelce");
 
     await expect(page.getByText("Travis Kelce").first()).toBeVisible();
-    await expect(page.getByText("Christian McCaffrey")).not.toBeVisible();
+    // Scoped to the board: this test is about which ROWS survive the filter.
+    // Asserting against the whole page also asserted that nothing else on it
+    // mentions the player, which is a claim this test never meant to make.
+    await expect(
+      page.getByTestId("big-board-row").filter({ hasText: "Christian McCaffrey" })
+    ).toHaveCount(0);
   });
 
   test("position filter shows only selected position", async ({ page }) => {
@@ -57,7 +62,10 @@ test.describe("Draft page", () => {
 
     await expect(page.getByText("Josh Allen").first()).toBeVisible();
     await expect(page.getByText("Lamar Jackson").first()).toBeVisible();
-    await expect(page.getByText("Christian McCaffrey")).not.toBeVisible();
+    // Scoped to the board, for the same reason as the search test above.
+    await expect(
+      page.getByTestId("big-board-row").filter({ hasText: "Christian McCaffrey" })
+    ).toHaveCount(0);
   });
 
   test("pause and resume toggle button label", async ({ page }) => {
@@ -188,9 +196,35 @@ test.describe("Draft page", () => {
     await expect(page.getByText("T1").first()).toBeVisible();
   });
 
+  // The README's front-page image. The shared pool carries no stat lines, so
+  // the suggestion card read "No prior season of production on record: a
+  // rookie, or he did not play." about Christian McCaffrey -- true of the
+  // fixture, and nonsense to anyone who knows football. The pool is fixed
+  // here rather than in fixtures.js: MOCK_PLAYERS is shared by a dozen specs
+  // and its ADPs, ranks and tiers are load-bearing for them.
   test("screenshot — draft page (paused, team 1 on clock)", async ({ page }) => {
     const state = makeDraftState({ currentIndex: 0 });
-    mockDraftApis(page, state);
+    // The season before the fixture's draft year, which is what the engine
+    // reasons from and says out loud.
+    const LAST_SEASON = state.year - 1;
+    const pool = MOCK_PLAYERS.map((p) =>
+      p.id === "p1"
+        ? {
+            ...p,
+            statsSeason: LAST_SEASON,
+            stats: {
+              rush_att: 272,
+              rec_tgt: 83,
+              off_snp: 715,
+              tm_off_snp: 1024,
+              rec_rz_tgt: 12,
+              pos_rank_ppr: 1,
+            },
+          }
+        : p
+    );
+    page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: pool } }));
+    page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
 
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
@@ -198,6 +232,90 @@ test.describe("Draft page", () => {
     await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
     await expect(page.getByText("Christian McCaffrey").first()).toBeVisible();
 
+    // The image is only worth shipping if the card is in it saying something
+    // real, so the shot waits for the stat-derived reason rather than for
+    // the card alone.
+    const card = page.getByTestId("advice-card");
+    await expect(card).toContainText("Christian McCaffrey");
+    await expect(card).toContainText(`Finished RB1 in PPR scoring in ${LAST_SEASON}.`);
+    await expect(card).not.toContainText("No prior season of production");
+
     await page.screenshot({ path: `${SCREENSHOTS}/draft.png`, fullPage: false });
   });
+
+});
+
+// --- Pinning the Big Board row before it is restructured -------------------
+//
+// Every manual pick goes through this row. It is one <button> calling
+// makePick, and the advice work turns it into a container holding that button
+// plus a separate control. These three describe what it does today and must
+// pass UNMODIFIED afterwards -- needing to edit one is the signal that
+// something moved which should not have.
+//
+// Note: no Pause click. canManualPick is `!paused && !busy && !completed &&
+// isMyTurn`, so pausing disables the row for your own turn too.
+
+test("clicking a Big Board row drafts that player", async ({ page }) => {
+  const state = makeDraftState({ currentIndex: 0 });
+  page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
+  page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+
+  let picked = null;
+  page.route(`${API}/drafts/${DRAFT_ID}/pick`, (r) => {
+    picked = JSON.parse(r.request().postData() || "{}").playerId;
+    return r.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
+  await expect(row).toBeEnabled();
+  await row.click();
+
+  await expect(() => expect(picked).toBe("p1")).toPass();
+});
+
+test("Big Board rows are disabled when picking is not allowed", async ({ page }) => {
+  // Pause is the stable way to reach canManualPick === false. Driving it via
+  // "not your turn" instead would let the autopick effect loop against a
+  // static mock, and the row would end up disabled by `busy` rather than by
+  // the condition under test.
+  const state = makeDraftState({ currentIndex: 0 });
+  page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
+  page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+
+  let calls = 0;
+  page.route(`${API}/drafts/${DRAFT_ID}/pick`, (r) => {
+    calls += 1;
+    return r.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
+  await expect(row).toBeEnabled();
+
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  await expect(row).toBeDisabled();
+  expect(calls).toBe(0);
+});
+
+test("a Big Board row can be drafted from the keyboard", async ({ page }) => {
+  const state = makeDraftState({ currentIndex: 0 });
+  page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
+  page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+
+  let picked = null;
+  page.route(`${API}/drafts/${DRAFT_ID}/pick`, (r) => {
+    picked = JSON.parse(r.request().postData() || "{}").playerId;
+    return r.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
+  await expect(row).toBeEnabled();
+  await row.focus();
+  await page.keyboard.press("Enter");
+
+  await expect(() => expect(picked).toBe("p1")).toPass();
 });

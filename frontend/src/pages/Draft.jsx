@@ -4,6 +4,7 @@ import { apiGet, apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { orderByBoard } from "../lib/boardOrder";
 import { useRememberDraft } from "../lib/useRememberDraft";
+import { adviseOnPick, NO_ADVICE } from "../lib/pickAdvice";
 
 const PICK_SECONDS = 60;
 
@@ -14,6 +15,75 @@ function Pill({ children }) {
     </span>
   );
 }
+
+/**
+ * A weight as the reader should see it: signed, one decimal at most, and
+ * never a bare "-0". Weights arrive as the score contribution that produced
+ * the reason, and sums of one-decimal numbers drift, so this rounds rather
+ * than trusting the number to already be presentable. A weight that is not a
+ * number at all gets a dash instead of "NaN".
+ */
+function formatWeight(weight) {
+  const n = Number(weight);
+  if (!Number.isFinite(n)) return "—";
+  const rounded = Math.round(n * 10) / 10 || 0; // `|| 0` also flattens -0
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+}
+
+/**
+ * The reasons behind a player, drawbacks included.
+ *
+ * A negative weight is shown as a negative, not hidden and not softened: the
+ * engine recommends players in spite of their drawbacks and says so, and a
+ * card that only ever shows the good news is not worth reading.
+ */
+function ReasonList({ reasons, emptyText = SCORED_NOTHING }) {
+  const list = Array.isArray(reasons) ? reasons : [];
+
+  if (list.length === 0) {
+    return <p className="text-[11px] leading-snug text-zinc-500">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="space-y-1">
+      {list.map((r, i) => {
+        const n = Number(r?.weight);
+        const helps = Number.isFinite(n) && n > 0;
+        return (
+          <li
+            key={`${r?.kind ?? "reason"}-${i}`}
+            data-testid="advice-reason"
+            className="flex items-start gap-2 text-[11px] leading-snug"
+          >
+            <span
+              className={[
+                "shrink-0 rounded-full border px-1.5 py-0.5 tabular-nums",
+                helps
+                  ? "border-emerald-900/60 bg-emerald-950/40 text-emerald-300"
+                  : "border-rose-900/60 bg-rose-950/40 text-rose-300",
+              ].join(" ")}
+            >
+              {formatWeight(r?.weight)}
+            </span>
+            <span className="text-zinc-300">{String(r?.text ?? "")}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * Two different facts, and they must not share a sentence. The first is a
+ * result -- the engine weighed this player and nothing moved him. The second
+ * is the absence of a result: on a completed draft (or before a draft loads)
+ * the engine does not run at all, and saying he "moves neither way" would
+ * claim an evaluation that never happened.
+ */
+const SCORED_NOTHING = "Nothing about this player moves him either way.";
+const NOT_EVALUATED = "No pick is on the clock, so nobody has been evaluated.";
+
+const ADVICE_BASIS = "Weighed from draft strategy and last season's production. Not a projection.";
 
 export default function Draft() {
   const { draftId } = useParams();
@@ -28,6 +98,7 @@ export default function Draft() {
   const [boardRows, setBoardRows] = useState(null);
   const [boardFailed, setBoardFailed] = useState(false);
   const [boardMeta, setBoardMeta] = useState(null);
+  const [whyId, setWhyId] = useState(null);
 
   // Timer + pause
   const [paused, setPaused] = useState(false);
@@ -114,6 +185,28 @@ export default function Draft() {
   const pagedPlayers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   useEffect(() => { setPage(0); }, [query, pos]);
+
+  // Advice is computed once per pick, never per keystroke. `filtered` re-runs
+  // on every character typed into the search box; the engine walks the whole
+  // pool (~54ms on production data), and it must see that whole pool -- its
+  // scarcity model derives the startable window from it, so handing it a
+  // pre-filtered list silently refills that window and the scarcity reasons
+  // stop firing. So: the full `players`, and deps that only move when the
+  // draft itself does.
+  //
+  // And only when somebody is going to read it. The card is for the user's
+  // own turn, and a why panel is either open or it is not; the app auto-picks
+  // the other eleven teams, so this skips the engine on eleven of every
+  // twelve picks rather than scoring the whole pool for a card nobody sees.
+  const adviceWanted = isMyTurn || whyId != null;
+  const advice = useMemo(
+    () => (adviceWanted ? adviseOnPick({ players, draft, boardRows, myTeam }) : NO_ADVICE),
+    [adviceWanted, players, draft, boardRows, myTeam]
+  );
+  const recommendation = advice.recommendation;
+  // An empty `ranked` means the engine never ran, which is a different thing
+  // from it running and finding nothing to say about a player.
+  const playersWereEvaluated = advice.ranked.length > 0;
 
   const playersById = useMemo(() => {
     const m = new Map();
@@ -354,6 +447,40 @@ export default function Draft() {
               </div>
             )}
 
+            {/*
+              Only on the user's own clock. The engine weighs value and
+              scarcity against the USER's next pick, so on somebody else's
+              turn the card would be advising a decision that is not being
+              made, with the numbers taken from the wrong pick.
+
+              Not filtered, though: the card is not a row. It sits above the
+              search box in its own container, so hiding it on a keystroke
+              yanks the input out from under the caret -- and filtering to a
+              position is how you ask "who should I take at RB?", which is
+              the worst possible moment to delete the answer. It prints the
+              position and team, so it is never pointing at nothing.
+            */}
+            {isMyTurn && recommendation ? (
+              <div
+                data-testid="advice-card"
+                className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 space-y-2"
+              >
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
+                    Suggested pick
+                  </span>
+                  <span className="text-[11px] text-zinc-400">
+                    {recommendation.player.position} · {recommendation.player.team}
+                  </span>
+                </div>
+                <div className="text-sm font-semibold text-zinc-100">
+                  {recommendation.player.name}
+                </div>
+                <ReasonList reasons={recommendation.reasons} />
+                <p className="text-[11px] leading-snug text-zinc-500">{ADVICE_BASIS}</p>
+              </div>
+            ) : null}
+
             <div className="flex gap-2">
               <input
                 className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-cyan-300/60 focus:shadow-[0_0_0_4px_rgba(34,211,238,0.10)]"
@@ -415,45 +542,86 @@ export default function Draft() {
 
             <div data-testid="scroll-big-board" className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
               {pagedPlayers.map((p) => (
-                <button
-                  key={p.id}
-                  disabled={!canManualPick}
-                  onClick={() => makePick(p.id)}
-                  className="w-full text-left rounded-2xl border border-zinc-900 bg-black/60 p-3 hover:border-zinc-700 disabled:opacity-50"
-                  title={
-                    canManualPick
-                      ? `Click to draft for Team ${myTeam}`
-                      : draft.completed
-                      ? "Draft completed"
-                      : paused
-                      ? "Paused"
-                      : `You can only draft when Team ${myTeam} is on the clock`
-                  }
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium">
-                      {p.myRank != null
-                        ? `${p.myRank}. `
-                        : p.rank != null
-                        ? `${p.rank}. `
-                        : ""}
-                      {p.name}
-                    </div>
-                    <div className="text-xs text-zinc-400">
-                      {p.adp != null ? `ADP ${p.adp}` : "ADP —"}
-                      {p.delta != null && p.delta !== 0 ? (
-                        <span className={p.delta > 0 ? "ml-1 text-emerald-400" : "ml-1 text-rose-400"}>
-                          {p.delta > 0 ? `+${p.delta}` : p.delta}
-                        </span>
-                      ) : null}
-                    </div>
+                // The row is a container now, not a button: a <button> cannot
+                // nest inside a <button>, and the row needs a second control.
+                // The draft button is untouched -- same disabled, same
+                // onClick, same title, same contents -- and the why control is
+                // overlaid on it rather than placed beside it, so the row
+                // still looks and measures exactly as it did.
+                <div key={p.id} data-testid="big-board-row">
+                  <div className="relative">
+                    <button
+                      disabled={!canManualPick}
+                      onClick={() => makePick(p.id)}
+                      className="w-full text-left rounded-2xl border border-zinc-900 bg-black/60 p-3 hover:border-zinc-700 disabled:opacity-50"
+                      title={
+                        canManualPick
+                          ? `Click to draft for Team ${myTeam}`
+                          : draft.completed
+                          ? "Draft completed"
+                          : paused
+                          ? "Paused"
+                          : `You can only draft when Team ${myTeam} is on the clock`
+                      }
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium">
+                          {p.myRank != null
+                            ? `${p.myRank}. `
+                            : p.rank != null
+                            ? `${p.rank}. `
+                            : ""}
+                          {p.name}
+                        </div>
+                        <div className="text-xs text-zinc-400">
+                          {p.adp != null ? `ADP ${p.adp}` : "ADP —"}
+                          {p.delta != null && p.delta !== 0 ? (
+                            <span className={p.delta > 0 ? "ml-1 text-emerald-400" : "ml-1 text-rose-400"}>
+                              {p.delta > 0 ? `+${p.delta}` : p.delta}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="mt-1 flex gap-2 text-xs text-zinc-300 flex-wrap">
+                        <Pill>{p.position}</Pill>
+                        <Pill>{p.team}</Pill>
+                        {p.tier != null ? <Pill>Tier {p.tier}</Pill> : null}
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      data-testid="why-player"
+                      aria-label={`Why ${p.name}?`}
+                      aria-expanded={whyId === p.id}
+                      onClick={() => setWhyId((cur) => (cur === p.id ? null : p.id))}
+                      title={`Why ${p.name} is here — reading never drafts anybody`}
+                      // The `!`s are not decoration: index.css carries an
+                      // unlayered `button { padding: 0.6em 1.2em; font-size:
+                      // 1em; ... }` from the Vite template, and unlayered CSS
+                      // beats every Tailwind utility whatever its specificity.
+                      // Without them this chip is 82x45 and sits on top of the
+                      // row's ADP.
+                      className="absolute bottom-2 right-2 rounded-full! border! border-zinc-700! bg-zinc-900! px-2! py-0.5! text-[11px]! font-normal! text-zinc-400 hover:text-cyan-200"
+                    >
+                      Why?
+                    </button>
                   </div>
-                  <div className="mt-1 flex gap-2 text-xs text-zinc-300 flex-wrap">
-                    <Pill>{p.position}</Pill>
-                    <Pill>{p.team}</Pill>
-                    {p.tier != null ? <Pill>Tier {p.tier}</Pill> : null}
-                  </div>
-                </button>
+
+                  {whyId === p.id ? (
+                    <div
+                      data-testid="why-panel"
+                      className="mt-2 rounded-2xl border border-cyan-900/50 bg-cyan-950/20 px-3 py-2 space-y-2"
+                    >
+                      <div className="text-xs font-medium text-cyan-100">Why {p.name} is here</div>
+                      <ReasonList
+                        reasons={advice.reasonsFor(p.id)}
+                        emptyText={playersWereEvaluated ? SCORED_NOTHING : NOT_EVALUATED}
+                      />
+                      <p className="text-[11px] leading-snug text-zinc-500">{ADVICE_BASIS}</p>
+                    </div>
+                  ) : null}
+                </div>
               ))}
             </div>
           </div>

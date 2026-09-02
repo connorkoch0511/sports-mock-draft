@@ -48,12 +48,17 @@ exports.handler = async (event) => {
         tier: p.tier?.[format] ?? null,
       };
 
-      // Stats ride along only for players ranked in THIS format. Measured, that
-      // is the difference between a 1.2x and a 1.7x payload, and the unranked
-      // remainder is depth nobody drafts.
+      // Stats and availability ride along only for players ranked in THIS
+      // format. Measured, that is the difference between a 1.2x and a 1.7x
+      // payload, and the unranked remainder is depth nobody drafts.
       if (rank != null && p.stats) {
         out.stats = p.stats;
         out.statsSeason = p.statsSeason;
+      }
+      if (rank != null) {
+        if (p.injuryStatus) out.injuryStatus = p.injuryStatus;
+        if (p.injuryBodyPart) out.injuryBodyPart = p.injuryBodyPart;
+        if (p.depthChartOrder != null) out.depthChartOrder = p.depthChartOrder;
       }
 
       return out;

@@ -280,3 +280,20 @@ test("a draft where nobody has picked is not comparable", () => {
   const d = draftWith([pick(1, 1, null), pick(2, 2, null)]);
   assert.strictEqual(analyzeDraft(d).comparable, false);
 });
+
+import { fitRoster } from "./draftAnalysis.js";
+
+test("fitRoster is exported for reuse, with the same semantics analyzeDraft uses", () => {
+  // The FLEX/BN case, which is what a second copy of this logic would be free
+  // to get wrong again.
+  const picks = [
+    { player: { position: "RB" } },
+    { player: { position: "RB" } },
+    { player: { position: "QB" } },
+  ];
+
+  const shape = fitRoster(picks, ["QB", "RB", "FLEX"]);
+
+  assert.deepStrictEqual(shape.unfilled, []);
+  assert.deepStrictEqual(shape.extra, []);
+});

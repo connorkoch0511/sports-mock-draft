@@ -139,6 +139,8 @@ function normalizeSleeperPlayer(p, playerId) {
     adp: {},
     rank: {},
     tier: {},
+
+    ...(pickAvailability(p) || {}),
   };
 }
 
@@ -241,6 +243,30 @@ function pickStats(raw) {
   for (const f of STATS_FIELDS) {
     const v = raw[f];
     if (typeof v === "number" && Number.isFinite(v)) out[f] = v;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
+// Sleeper carries availability data the app has never kept. Measured on the
+// live blob: injury_status is set for 474 of 2,723 players (IR 223,
+// Questionable 198), depth_chart_order for 1,463. practice_participation is
+// empty for every injured player, so it is deliberately not read.
+//
+// Sparse by nature, so this returns null rather than {} when there is nothing
+// to say -- adding an empty object to ~2,200 healthy players would cost
+// payload for no information.
+function pickAvailability(p) {
+  if (!p || typeof p !== "object") return null;
+
+  const out = {};
+  if (typeof p.injury_status === "string" && p.injury_status) {
+    out.injuryStatus = p.injury_status;
+  }
+  if (typeof p.injury_body_part === "string" && p.injury_body_part) {
+    out.injuryBodyPart = p.injury_body_part;
+  }
+  if (typeof p.depth_chart_order === "number" && Number.isFinite(p.depth_chart_order)) {
+    out.depthChartOrder = p.depth_chart_order;
   }
   return Object.keys(out).length > 0 ? out : null;
 }
@@ -433,3 +459,4 @@ module.exports.pickStats = pickStats;
 module.exports.hasPlayedGames = hasPlayedGames;
 module.exports.resolveStatsSeason = resolveStatsSeason;
 module.exports.mergeStats = mergeStats;
+module.exports.pickAvailability = pickAvailability;
