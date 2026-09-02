@@ -159,3 +159,89 @@ test("OPTIONS returns 200 without querying DynamoDB", async () => {
   assert.strictEqual(res.statusCode, 200);
   assert.strictEqual(stub.calls(), 0);
 });
+
+test("a ranked player with stats gets them, with the season", () => {
+  stubPages([
+    {
+      Items: [
+        {
+          ...player("a", 1),
+          stats: { gp: 17, rec_tgt: 129, pts_ppr: 416.6 },
+          statsSeason: 2025,
+        },
+      ],
+    },
+  ]);
+
+  return get().then(({ body }) => {
+    assert.deepStrictEqual(body.players[0].stats, {
+      gp: 17,
+      rec_tgt: 129,
+      pts_ppr: 416.6,
+    });
+    assert.strictEqual(body.players[0].statsSeason, 2025);
+  });
+});
+
+test("an unranked player gets no stats, even when the item has them", () => {
+  // This rule is what keeps the payload at 1.2x rather than 1.7x.
+  const unranked = player("b", 0, { rank: {}, adp: {}, tier: {} });
+  unranked.stats = { gp: 17 };
+  unranked.statsSeason = 2025;
+
+  stubPages([{ Items: [unranked] }]);
+
+  return get().then(({ body }) => {
+    assert.ok(!("stats" in body.players[0]), "unranked players carry no stats");
+    assert.ok(!("statsSeason" in body.players[0]));
+  });
+});
+
+test("a ranked player with no stats gets neither key", () => {
+  stubPages([{ Items: [player("a", 1)] }]);
+
+  return get().then(({ body }) => {
+    assert.ok(!("stats" in body.players[0]));
+    assert.ok(!("statsSeason" in body.players[0]));
+  });
+});
+
+test("stats follow the format's own rank set, not a global one", () => {
+  // Standard ranks 223 players and PPR ranks 272 in production, so the same
+  // id legitimately carries stats on one format's response and not another's.
+  const pprOnly = {
+    ...player("a", 1),
+    rank: { ppr: 5 },
+    adp: { ppr: 5.5 },
+    tier: { ppr: 1 },
+    stats: { gp: 17 },
+    statsSeason: 2025,
+  };
+
+  stubPages([{ Items: [pprOnly] }]);
+  return get({ format: "ppr" }).then(({ body }) => {
+    assert.strictEqual(body.players[0].statsSeason, 2025, "ranked in ppr, so stats appear");
+
+    mock.restoreAll();
+    stubPages([{ Items: [pprOnly] }]);
+    return get({ format: "standard" }).then((res) => {
+      assert.ok(
+        !("stats" in res.body.players[0]),
+        "not ranked in standard, so no stats on that response"
+      );
+    });
+  });
+});
+
+test("the seven existing fields are unchanged when stats are present", () => {
+  stubPages([
+    { Items: [{ ...player("a", 1), stats: { gp: 17 }, statsSeason: 2025 }] },
+  ]);
+
+  return get().then(({ body }) => {
+    const p = body.players[0];
+    for (const k of ["id", "name", "position", "team", "rank", "adp", "tier"]) {
+      assert.ok(k in p, `${k} must still be present`);
+    }
+  });
+});
