@@ -23,7 +23,8 @@ that reasoning is ever shown.
 Meanwhile the draft page already holds everything needed to reason well: the pool with
 `rank`, `adp` and `tier`; `draft.picked`; every team's roster; the user's board; and
 `rosterSlots`. `draftAnalysis.js` already fits a roster correctly (dedicated → FLEX →
-bench). None of that is used to help the person drafting.
+bench), though that helper is private today and this work needs it exported. None of it is
+used to help the person drafting.
 
 ### What the data supports, measured
 
@@ -104,7 +105,11 @@ Factors:
 - **Value** — `overall − adp` at the current pick, the same convention the analysis page
   uses. Positive means he has fallen.
 - **Need** — whether the player fills a slot the roster still lacks, via the roster fitting
-  already in `draftAnalysis.js`.
+  in `draftAnalysis.js`. **That function is currently private and must be exported**, not
+  copied: it encodes dedicated → FLEX → bench semantics that were wrong until recently, when
+  a complete Sleeper roster was reporting seven unfilled slots and seven surplus players at
+  once. A second copy would be free to drift back into that bug. One implementation, two
+  consumers.
 - **Scarcity** — how many players at that position are likely gone before the user's next
   pick, derived from `picksForSlot` in `snake.js`.
 - **Tier cliff** — the tier gap between this player and the next available at his position.
