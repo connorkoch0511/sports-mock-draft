@@ -49,7 +49,7 @@ people actually want to look at before anyone invests in a data pipeline.
 
 | Signal | Derivation |
 |---|---|
-| Value captured | `player.adp − overall`, summed per team |
+| Value captured | `overall − player.adp`, summed per team |
 | Best pick / biggest reach | The max and min of that delta |
 | Roster shape | Picks by position, against the draft's own `rosterSlots` |
 | Tier haul | `player.tier`, counted |
@@ -143,15 +143,23 @@ untouched, and one added link.
 
 The one real hazard is the arithmetic. Value-against-ADP is the headline number, and a sign
 error would invert every verdict on the page — telling someone they reached when they got
-value. The convention is fixed and tested explicitly: **`adp − overall`, so positive means
-the player fell to you.** A player with ADP 5.5 taken at pick 1 scores `+4.5`… which is
-*wrong* under that convention, and is exactly why the tests state the direction in words as
-well as numbers.
+value.
 
-To be unambiguous: taking a player **earlier** than their ADP is a **reach** and must score
-**negative**. So the delta is `adp − overall` only if ADP is the later number; concretely,
-ADP 5.5 taken at overall 1 must yield **−4.5**, and ADP 5.5 taken at overall 20 must yield
-**+14.5**. The implementation and its tests must both assert those two cases by name.
+**The convention is `overall − adp`.** Taking a player *earlier* than their ADP is a reach
+and scores negative; a player falling *past* their ADP is value and scores positive:
+
+| Case | ADP | Taken at | Delta | Reads as |
+|---|---|---|---|---|
+| Reach | 5.5 | pick 1 | **−4.5** | you took him 4.5 picks early |
+| Value | 5.5 | pick 20 | **+14.5** | he fell 14.5 picks to you |
+
+The implementation and its tests must both assert those two cases by name, in words as well
+as numbers.
+
+This is not a hypothetical risk: the first draft of this spec stated the formula as
+`adp − overall` in the summary table while stating the correct outcomes here, and the two
+contradicted each other. A reader following the table would have shipped every verdict
+inverted.
 
 ---
 
