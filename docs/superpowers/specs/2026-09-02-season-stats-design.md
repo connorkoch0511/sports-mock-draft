@@ -109,6 +109,13 @@ experience, while a failed sync is an empty player pool.
 The mapped player gains `stats` and `statsSeason`, **only when the player is ranked and
 stats exist**. Unranked players are unchanged, which is what holds the payload at 1.2×.
 
+**"Ranked" here means ranked in the requested format**, since `players.js` derives `rank`
+from `p.rank[format]`. The rank sets differ — standard covers 223 players, PPR 272 — so a
+player ranked in PPR but not standard receives stats on a PPR request and not on a standard
+one. That is consistent with a format-specific response rather than a bug, but it is
+surprising enough to be worth a test: the same player id must carry stats for one format and
+not the other.
+
 The seven existing fields are untouched.
 
 ---
@@ -155,6 +162,8 @@ of scope and untouched.
 - A ranked player with stats returns `stats` and `statsSeason`
 - An **unranked** player returns neither, even when stats exist for that id
 - A ranked player with no stats returns neither key
+- **A player ranked in one format but not another carries stats only on the format where
+  they are ranked** — the rank sets genuinely differ, 223 for standard against 272 for PPR
 - The seven existing fields are unchanged in every case
 
 ### Post-deploy
