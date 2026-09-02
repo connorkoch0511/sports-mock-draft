@@ -4,7 +4,7 @@ import { apiGet, apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { orderByBoard } from "../lib/boardOrder";
 import { useRememberDraft } from "../lib/useRememberDraft";
-import { adviseOnPick } from "../lib/pickAdvice";
+import { adviseOnPick, NO_ADVICE } from "../lib/pickAdvice";
 
 const PICK_SECONDS = 60;
 
@@ -37,15 +37,11 @@ function formatWeight(weight) {
  * engine recommends players in spite of their drawbacks and says so, and a
  * card that only ever shows the good news is not worth reading.
  */
-function ReasonList({ reasons }) {
+function ReasonList({ reasons, emptyText = SCORED_NOTHING }) {
   const list = Array.isArray(reasons) ? reasons : [];
 
   if (list.length === 0) {
-    return (
-      <p className="text-[11px] leading-snug text-zinc-500">
-        Nothing about this player moves him either way.
-      </p>
-    );
+    return <p className="text-[11px] leading-snug text-zinc-500">{emptyText}</p>;
   }
 
   return (
@@ -76,6 +72,16 @@ function ReasonList({ reasons }) {
     </ul>
   );
 }
+
+/**
+ * Two different facts, and they must not share a sentence. The first is a
+ * result -- the engine weighed this player and nothing moved him. The second
+ * is the absence of a result: on a completed draft (or before a draft loads)
+ * the engine does not run at all, and saying he "moves neither way" would
+ * claim an evaluation that never happened.
+ */
+const SCORED_NOTHING = "Nothing about this player moves him either way.";
+const NOT_EVALUATED = "No pick is on the clock, so nobody has been evaluated.";
 
 const ADVICE_BASIS = "Weighed from draft strategy and last season's production. Not a projection.";
 
@@ -187,21 +193,20 @@ export default function Draft() {
   // pre-filtered list silently refills that window and the scarcity reasons
   // stop firing. So: the full `players`, and deps that only move when the
   // draft itself does.
+  //
+  // And only when somebody is going to read it. The card is for the user's
+  // own turn, and a why panel is either open or it is not; the app auto-picks
+  // the other eleven teams, so this skips the engine on eleven of every
+  // twelve picks rather than scoring the whole pool for a card nobody sees.
+  const adviceWanted = isMyTurn || whyId != null;
   const advice = useMemo(
-    () => adviseOnPick({ players, draft, boardRows, myTeam }),
-    [players, draft, boardRows, myTeam]
+    () => (adviceWanted ? adviseOnPick({ players, draft, boardRows, myTeam }) : NO_ADVICE),
+    [adviceWanted, players, draft, boardRows, myTeam]
   );
   const recommendation = advice.recommendation;
-
-  // The card is a pin of one row to the top of the board, so it lives under
-  // the same search and position filters the rows do. Naming a player who is
-  // not in the list underneath -- because you searched for somebody else --
-  // is a card pointing at nothing.
-  const recommendedInView = useMemo(() => {
-    const id = recommendation?.player?.id;
-    if (id == null) return false;
-    return filtered.some((p) => p.id === id);
-  }, [filtered, recommendation]);
+  // An empty `ranked` means the engine never ran, which is a different thing
+  // from it running and finding nothing to say about a player.
+  const playersWereEvaluated = advice.ranked.length > 0;
 
   const playersById = useMemo(() => {
     const m = new Map();
@@ -442,7 +447,20 @@ export default function Draft() {
               </div>
             )}
 
-            {recommendation && recommendedInView ? (
+            {/*
+              Only on the user's own clock. The engine weighs value and
+              scarcity against the USER's next pick, so on somebody else's
+              turn the card would be advising a decision that is not being
+              made, with the numbers taken from the wrong pick.
+
+              Not filtered, though: the card is not a row. It sits above the
+              search box in its own container, so hiding it on a keystroke
+              yanks the input out from under the caret -- and filtering to a
+              position is how you ask "who should I take at RB?", which is
+              the worst possible moment to delete the answer. It prints the
+              position and team, so it is never pointing at nothing.
+            */}
+            {isMyTurn && recommendation ? (
               <div
                 data-testid="advice-card"
                 className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 space-y-2"
@@ -596,7 +614,10 @@ export default function Draft() {
                       className="mt-2 rounded-2xl border border-cyan-900/50 bg-cyan-950/20 px-3 py-2 space-y-2"
                     >
                       <div className="text-xs font-medium text-cyan-100">Why {p.name} is here</div>
-                      <ReasonList reasons={advice.reasonsFor(p.id)} />
+                      <ReasonList
+                        reasons={advice.reasonsFor(p.id)}
+                        emptyText={playersWereEvaluated ? SCORED_NOTHING : NOT_EVALUATED}
+                      />
                       <p className="text-[11px] leading-snug text-zinc-500">{ADVICE_BASIS}</p>
                     </div>
                   ) : null}

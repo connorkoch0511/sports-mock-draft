@@ -167,6 +167,82 @@ test("the why control works when it is not your turn", async ({ page }) => {
   expect(pickRequests).toBe(0);
 });
 
+test("no card when it is not your turn", async ({ page }) => {
+  // Pick #2 belongs to Team 2 and the user is Team 1. The card weighs value
+  // and scarcity against the USER's next pick, and its heading claims the
+  // user is on the clock -- on somebody else's turn both are wrong, and the
+  // app auto-picks the other eleven teams, so this is where you spend eleven
+  // twelfths of the draft.
+  mockPool(page, makeDraftState({ currentIndex: 1 }));
+  await page.route(`${API}/drafts/${DRAFT_ID}/auto-pick`, (r) =>
+    r.fulfill({ json: { ok: true } })
+  );
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+  await expect(page.getByText("R1 P2 • Team 2")).toBeVisible();
+
+  await expect(page.getByTestId("advice-card")).toHaveCount(0);
+
+  // But the board is still readable: reading about a player is not picking
+  // one, so the why control keeps working here.
+  await rowFor(page, "Justin Jefferson").getByTestId("why-player").click();
+  await expect(page.getByTestId("why-panel")).toContainText("Justin Jefferson");
+});
+
+test("the card outlives the search and position filters", async ({ page }) => {
+  mockPool(page, makeDraftState({ currentIndex: 0 }));
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  const card = page.getByTestId("advice-card");
+  const search = page.getByPlaceholder("Search player…");
+  await expect(card).toContainText("Christian McCaffrey");
+  const restingY = (await search.boundingBox()).y;
+
+  // Searching for somebody else does not delete the suggestion, and -- since
+  // the card sits ABOVE the search box -- does not drag the box out from
+  // under the caret either.
+  await search.fill("Kelce");
+  await expect(rowFor(page, "Travis Kelce")).toBeVisible();
+  await expect(card).toContainText("Christian McCaffrey");
+  expect((await search.boundingBox()).y).toBe(restingY);
+
+  // Filtering to a position is how you ask "who should I take at RB?". The
+  // answer must survive the question.
+  await search.fill("");
+  await page.locator("select").first().selectOption("RB");
+  await expect(card).toContainText("Christian McCaffrey");
+  await expect(card).toContainText("RB");
+  expect((await search.boundingBox()).y).toBe(restingY);
+
+  // Even filtered to a position he is not in, where the card is the only
+  // thing on screen still naming him -- it says which position and team he
+  // is, so it is not pointing at nothing.
+  await page.locator("select").first().selectOption("QB");
+  await expect(rowFor(page, "Christian McCaffrey")).toHaveCount(0);
+  await expect(card).toContainText("Christian McCaffrey");
+  expect((await search.boundingBox()).y).toBe(restingY);
+});
+
+test("a completed draft does not call unevaluated players neutral", async ({ page }) => {
+  mockPool(page, makeCompletedDraft());
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+
+  // Josh Allen went undrafted in this fixture, so his row is still there and
+  // still clickable -- as ~3,700 rows are at the end of a real draft.
+  await rowFor(page, "Josh Allen").getByTestId("why-player").click();
+
+  const panel = page.getByTestId("why-panel");
+  await expect(panel).toContainText("Josh Allen");
+  // The engine never ran here. Saying nothing "moves him either way" would
+  // report a verdict from an evaluation that never happened.
+  await expect(panel).not.toContainText("moves him either way");
+  await expect(panel).toContainText("nobody has been evaluated");
+});
+
 test("a completed draft recommends nobody", async ({ page }) => {
   mockPool(page, makeCompletedDraft());
 

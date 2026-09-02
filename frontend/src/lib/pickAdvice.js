@@ -105,7 +105,14 @@ export function adviseOnPick({ players, draft, boardRows, myTeam } = {}) {
   };
 }
 
-const NO_ADVICE = {
+/**
+ * What the engine returns when there is nothing to advise on -- no draft, a
+ * completed one, an empty pool. Exported so a caller that already knows the
+ * engine has nothing to say can skip running it and still hold a result of
+ * the same shape. An empty `ranked` is what tells a caller the engine never
+ * scored anybody, as opposed to scoring somebody and finding nothing.
+ */
+export const NO_ADVICE = {
   recommendation: null,
   ranked: [],
   reasonsFor: () => [],
