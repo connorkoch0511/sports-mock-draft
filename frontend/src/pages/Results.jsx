@@ -120,7 +120,15 @@ export default function Results() {
         <button
           type="button"
           data-testid="view-tab-picks"
-          onClick={() => setSearchParams({})}
+          onClick={() =>
+            // Merge rather than replace: setSearchParams({}) would drop any
+            // other parameter that happens to be on the URL.
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.delete("view");
+              return next;
+            })
+          }
           className={`rounded-2xl border px-4 py-2 text-sm ${
             view === "picks"
               ? "border-cyan-300/60 bg-cyan-950/30 text-cyan-200"
@@ -132,7 +140,13 @@ export default function Results() {
         <button
           type="button"
           data-testid="view-tab-analysis"
-          onClick={() => setSearchParams({ view: "analysis" })}
+          onClick={() =>
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.set("view", "analysis");
+              return next;
+            })
+          }
           className={`rounded-2xl border px-4 py-2 text-sm ${
             view === "analysis"
               ? "border-cyan-300/60 bg-cyan-950/30 text-cyan-200"
