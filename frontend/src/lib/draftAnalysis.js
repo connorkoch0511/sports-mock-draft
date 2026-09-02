@@ -79,7 +79,7 @@ export function analyzeDraft(draft) {
           tierCounts: yours.tierCounts,
           bestPick: extreme(yours.picks, "max"),
           biggestReach: extreme(yours.picks, "min"),
-          rosterShape: shape(yours.picks, rosterSlots),
+          rosterShape: fitRoster(yours.picks, rosterSlots),
           longestWait: wait(yours.picks, made),
         }
       : emptyYou(),
@@ -130,7 +130,7 @@ function extreme(picks, which) {
 // `unfilled` lists only slots still empty after all three passes, and
 // `extra` lists only players who fit nowhere at all -- not players who
 // legitimately landed in a flex or bench slot.
-function shape(picks, rosterSlots) {
+export function fitRoster(picks, rosterSlots) {
   const dedicatedNeed = {};
   const benchLabels = [];
   let flexNeed = 0;
