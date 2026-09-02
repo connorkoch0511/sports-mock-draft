@@ -136,6 +136,20 @@ function draftState({ completed = false } = {}) {
   };
 }
 
+// The registry write happens in a useEffect, which React runs AFTER the
+// commit that makes the heading visible. Navigating the instant the heading
+// appears can therefore outrun the write -- a real race, measured at roughly
+// one failure in four runs before this wait existed.
+async function waitForRegistryWrite(page) {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => JSON.parse(localStorage.getItem("perfectpick.myDrafts") || "[]").length
+      )
+    )
+    .toBeGreaterThan(0);
+}
+
 test("opening a draft by link records it, so it is listed afterwards", async ({ page }) => {
   await seed(page, []);
   await page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: [] } }));
@@ -143,6 +157,7 @@ test("opening a draft by link records it, so it is listed afterwards", async ({ 
 
   await page.goto(`/draft/${DRAFT_ID}`);
   await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+  await waitForRegistryWrite(page);
 
   await page.goto("/drafts");
   const row = page.getByTestId("draft-row").first();
@@ -159,6 +174,7 @@ test("a completed draft is recorded as completed", async ({ page }) => {
 
   await page.goto(`/draft/${DRAFT_ID}/results`);
   await expect(page.getByRole("heading", { name: "Draft Results" })).toBeVisible();
+  await waitForRegistryWrite(page);
 
   await page.goto("/drafts");
   await expect(page.getByTestId("draft-row").first()).toContainText(/completed/i);
