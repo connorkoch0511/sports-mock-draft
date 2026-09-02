@@ -115,3 +115,57 @@ test("an in-progress draft has no analysis link", async ({ page }) => {
   await expect(page.getByTestId("draft-row")).toHaveCount(1);
   await expect(page.getByTestId("analysis-link")).toHaveCount(0);
 });
+
+// Derived from makeCompletedDraft() by running analyzeDraft over it, not
+// quoted from anywhere: team 1 picks at overall 1, 8 and 9 in a 4-team snake.
+// Every structural assertion above passes even if the two cards are swapped or
+// a raw pick number is rendered where a delta belongs -- which, on a page whose
+// sign convention was stated backwards three times during design, is exactly
+// the seam a future inversion lands in. These pin the numbers themselves.
+test("the analysis renders the actual computed numbers", async ({ page }) => {
+  await openResults(page, makeCompletedDraft(), "?view=analysis");
+  const panel = page.getByTestId("analysis-panel");
+
+  await expect(panel).toContainText("-0.7");
+  await expect(panel).toContainText("4 of 4");
+
+  const best = page.getByTestId("best-vs-adp");
+  await expect(best).toContainText("Stefon Diggs");
+  await expect(best).toContainText("pick 9");
+  await expect(best).toContainText("-0.1");
+
+  const worst = page.getByTestId("worst-vs-adp");
+  await expect(worst).toContainText("Davante Adams");
+  await expect(worst).toContainText("pick 8");
+  await expect(worst).toContainText("-0.4");
+});
+
+test("swapping the two cards would be visible: each names its own player", async ({ page }) => {
+  await openResults(page, makeCompletedDraft(), "?view=analysis");
+
+  await expect(page.getByTestId("best-vs-adp")).not.toContainText("Davante Adams");
+  await expect(page.getByTestId("worst-vs-adp")).not.toContainText("Stefon Diggs");
+});
+
+test("the longest wait reports the span and the players who went during it", async ({ page }) => {
+  await openResults(page, makeCompletedDraft(), "?view=analysis");
+  const panel = page.getByTestId("analysis-panel");
+
+  // Team 1 picks at 1 then 8, so six players go in between.
+  await expect(panel).toContainText("between 1 and 8");
+  await expect(panel).toContainText("Justin Jefferson");
+});
+
+test("an unrelated query parameter survives switching tabs", async ({ page }) => {
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: makeCompletedDraft() }));
+  await page.goto(`/draft/${DRAFT_ID}/results?keep=me`);
+  await expect(page.getByRole("heading", { name: "Draft Results" })).toBeVisible();
+
+  await page.getByTestId("view-tab-analysis").click();
+  await expect(page).toHaveURL(/keep=me/);
+  await expect(page).toHaveURL(/view=analysis/);
+
+  await page.getByTestId("view-tab-picks").click();
+  await expect(page).toHaveURL(/keep=me/);
+  await expect(page).not.toHaveURL(/view=/);
+});

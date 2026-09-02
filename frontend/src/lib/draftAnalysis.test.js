@@ -192,3 +192,69 @@ test("a null or malformed draft returns an empty result rather than throwing", (
     assert.deepStrictEqual(out.teams, []);
   }
 });
+
+// --- Roster fitting against a real Sleeper roster -------------------------
+//
+// Sleeper's roster_positions carries FLEX and BN verbatim, and they reach the
+// stored draft unchanged. No player has position "FLEX" or "BN", so treating
+// every slot label as a position to match reported a complete 16-man roster as
+// having seven unfilled slots and seven surplus players at the same time.
+// The fixtures below are the shapes the old dedicated-only fixture could not
+// reach.
+
+const SLEEPER_SLOTS = [
+  "QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "K", "DEF",
+  "BN", "BN", "BN", "BN", "BN", "BN",
+];
+
+function rosterOf(slots, positions) {
+  const picks = positions.map((pos, i) =>
+    pick(i + 1, 1, player(`p${i}`, { position: pos }))
+  );
+  return analyzeDraft(draftWith(picks, { rosterSlots: slots })).you.rosterShape;
+}
+
+test("a complete Sleeper roster reports nothing unfilled and nothing extra", () => {
+  const shape = rosterOf(SLEEPER_SLOTS, [
+    "QB", "RB", "RB", "WR", "WR", "WR", "TE", "RB", "K", "DEF",
+    "WR", "TE", "QB", "RB", "WR", "RB",
+  ]);
+
+  assert.deepStrictEqual(shape.unfilled, [], "a full roster has nothing missing");
+  assert.deepStrictEqual(shape.extra, [], "and nobody is surplus");
+});
+
+test("a leftover RB fills a FLEX slot rather than counting as extra", () => {
+  const shape = rosterOf(["QB", "RB", "FLEX"], ["QB", "RB", "RB"]);
+
+  assert.deepStrictEqual(shape.unfilled, []);
+  assert.deepStrictEqual(shape.extra, []);
+});
+
+test("a QB cannot fill a FLEX slot -- FLEX takes only RB, WR and TE", () => {
+  const shape = rosterOf(["RB", "FLEX"], ["RB", "QB"]);
+
+  assert.deepStrictEqual(shape.unfilled, ["FLEX"]);
+  assert.deepStrictEqual(shape.extra, [{ position: "QB", count: 1 }]);
+});
+
+test("a surplus player with no slot anywhere is reported as extra", () => {
+  const shape = rosterOf(["RB"], ["RB", "WR"]);
+
+  assert.deepStrictEqual(shape.unfilled, []);
+  assert.deepStrictEqual(shape.extra, [{ position: "WR", count: 1 }]);
+});
+
+test("an unrecognised slot label is bench capacity, not an unfillable position", () => {
+  const shape = rosterOf(["RB", "SUPERFLEX"], ["RB", "QB"]);
+
+  assert.deepStrictEqual(shape.unfilled, [], "SUPERFLEX absorbs the QB as bench");
+  assert.deepStrictEqual(shape.extra, []);
+});
+
+test("a genuinely missing dedicated position is still reported unfilled", () => {
+  const shape = rosterOf(["QB", "RB", "TE"], ["QB", "RB"]);
+
+  assert.deepStrictEqual(shape.unfilled, ["TE"]);
+  assert.deepStrictEqual(shape.extra, []);
+});

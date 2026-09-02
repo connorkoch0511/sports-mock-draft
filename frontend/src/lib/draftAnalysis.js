@@ -1,5 +1,14 @@
 import { largestGap } from "./snake.js";
 
+// Mirrors backend/src/lib/roster.js -- keep these two lists in step with it.
+// The frontend is ESM and the backend is CommonJS, so the constants are
+// duplicated here rather than imported across that boundary.
+//
+// DEDICATED_POSITIONS: slot labels that name a single position outright.
+const DEDICATED_POSITIONS = ["QB", "RB", "WR", "TE", "K", "DEF"];
+// FLEX_ELIGIBLE_POSITIONS: the only positions a FLEX slot accepts.
+const FLEX_ELIGIBLE_POSITIONS = ["RB", "WR", "TE"];
+
 /**
  * Analyse a completed or in-progress draft.
  *
@@ -101,28 +110,84 @@ function extreme(picks, which) {
   );
 }
 
+// Fits a team's drafted players against the draft's own rosterSlots, the way
+// a real roster actually fills:
+//   1. Dedicated slots (QB/RB/WR/TE/K/DEF) by exact position match.
+//   2. Leftover RB/WR/TE spill into FLEX slots.
+//   3. Anything still left spills into bench slots -- BN, plus any
+//      unrecognised label (SUPERFLEX, TAXI, IDP, ...), which are functionally
+//      identical bench capacity but keep their own label for display.
+// `unfilled` lists only slots still empty after all three passes, and
+// `extra` lists only players who fit nowhere at all -- not players who
+// legitimately landed in a flex or bench slot.
 function shape(picks, rosterSlots) {
-  const need = {};
-  for (const slot of rosterSlots) need[slot] = (need[slot] || 0) + 1;
+  const dedicatedNeed = {};
+  const benchLabels = [];
+  let flexNeed = 0;
+
+  for (const raw of rosterSlots) {
+    const label = String(raw).toUpperCase();
+    if (DEDICATED_POSITIONS.includes(label)) {
+      dedicatedNeed[label] = (dedicatedNeed[label] || 0) + 1;
+    } else if (label === "FLEX") {
+      flexNeed += 1;
+    } else {
+      benchLabels.push(label); // BN and anything unrecognised
+    }
+  }
 
   const have = {};
   for (const p of picks) {
     const pos = p.player?.position;
     if (pos) have[pos] = (have[pos] || 0) + 1;
   }
+  const leftover = { ...have };
 
   const filled = [];
   const unfilled = [];
-  for (const [pos, count] of Object.entries(need)) {
-    const got = have[pos] || 0;
-    for (let i = 0; i < Math.min(got, count); i++) filled.push(pos);
+
+  // Pass 1: dedicated slots by exact position match.
+  for (const [pos, count] of Object.entries(dedicatedNeed)) {
+    const got = Math.min(leftover[pos] || 0, count);
+    for (let i = 0; i < got; i++) filled.push(pos);
     for (let i = got; i < count; i++) unfilled.push(pos);
+    leftover[pos] = (leftover[pos] || 0) - got;
   }
 
+  // Pass 2: leftover RB/WR/TE spill into FLEX, consumed RB -> WR -> TE.
+  // Which position a given FLEX slot happens to absorb doesn't change how
+  // many end up filled, only how the remainder is attributed in `extra`.
+  let flexFilled = 0;
+  for (const pos of FLEX_ELIGIBLE_POSITIONS) {
+    while (flexFilled < flexNeed && (leftover[pos] || 0) > 0) {
+      leftover[pos] -= 1;
+      flexFilled += 1;
+    }
+  }
+  for (let i = 0; i < flexFilled; i++) filled.push("FLEX");
+  for (let i = flexFilled; i < flexNeed; i++) unfilled.push("FLEX");
+
+  // Pass 3: anything still remaining spills into bench-type slots, in the
+  // order those slots appear in rosterSlots.
+  const positions = Object.keys(leftover);
+  for (const label of benchLabels) {
+    let placed = false;
+    for (const pos of positions) {
+      if ((leftover[pos] || 0) > 0) {
+        leftover[pos] -= 1;
+        placed = true;
+        break;
+      }
+    }
+    if (placed) filled.push(label);
+    else unfilled.push(label);
+  }
+
+  // Whatever's left after dedicated, FLEX, and bench all had a chance fits
+  // nowhere at all.
   const extra = [];
-  for (const [pos, count] of Object.entries(have)) {
-    const room = need[pos] || 0;
-    if (count > room) extra.push({ position: pos, count: count - room });
+  for (const [pos, count] of Object.entries(leftover)) {
+    if (count > 0) extra.push({ position: pos, count });
   }
 
   return { filled, unfilled, extra };

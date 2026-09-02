@@ -258,8 +258,8 @@ export default function Results() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               {a.you.bestPick && (
-                <div className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
-                  <div className="text-sm text-zinc-400">Best value</div>
+                <div data-testid="best-vs-adp" className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+                  <div className="text-sm text-zinc-400">Best vs ADP</div>
                   <div className="mt-1 font-medium">{a.you.bestPick.player.name}</div>
                   <div className="text-xs text-zinc-500">
                     pick {a.you.bestPick.overall} · {fmt(a.you.bestPick.delta)}
@@ -267,8 +267,8 @@ export default function Results() {
                 </div>
               )}
               {a.you.biggestReach && (
-                <div className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
-                  <div className="text-sm text-zinc-400">Biggest reach</div>
+                <div data-testid="worst-vs-adp" className="rounded-3xl border border-zinc-800 bg-zinc-950/60 p-5">
+                  <div className="text-sm text-zinc-400">Worst vs ADP</div>
                   <div className="mt-1 font-medium">{a.you.biggestReach.player.name}</div>
                   <div className="text-xs text-zinc-500">
                     pick {a.you.biggestReach.overall} · {fmt(a.you.biggestReach.delta)}
