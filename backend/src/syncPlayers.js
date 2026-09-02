@@ -153,6 +153,13 @@ async function fetchFfcAdp({ format, teams, year }) {
   return Array.isArray(j.players) ? j.players : [];
 }
 
+async function fetchSeasonStats(season) {
+  const url = `https://api.sleeper.app/v1/stats/nfl/regular/${season}`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`Sleeper stats fetch failed (${season}): ${r.status}`);
+  return r.json();
+}
+
 function buildFfcMap(ffcPlayers) {
   const byStrict = new Map();     // pos|team|name
   const defByTeam = new Map();    // team -> adp
@@ -225,6 +232,10 @@ function hasPlayedGames(statsByPlayer) {
 
 // Take the requested season if it has real games, else the one before it. The
 // fetcher is injected so the fallback can be tested without network access.
+//
+// The fallback is indistinguishable, from the return value alone, from an
+// upstream schema change or partial outage that returns `200 {}` -- both
+// silently serve last season's data. Callers must log which happened.
 async function resolveStatsSeason(year, fetchSeason) {
   const primary = await fetchSeason(year);
   if (hasPlayedGames(primary)) return { season: year, stats: primary };
@@ -233,11 +244,29 @@ async function resolveStatsSeason(year, fetchSeason) {
   return { season: year - 1, stats: prior };
 }
 
+// Attach curated stats to the players we have. Players absent from the feed
+// get no `stats` key at all rather than an empty object, so the response can
+// distinguish "no data" from "played but recorded nothing".
+function mergeStats(players, statsByPlayer, season) {
+  if (!statsByPlayer) return 0;
+
+  let matched = 0;
+  for (const pl of players) {
+    const curated = pickStats(statsByPlayer[pl.id]);
+    if (!curated) continue;
+    pl.stats = curated;
+    pl.statsSeason = season;
+    matched += 1;
+  }
+  return matched;
+}
+
 exports.handler = async () => {
   const table = process.env.PLAYERS_TABLE;
 
   const ADP_TEAMS = Number(process.env.ADP_TEAMS || 12);
   const ADP_YEAR = Number(process.env.ADP_YEAR || 2026);
+  const STATS_YEAR = Number(process.env.STATS_YEAR || ADP_YEAR);
 
   // 1) Sleeper dump
   const sleeperUrl = "https://api.sleeper.app/v1/players/nfl";
@@ -279,7 +308,41 @@ exports.handler = async () => {
     }
   }
 
-  // 4) rank + tier per format
+  // 4) Season stats. Deliberately wrapped: this job rewrites the entire
+  // players table unattended every day, so a Sleeper outage or a shape change
+  // must degrade to players-without-stats rather than leaving every draft with
+  // an empty pool.
+  let statsSeason = null;
+  let statsMatched = 0;
+  try {
+    const resolved = await resolveStatsSeason(STATS_YEAR, fetchSeasonStats);
+    statsSeason = resolved.season;
+    statsMatched = mergeStats(basePlayers, resolved.stats, resolved.season);
+
+    if (resolved.season === STATS_YEAR) {
+      console.log(
+        `season stats: using requested season ${STATS_YEAR}, matched ${statsMatched} players`
+      );
+    } else {
+      // hasPlayedGames() found gp=0 across the board for STATS_YEAR. Early in
+      // a season that's expected -- the endpoint exists before any games are
+      // played. Outside that window, the same signal (all-zero gp) is what a
+      // schema change or a partial "200 {}" outage would also produce, so it
+      // reads as a fallback either way. matched/0 here, or a fallback outside
+      // the pre-season window, is the tell that this is the latter, not the
+      // former.
+      console.warn(
+        `season stats: requested season ${STATS_YEAR} has no games played (gp=0 for every ` +
+          `player) -- falling back to ${resolved.season}, matched ${statsMatched} players. ` +
+          `Expected in the weeks before ${STATS_YEAR} kicks off; if that's not now, this may ` +
+          `be an upstream schema change or outage rather than a genuine gap -- check statsMatched.`
+      );
+    }
+  } catch (e) {
+    console.error("season stats unavailable, continuing without them:", e.message);
+  }
+
+  // 5) rank + tier per format
   const countsByFormat = {};
   for (const fmt of FORMATS) {
     const list = basePlayers
@@ -294,7 +357,7 @@ exports.handler = async () => {
     }
   }
 
-  // 5) Batch write with retry
+  // 6) Batch write with retry
   const batches = chunk(basePlayers, 25);
   let wrote = 0;
 
@@ -328,6 +391,8 @@ exports.handler = async () => {
       adpYear: ADP_YEAR,
       withAdp: countsByFormat,
       formats: FORMATS,
+      statsSeason,
+      statsMatched,
     }),
   };
 };
@@ -338,3 +403,4 @@ module.exports.STATS_FIELDS = STATS_FIELDS;
 module.exports.pickStats = pickStats;
 module.exports.hasPlayedGames = hasPlayedGames;
 module.exports.resolveStatsSeason = resolveStatsSeason;
+module.exports.mergeStats = mergeStats;
