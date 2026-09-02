@@ -345,14 +345,29 @@ test("forget makes no network request at all", async ({ page }) => {
 });
 
 test("relative time floors rather than rounds", async ({ page }) => {
-  const fortyFiveMinutes = { ...IN_PROGRESS, updatedAt: Date.now() - 45 * 60 * 1000 };
-  await seed(page, [fortyFiveMinutes]);
+  // 90 minutes is the case that actually differs: Math.round(90/60) is 2,
+  // so the old code said "2h ago" for an hour-and-a-half-old draft.
+  // A 45-minute fixture would prove nothing -- it renders "45m ago" either
+  // way, because the minutes branch returns before any hour rounding.
+  const ninetyMinutes = { ...IN_PROGRESS, updatedAt: Date.now() - 90 * 60 * 1000 };
+  await seed(page, [ninetyMinutes]);
 
   await page.goto("/drafts");
 
-  // 45 minutes is 45m, not "1h ago".
-  await expect(page.getByTestId("draft-row").first()).toContainText("45m ago");
+  await expect(page.getByTestId("draft-row").first()).toContainText("1h ago");
 });
+
+test("relative time does not round a day early", async ({ page }) => {
+  // The worst case: 23.5 hours rounded to 24 and rendered "1d ago" for a
+  // draft from earlier the same day.
+  const almostADay = { ...IN_PROGRESS, updatedAt: Date.now() - 23.5 * 60 * 60 * 1000 };
+  await seed(page, [almostADay]);
+
+  await page.goto("/drafts");
+
+  await expect(page.getByTestId("draft-row").first()).toContainText("23h ago");
+});
+
 
 test("the remove controls describe the draft, not its id", async ({ page }) => {
   await seed(page, [IN_PROGRESS]);
