@@ -504,6 +504,10 @@ test("a legacy entry with no owned key shows Forget but not Delete", async ({ pa
 });
 
 test("screenshot — my drafts", async ({ page }) => {
+  // fullPage is inert here: the shell is h-dvh and the routes wrapper is the
+  // scroller, so the document is always exactly viewport height. Size the
+  // viewport to the page's own content instead, or the image is clipped.
+  await page.setViewportSize({ width: 1280, height: 760 });
   await seed(page, [IN_PROGRESS, COMPLETED]);
   await page.goto("/drafts");
   await expect(page.getByTestId("my-drafts-list")).toBeVisible();

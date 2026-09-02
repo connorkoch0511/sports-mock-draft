@@ -258,3 +258,25 @@ test("a genuinely missing dedicated position is still reported unfilled", () => 
   assert.deepStrictEqual(shape.unfilled, ["TE"]);
   assert.deepStrictEqual(shape.extra, []);
 });
+
+// --- Is a rank comparison meaningful yet? --------------------------------
+
+test("a rank is comparable when every team has picked the same number of times", () => {
+  const d = draftWith([
+    pick(1, 1, player("a", { adp: 5 })),
+    pick(2, 2, player("b", { adp: 5 })),
+  ]);
+  assert.strictEqual(analyzeDraft(d).comparable, true);
+});
+
+test("a rank is not comparable when one team has picked more than another", () => {
+  // Team 2 has not picked yet, so it sits on 0 and outranks team 1's -4.5 --
+  // "1 of 2" would be a lie about a draft nobody has really started.
+  const d = draftWith([pick(1, 1, player("a", { adp: 5.5 }))]);
+  assert.strictEqual(analyzeDraft(d).comparable, false);
+});
+
+test("a draft where nobody has picked is not comparable", () => {
+  const d = draftWith([pick(1, 1, null), pick(2, 2, null)]);
+  assert.strictEqual(analyzeDraft(d).comparable, false);
+});

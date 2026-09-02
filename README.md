@@ -6,14 +6,29 @@ PerfectPick is a modern, serverless fantasy football mock draft simulator. Confi
 
 ## Screenshots
 
-### Home Page
+### Home
 ![Home](screenshots/home.png)
+
+### New Draft
+![New Draft](screenshots/newdraft.png)
 
 ### Live Draft Board
 ![Draft](screenshots/draft.png)
 
 ### Draft Results
 ![Results](screenshots/results.png)
+
+### Draft Analysis
+![Analysis](screenshots/analysis.png)
+
+### My Drafts
+![My Drafts](screenshots/drafts.png)
+
+### My Boards
+![Boards](screenshots/boards.png)
+
+### Board Editor
+![Board](screenshots/board.png)
 
 ---
 
@@ -129,15 +144,17 @@ npm run test:headed   # run with a visible browser
 npm run test:ui       # open the Playwright interactive UI
 ```
 
-The suite covers 30 tests across three pages:
+Three suites run against this project:
 
-| Suite | Tests |
-|-------|-------|
-| Home page | Rendering, form defaults, navigation, error handling |
-| Draft page | Big Board, search/filter, pick, auto-pick, sim, timer, pause |
-| Results page | Pick log, rosters, share link, CSV/JSON export, navigation |
+| Suite | Command | What it covers |
+|-------|---------|----------------|
+| Backend unit | `cd backend/src && npm test` | Handlers, response shaping, gzip negotiation, DynamoDB pagination, roster and snake logic |
+| Frontend unit | `cd frontend && npm run test:unit` | Pure modules — board ordering, draft analysis, the local registries, Sleeper mapping |
+| End-to-end | `cd frontend && npm test` | Every page, driven through a real browser with the API mocked at the route level |
 
-Screenshots are written to `screenshots/` on each test run.
+Screenshots are written to `screenshots/` on each end-to-end run, and the images
+above come from that suite. When a change alters what a page looks like, rerun the
+suite and commit the updated image so this README keeps matching the app.
 
 ---
 

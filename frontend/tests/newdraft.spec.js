@@ -1,6 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { DRAFT_ID } from "./fixtures.js";
 
+import { fileURLToPath } from "url";
+import path from "path";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
+
 const API = "http://localhost:9999";
 
 test.describe("New Draft page", () => {
@@ -46,4 +52,15 @@ test.describe("New Draft page", () => {
 
     await expect(page.getByText(/Server error|Failed to create draft/i)).toBeVisible();
   });
+});
+
+test("screenshot — new draft", async ({ page }) => {
+  // fullPage is inert here: the shell is h-dvh and the routes wrapper is the
+  // scroller, so the document is always exactly viewport height. Size the
+  // viewport to the page's own content instead, or the image is clipped.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/draft/new");
+  await expect(page.getByLabel("Teams")).toBeVisible();
+
+  await page.screenshot({ path: `${SCREENSHOTS}/newdraft.png`, fullPage: false });
 });
