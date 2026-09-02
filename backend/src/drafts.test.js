@@ -335,7 +335,9 @@ test("sim-to-end success returns { ok: true, completed }", async () => {
 });
 
 test("an unrouted path is 404 Not found", async () => {
-  const res = await handler(evt("DELETE", "/drafts/d1", { draftId: "d1" }));
+  // PATCH is not a method any branch handles (unlike DELETE, which is now
+  // routed), so it still exercises the catch-all.
+  const res = await handler(evt("PATCH", "/drafts/d1", { draftId: "d1" }));
   assert.strictEqual(res.statusCode, 404);
   assert.deepStrictEqual(JSON.parse(res.body), { error: "Not found" });
 });
@@ -432,4 +434,41 @@ test("the player pool query threads ExclusiveStartKey from the prior page's Last
     { sport: "nfl", id: "a" },
     "the second Query must carry the first page's LastEvaluatedKey"
   );
+});
+
+test("DELETE removes a draft and reports ok", async () => {
+  stubSend({});
+  const res = await handler(evt("DELETE", "/drafts/d1", { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body), { ok: true });
+});
+
+test("DELETE issues a DeleteCommand against the drafts table", async () => {
+  let seen = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    seen = cmd;
+    return {};
+  });
+
+  await handler(evt("DELETE", "/drafts/d1", { draftId: "d1" }));
+
+  assert.strictEqual(seen.constructor.name, "DeleteCommand");
+  assert.strictEqual(seen.input.TableName, "drafts-test");
+  assert.deepStrictEqual(seen.input.Key, { draftId: "d1" });
+});
+
+test("deleting a draft that is already gone still returns 200", async () => {
+  // DynamoDB's DeleteCommand succeeds whether or not the item existed, and
+  // the frontend relies on that: a resolved call always means it is safe to
+  // drop the row locally, so a retry after a network blip cannot error.
+  stubSend({});
+  const res = await handler(evt("DELETE", "/drafts/never-existed", { draftId: "never-existed" }));
+  assert.strictEqual(res.statusCode, 200);
+});
+
+test("DELETE without a draftId falls through to the catch-all", async () => {
+  stubSend({});
+  const res = await handler(evt("DELETE", "/drafts"));
+  assert.strictEqual(res.statusCode, 404);
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Not found" });
 });

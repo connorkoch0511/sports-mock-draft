@@ -5,6 +5,7 @@ const {
   PutCommand,
   UpdateCommand,
   QueryCommand,
+  DeleteCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
 const {
@@ -380,6 +381,14 @@ exports.handler = async (event) => {
       );
 
       return json(200, { ok: true, completed: d.currentIndex >= d.picks.length });
+    }
+
+    // DELETE /drafts/{draftId}
+    if (method === "DELETE" && draftId) {
+      await ddb.send(
+        new DeleteCommand({ TableName: draftsTable, Key: { draftId } })
+      );
+      return json(200, { ok: true });
     }
 
     return json(404, { error: "Not found" });
