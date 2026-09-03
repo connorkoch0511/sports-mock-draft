@@ -74,15 +74,15 @@ test("a stat-derived reason names the season it came from", async ({ page }) => 
   );
 });
 
-test("the why control reveals reasons for that player", async ({ page }) => {
+test("opening a player reveals the reasons for him", async ({ page }) => {
   mockPool(page, makeDraftState({ currentIndex: 0 }));
 
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
-  await rowFor(page, "Justin Jefferson").getByTestId("why-player").click();
+  await rowFor(page, "Justin Jefferson").getByTestId("open-player").click();
 
-  const panel = page.getByTestId("why-panel");
+  const panel = page.getByTestId("player-modal");
   await expect(panel).toBeVisible();
   await expect(panel).toContainText("Justin Jefferson");
   await expect(panel.getByTestId("advice-reason").first()).toBeVisible();
@@ -92,7 +92,7 @@ test("the why control reveals reasons for that player", async ({ page }) => {
   await expect(page.getByTestId("advice-card")).toContainText("Christian McCaffrey");
 });
 
-test("the why control explains a player who cannot be recommended", async ({ page }) => {
+test("the drill-down explains a player who cannot be recommended", async ({ page }) => {
   mockPool(page, makeDraftState({ currentIndex: 0 }));
 
   await page.goto(`/draft/${DRAFT_ID}`);
@@ -102,14 +102,14 @@ test("the why control explains a player who cannot be recommended", async ({ pag
   // keeps his reasons, and the drawback is shown as a drawback.
   await expect(page.getByTestId("advice-card")).not.toContainText("Stefon Diggs");
 
-  await rowFor(page, "Stefon Diggs").getByTestId("why-player").click();
+  await rowFor(page, "Stefon Diggs").getByTestId("open-player").click();
 
-  const panel = page.getByTestId("why-panel");
+  const panel = page.getByTestId("player-modal");
   await expect(panel).toContainText("On injured reserve.");
   await expect(panel).toContainText("-25");
 });
 
-test("using the why control drafts nobody", async ({ page }) => {
+test("opening a player drafts nobody", async ({ page }) => {
   mockPool(page, makeDraftState({ currentIndex: 0 }));
 
   let pickRequests = 0;
@@ -119,25 +119,27 @@ test("using the why control drafts nobody", async ({ page }) => {
   });
 
   await page.goto(`/draft/${DRAFT_ID}`);
-  // Deliberately NOT paused: the rows are live, so every why click below
-  // lands on a row that WOULD have drafted somebody had it drafted anybody.
+  // Deliberately NOT paused: the rows are live, so every row opened below
+  // sits beside a Draft button that WOULD have drafted somebody.
 
   for (const name of ["Christian McCaffrey", "Justin Jefferson", "Travis Kelce"]) {
     const row = rowFor(page, name);
-    await expect(row.locator("button").first()).toBeEnabled();
-    await row.getByTestId("why-player").click();
-    await expect(page.getByTestId("why-panel")).toContainText(name);
+    await expect(row.getByTestId("draft-player")).toBeEnabled();
+    await row.getByTestId("open-player").click();
+    await expect(page.getByTestId("player-modal")).toContainText(name);
+    await page.getByTestId("player-modal-close").click();
+    await expect(page.getByTestId("player-modal")).toHaveCount(0);
   }
 
   expect(pickRequests).toBe(0);
 
-  // And the counter is not asleep: the draft button on the same row still
+  // And the counter is not asleep: the Draft button on the same row still
   // sends exactly one pick.
-  await rowFor(page, "Travis Kelce").locator("button").first().click();
+  await rowFor(page, "Travis Kelce").getByTestId("draft-player").click();
   await expect(() => expect(pickRequests).toBe(1)).toPass();
 });
 
-test("the why control works when it is not your turn", async ({ page }) => {
+test("the drill-down works when it is not your turn", async ({ page }) => {
   // Pick #2 belongs to Team 2 and the user is Team 1.
   mockPool(page, makeDraftState({ currentIndex: 1 }));
   await page.route(`${API}/drafts/${DRAFT_ID}/auto-pick`, (r) =>
@@ -159,10 +161,12 @@ test("the why control works when it is not your turn", async ({ page }) => {
   await expect(page.getByText("R1 P2 • Team 2")).toBeVisible();
 
   const row = rowFor(page, "Justin Jefferson");
-  await expect(row.locator("button").first()).toBeDisabled();
+  // Drafting is off — it is not your pick — but reading is not.
+  await expect(row.getByTestId("draft-player")).toBeDisabled();
+  await expect(row.getByTestId("open-player")).toBeEnabled();
 
-  await row.getByTestId("why-player").click();
-  await expect(page.getByTestId("why-panel")).toContainText("Justin Jefferson");
+  await row.getByTestId("open-player").click();
+  await expect(page.getByTestId("player-modal")).toContainText("Justin Jefferson");
 
   expect(pickRequests).toBe(0);
 });
@@ -186,8 +190,8 @@ test("no card when it is not your turn", async ({ page }) => {
 
   // But the board is still readable: reading about a player is not picking
   // one, so the why control keeps working here.
-  await rowFor(page, "Justin Jefferson").getByTestId("why-player").click();
-  await expect(page.getByTestId("why-panel")).toContainText("Justin Jefferson");
+  await rowFor(page, "Justin Jefferson").getByTestId("open-player").click();
+  await expect(page.getByTestId("player-modal")).toContainText("Justin Jefferson");
 });
 
 test("the card outlives the search and position filters", async ({ page }) => {
@@ -233,9 +237,9 @@ test("a completed draft does not call unevaluated players neutral", async ({ pag
 
   // Josh Allen went undrafted in this fixture, so his row is still there and
   // still clickable -- as ~3,700 rows are at the end of a real draft.
-  await rowFor(page, "Josh Allen").getByTestId("why-player").click();
+  await rowFor(page, "Josh Allen").getByTestId("open-player").click();
 
-  const panel = page.getByTestId("why-panel");
+  const panel = page.getByTestId("player-modal");
   await expect(panel).toContainText("Josh Allen");
   // The engine never ran here. Saying nothing "moves him either way" would
   // report a verdict from an evaluation that never happened.

@@ -148,9 +148,33 @@ export const API_BASE = "http://localhost:9999";
 // draft itself. Shared because several specs need an identical mock; a
 // drifted copy in one file would make its tests silently disagree with
 // the others about what the page is rendering.
+// A game log with a real gap in it. Week 3 is missing on purpose: a player
+// who missed a week must render as "did not play", never as a row of zeroes,
+// and a fixture with every week present could not tell the two apart.
+export const MOCK_GAME_LOG = [
+  { wk: 1, rush_att: 14, rush_yd: 82, rush_td: 1, rec_tgt: 5, rec: 4, rec_yd: 31,
+    off_snp: 40, tm_off_snp: 62, pts_ppr: 21.3 },
+  { wk: 2, rush_att: 9, rush_yd: 25, rec_tgt: 2, rec: 1, rec_yd: 4,
+    off_snp: 22, tm_off_snp: 61, pts_ppr: 4.9 },
+  { wk: 4, rush_att: 21, rush_yd: 140, rush_td: 2, rec_tgt: 4, rec: 4, rec_yd: 45, rec_td: 1,
+    off_snp: 55, tm_off_snp: 63, pts_ppr: 41.5 },
+];
+
 export function mockDraftApis(page, draftState) {
   page.route(`${API_BASE}/players*`, async (route) => {
     await route.fulfill({ json: { players: MOCK_PLAYERS } });
+  });
+
+  // Registered after the list route and therefore matched first: Playwright
+  // tries handlers in reverse order, and `/players*` would otherwise swallow
+  // `/players/p1` and hand the drill-down the whole pool.
+  page.route(`${API_BASE}/players/*`, async (route) => {
+    const id = new URL(route.request().url()).pathname.split("/").pop();
+    const base = MOCK_PLAYERS.find((p) => p.id === id);
+    if (!base) return route.fulfill({ status: 404, json: { error: "Player not found" } });
+    await route.fulfill({
+      json: { player: { ...base, gameLog: MOCK_GAME_LOG, gameLogSeason: 2025, gameLogThrough: 18 } },
+    });
   });
   page.route(`${API_BASE}/drafts/${DRAFT_ID}`, async (route) => {
     if (route.request().method() === "GET") {

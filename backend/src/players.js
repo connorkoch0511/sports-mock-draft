@@ -1,8 +1,48 @@
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { DynamoDBDocumentClient, QueryCommand } = require("@aws-sdk/lib-dynamodb");
+const {
+  DynamoDBDocumentClient,
+  QueryCommand,
+  GetCommand,
+} = require("@aws-sdk/lib-dynamodb");
 const { responder } = require("./lib/http");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+
+
+// The full record behind the drill-down. Unlike the list projection this keeps
+// the game log and the availability fields for every player, ranked or not:
+// one player is being looked at deliberately, so there is no payload argument
+// for hiding what is known about him.
+function toDetail(p, format) {
+  const out = {
+    id: p.id || p.playerId,
+    name: p.name,
+    position: p.position,
+    team: p.team,
+    status: p.status ?? null,
+    rank: p.rank?.[format] ?? null,
+    adp: p.adp?.[format] ?? null,
+    tier: p.tier?.[format] ?? null,
+  };
+
+  if (p.stats) {
+    out.stats = p.stats;
+    out.statsSeason = p.statsSeason ?? null;
+  }
+  if (Array.isArray(p.gameLog) && p.gameLog.length > 0) {
+    out.gameLog = p.gameLog;
+    out.gameLogSeason = p.gameLogSeason ?? null;
+    // How far the season had actually got when this was synced. The table
+    // renders gaps up to here and no further, so a mid-season log does not
+    // report weeks nobody has played as games this player missed.
+    out.gameLogThrough = p.gameLogThrough ?? null;
+  }
+  if (p.injuryStatus) out.injuryStatus = p.injuryStatus;
+  if (p.injuryBodyPart) out.injuryBodyPart = p.injuryBodyPart;
+  if (p.depthChartOrder != null) out.depthChartOrder = p.depthChartOrder;
+
+  return out;
+}
 
 exports.handler = async (event) => {
   const table = process.env.PLAYERS_TABLE;
@@ -15,6 +55,22 @@ exports.handler = async (event) => {
   const qs = event.queryStringParameters || {};
   const sport = String(qs.sport || "nfl").toLowerCase();
   const format = String(qs.format || "standard").toLowerCase();
+
+  // GET /players/{playerId} -- one player, in full, including the game log.
+  //
+  // A separate route on purpose. The list endpoint below ships the whole pool
+  // and is what the draft page blocks on; folding 18 weekly rows per player
+  // into it would undo the payload reduction pruning just bought. The drill-
+  // down asks for one player at the moment it opens, which is the only time
+  // the log is wanted.
+  const playerId = event.pathParameters?.playerId;
+  if (playerId) {
+    const res = await ddb.send(
+      new GetCommand({ TableName: table, Key: { sport, playerId: String(playerId) } })
+    );
+    if (!res.Item) return json(404, { error: "Player not found" });
+    return json(200, { player: toDetail(res.Item, format) });
+  }
 
   // A Query page tops out at 1MB; the players table (~3,900 items) is close
   // enough to that ceiling that a single page could silently drop players,
@@ -67,3 +123,5 @@ exports.handler = async (event) => {
 
   return json(200, { sport, format, count: players.length, players });
 };
+
+module.exports.toDetail = toDetail;

@@ -75,6 +75,12 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /players
             Method: GET
+        GetPlayer:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /players/{playerId}
+            Method: GET
 
   DraftsFunction:
     Type: AWS::Serverless::Function
@@ -133,7 +139,10 @@ Resources:
     Properties:
       CodeUri: src/
       Handler: syncPlayers.handler
-      Timeout: 60
+      # 60 was ample when the sync only wrote. It now also prunes rows the run
+      # did not rewrite and fetches 18 weekly stat payloads (~3.4s measured),
+      # and those three costs share one budget.
+      Timeout: 120
       MemorySize: 512
       Environment:
         Variables:

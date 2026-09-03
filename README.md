@@ -15,6 +15,14 @@ PerfectPick is a modern, serverless fantasy football mock draft simulator. Confi
 ### Live Draft Board
 ![Draft](screenshots/draft.png)
 
+### Player drill-down
+
+Click any player — on the draft board or in a big board — for their season
+line, a week-by-week game log, and the reasons the engine ranks them where it
+does. Weeks they missed show as gaps rather than rows of zeroes.
+
+![Player drill-down](screenshots/player.png)
+
 ### Draft Results
 ![Results](screenshots/results.png)
 

@@ -18,6 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { apiGet, apiPut } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
+import { PlayerModal } from "../components/draft/PlayerModal";
 
 const POS_COLORS = {
   QB: "text-rose-300", RB: "text-emerald-300", WR: "text-cyan-300",
@@ -36,7 +37,7 @@ function DeltaBadge({ delta }) {
   );
 }
 
-function Row({ row }) {
+function Row({ row, onOpen }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: row.playerId });
 
@@ -59,14 +60,26 @@ function Row({ row }) {
         ⠿
       </button>
       <span className="w-8 text-right text-sm tabular-nums text-zinc-500">{row.myRank}</span>
-      <span className="flex-1 truncate text-sm text-zinc-100">
+      {/*
+        The name opens the player; the ⠿ grip beside it still reorders. They
+        are separate controls, so there is no click-versus-drag ambiguity to
+        tune and no clash with the keyboard sensor, which owns Space on the
+        grip.
+      */}
+      <button
+        type="button"
+        data-testid="open-player"
+        onClick={() => onOpen(row)}
+        title={`${row.name} — stats and trends`}
+        className="flex-1 truncate text-left text-sm text-zinc-100 hover:text-cyan-200"
+      >
         {row.name}
         {row.isNew && (
           <span className="ml-2 rounded-full bg-cyan-300/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-cyan-300">
             New
           </span>
         )}
-      </span>
+      </button>
       <span className={`w-10 text-xs ${POS_COLORS[row.position] || "text-zinc-400"}`}>
         {row.position}
       </span>
@@ -80,6 +93,7 @@ export default function Board() {
   const { boardId } = useParams();
   const [board, setBoard] = useState(null);
   const [rows, setRows] = useState([]);
+  const [openRow, setOpenRow] = useState(null);
   const [status, setStatus] = useState("loading");
   const [err, setErr] = useState("");
   const saveTimer = useRef(null);
@@ -207,10 +221,26 @@ export default function Board() {
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={rows.map((r) => r.playerId)} strategy={verticalListSortingStrategy}>
           <ul className="space-y-1">
-            {rows.map((row) => <Row key={row.playerId} row={row} />)}
+            {rows.map((row) => (
+              <Row key={row.playerId} row={row} onOpen={setOpenRow} />
+            ))}
           </ul>
         </SortableContext>
       </DndContext>
+
+      {openRow ? (
+        <PlayerModal
+          key={openRow.playerId}
+          player={{
+            id: openRow.playerId,
+            name: openRow.name,
+            position: openRow.position,
+            team: openRow.team,
+          }}
+          format={board?.format || "standard"}
+          onClose={() => setOpenRow(null)}
+        />
+      ) : null}
     </div>
   );
 }
