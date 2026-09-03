@@ -141,16 +141,29 @@ export default function Draft() {
 
   // ----- Timer + Autopick behavior -----
 
+  // The timer effects below depend on the draft's FIELDS, never the draft
+  // object: `load()` returns a fresh object after every pick, so depending on
+  // the object itself would reset the clock on each of the eleven auto-picks
+  // between your turns. Pulled out as locals so the effect bodies never touch
+  // `draft` either, which is what lets the dependency arrays be honest instead
+  // of suppressed.
+  const hasDraft = draft != null;
+  const draftKey = draft?.draftId;
+  const currentIndex = draft?.currentIndex;
+  const currentTeam = draft?.currentTeam;
+  const completed = draft?.completed ?? false;
+
+
   // Reset timer on new pick / when it becomes the user's team's turn
   useEffect(() => {
-    if (!draft) return;
-    if (draft.completed) {
+    if (!hasDraft) return;
+    if (completed) {
       setSecondsLeft(0);
       return;
     }
     // Only meaningful for the user's team
     if (isMyTurn) setSecondsLeft(PICK_SECONDS);
-  }, [draft?.draftId, draft?.currentIndex, draft?.currentTeam, draft?.completed, isMyTurn]);
+  }, [hasDraft, draftKey, currentIndex, currentTeam, completed, isMyTurn]);
 
   // Autopick for teams 2..N immediately (while not paused)
   useEffect(() => {
@@ -169,10 +182,10 @@ export default function Draft() {
   useEffect(() => {
     if (tickRef.current) clearInterval(tickRef.current);
 
-    if (!draft) return;
+    if (!hasDraft) return;
     if (paused) return;
     if (busy) return;
-    if (draft.completed) return;
+    if (completed) return;
     if (!isMyTurn) return;
 
     tickRef.current = setInterval(() => {
@@ -182,7 +195,7 @@ export default function Draft() {
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
-  }, [draft?.currentTeam, draft?.completed, paused, busy, isMyTurn]);
+  }, [hasDraft, currentTeam, completed, paused, busy, isMyTurn]);
 
   // If the user's team runs out of time, autopick for the user's team
   useEffect(() => {

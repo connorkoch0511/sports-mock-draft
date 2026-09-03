@@ -6,6 +6,7 @@ import Results from "./pages/Results.jsx";
 import Board from "./pages/Board.jsx";
 import Boards from "./pages/Boards.jsx";
 import MyDrafts from "./pages/MyDrafts.jsx";
+import Player from "./pages/Player.jsx";
 import NavBar from "./components/NavBar.jsx";
 
 export default function App() {
@@ -24,6 +25,7 @@ export default function App() {
             <Route path="/draft/:draftId/results" element={<Results />} />
             <Route path="/board/:boardId" element={<Board />} />
             <Route path="/boards" element={<Boards />} />
+            <Route path="/player/:playerId" element={<Player />} />
           </Routes>
         </div>
       </div>

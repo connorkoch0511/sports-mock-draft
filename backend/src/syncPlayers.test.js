@@ -545,3 +545,57 @@ test("a week is counted as played even when nobody in our pool appeared", async 
   assert.strictEqual(players[0].gameLogThrough, 6);
   assert.strictEqual(players[0].gameLog.length, 5);
 });
+
+test("a rookie's experience is recorded so an empty log can be explained", () => {
+  const rookie = normalizeSleeperPlayer(sleeperPlayer({ years_exp: 0 }), "1");
+  assert.strictEqual(rookie.yearsExp, 0, "0 is a real value, not a missing one");
+
+  const vet = normalizeSleeperPlayer(sleeperPlayer({ years_exp: 7 }), "2");
+  assert.strictEqual(vet.yearsExp, 7);
+
+  // 32 rostered players carry no value; omitted rather than guessed at 0,
+  // which would call every one of them a rookie.
+  const unknown = normalizeSleeperPlayer(sleeperPlayer({ years_exp: null }), "3");
+  assert.ok(!("yearsExp" in unknown));
+});
+
+// --- ADP joining --------------------------------------------------------
+//
+// buildFfcMap had no test when the sync was split, so a missing import inside
+// it passed every check here and only surfaced on a real invocation. These
+// cover the three lookup paths it builds.
+
+const { buildFfcMap } = require("./sync/adp");
+
+const ffc = (name, position, team, adp) => ({ name, position, team, adp });
+
+test("buildFfcMap keys skill players on position, team and name", () => {
+  const maps = buildFfcMap([ffc("Jahmyr Gibbs", "RB", "DET", 1.5)]);
+  assert.strictEqual(maps.byStrict.get("RB|DET|jahmyr gibbs"), 1.5);
+});
+
+test("buildFfcMap keys defences by team, since their names never agree", () => {
+  const maps = buildFfcMap([ffc("Baltimore Ravens", "DEF", "BAL", 110.2)]);
+  assert.strictEqual(maps.defByTeam.get("BAL"), 110.2);
+});
+
+test("buildFfcMap keys kickers by name, because they change teams", () => {
+  const maps = buildFfcMap([ffc("Justin Tucker", "K", "BAL", 140.0)]);
+  assert.ok(maps.kByName.size > 0, "a kicker must land in the by-name map");
+});
+
+test("buildFfcMap keeps the earliest ADP when a player appears twice", () => {
+  const maps = buildFfcMap([
+    ffc("Jahmyr Gibbs", "RB", "DET", 4.9),
+    ffc("Jahmyr Gibbs", "RB", "DET", 1.5),
+  ]);
+  assert.strictEqual(maps.byStrict.get("RB|DET|jahmyr gibbs"), 1.5);
+});
+
+test("buildFfcMap ignores an entry with no usable ADP", () => {
+  const maps = buildFfcMap([
+    ffc("Nobody", "RB", "DET", null),
+    ffc("Nobody Two", "RB", "DET", "abc"),
+  ]);
+  assert.strictEqual(maps.byStrict.size, 0);
+});

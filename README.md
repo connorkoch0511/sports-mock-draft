@@ -19,7 +19,12 @@ PerfectPick is a modern, serverless fantasy football mock draft simulator. Confi
 
 Click any player — on the draft board or in a big board — for their season
 line, a week-by-week game log, and the reasons the engine ranks them where it
-does. Weeks they missed show as gaps rather than rows of zeroes.
+does. Weeks they missed show as gaps rather than rows of zeroes, and a rookie's
+empty log says so rather than claiming he sat out.
+
+The same detail lives at `/player/:id`, so a player can be linked to directly.
+That page carries no draft advice: the engine's reasons are about a decision at
+a particular pick, and a standalone page has no pick to advise on.
 
 ![Player drill-down](screenshots/player.png)
 
