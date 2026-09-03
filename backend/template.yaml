@@ -2,6 +2,33 @@ AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: Mock Draft - serverless API
 
+Parameters:
+  GoogleClientId:
+    Type: String
+    Description: OAuth 2.0 client ID from the Google Cloud project.
+    Default: ""
+  GoogleClientSecret:
+    Type: String
+    NoEcho: true
+    Description: >-
+      OAuth 2.0 client secret. NoEcho keeps it out of console output and stack
+      events. Pass it at deploy time from SSM; never commit it.
+    Default: ""
+  SiteUrl:
+    Type: String
+    Description: Origin the hosted sign-in returns to.
+    Default: "https://d2kf4b52rvabfv.cloudfront.net"
+  AuthDomainPrefix:
+    Type: String
+    Description: Prefix for the Cognito hosted sign-in domain.
+    Default: "perfectpick-auth"
+
+# Cognito is only created once a Google client id is supplied. Until then the
+# stack deploys exactly as it does today, so this phase cannot break a deploy
+# that has not been configured yet.
+Conditions:
+  HasGoogle: !Not [!Equals [!Ref GoogleClientId, ""]]
+
 Globals:
   Function:
     Runtime: nodejs24.x
@@ -9,6 +36,83 @@ Globals:
     MemorySize: 256
 
 Resources:
+
+  # --- Identity ----------------------------------------------------------
+  #
+  # Google is the only provider: no password is ever set, stored, or reset
+  # here, and API Gateway can verify this pool's JWTs natively, so no token
+  # verification code is written or maintained in this project.
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Condition: HasGoogle
+    Properties:
+      UserPoolName: perfectpick-users
+      # Google is the sole provider, so email arrives already verified and
+      # there is no self-service sign-up path to secure.
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+      Schema:
+        - Name: email
+          AttributeDataType: String
+          Mutable: true
+          Required: true
+      AutoVerifiedAttributes:
+        - email
+
+  UserPoolGoogleProvider:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Condition: HasGoogle
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: !Ref GoogleClientId
+        client_secret: !Ref GoogleClientSecret
+        authorize_scopes: "openid email profile"
+      AttributeMapping:
+        email: email
+        given_name: given_name
+        family_name: family_name
+        username: sub
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Condition: HasGoogle
+    # Without this the client can be created before the provider exists and
+    # SupportedIdentityProviders fails to resolve.
+    DependsOn: UserPoolGoogleProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ClientName: perfectpick-web
+      # A browser cannot keep a secret, so this is a public client and the
+      # flow is authorization code with PKCE.
+      GenerateSecret: false
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      SupportedIdentityProviders:
+        - Google
+      CallbackURLs:
+        - !Sub "${SiteUrl}/auth/callback"
+        - "http://localhost:5173/auth/callback"
+      LogoutURLs:
+        - !Ref SiteUrl
+        - "http://localhost:5173"
+      PreventUserExistenceErrors: ENABLED
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Condition: HasGoogle
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Ref AuthDomainPrefix
+
   DraftsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -201,6 +305,19 @@ Resources:
             Method: DELETE
 
 Outputs:
+
+  UserPoolId:
+    Condition: HasGoogle
+    Description: Cognito user pool id
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Condition: HasGoogle
+    Description: Cognito app client id for the web app
+    Value: !Ref UserPoolClient
+  AuthDomain:
+    Condition: HasGoogle
+    Description: Hosted sign-in domain
+    Value: !Sub "https://${AuthDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
   ApiBaseUrl:
     Description: Base URL for HTTP API
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"

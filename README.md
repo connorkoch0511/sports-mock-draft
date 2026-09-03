@@ -171,6 +171,64 @@ suite and commit the updated image so this README keeps matching the app.
 
 ---
 
+## Sign-in setup (one-time, manual)
+
+Sign-in is **optional configuration**. Without it the stack deploys exactly as
+it does today and the app works signed out — `sam deploy` with no
+`GoogleClientId` creates no Cognito resources at all.
+
+To turn it on:
+
+**1. Create a Google OAuth client**
+
+- Google Cloud Console → APIs & Services → Credentials → *Create credentials* →
+  *OAuth client ID* → **Web application**.
+- Configure the OAuth consent screen first if prompted (External, app name,
+  your email). It can stay in Testing while only you sign in.
+- Leave the redirect URI blank for now — the value depends on the Cognito
+  domain, which does not exist yet.
+- Note the **client ID** and **client secret**.
+
+**2. Deploy with the credentials**
+
+The secret must never enter git. Put it in SSM once:
+
+```bash
+aws ssm put-parameter --name /perfectpick/google-client-secret \
+  --type SecureString --value 'THE_SECRET'
+```
+
+Then deploy, reading it back at deploy time:
+
+```bash
+cd backend
+sam deploy --parameter-overrides \
+  GoogleClientId=YOUR_CLIENT_ID \
+  GoogleClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text)
+```
+
+**3. Point Google at Cognito**
+
+The deploy prints `AuthDomain`. Back in the Google credential, add this as an
+authorized redirect URI:
+
+```
+https://<AuthDomain>/oauth2/idpresponse
+```
+
+**4. Build the frontend with the pool details**
+
+Add to `frontend/.env.production` (the deploy outputs give both values):
+
+```
+VITE_COGNITO_AUTHORITY=https://cognito-idp.us-east-1.amazonaws.com/<UserPoolId>
+VITE_COGNITO_CLIENT_ID=<UserPoolClientId>
+```
+
+A build without these variables simply has no Sign in button.
+
 ## Deploying
 
 ### Frontend
