@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "../lib/authContext.js";
 import { Link, useLocation } from "react-router-dom";
 
 const LINKS = [
@@ -11,6 +12,7 @@ const LINKS = [
 export default function NavBar() {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
+  const { name, loading, configured, signIn, signOut } = useAuth();
   const toggleRef = useRef(null);
   const menuRef = useRef(null);
 
@@ -94,6 +96,43 @@ export default function NavBar() {
           })}
         </nav>
       )}
+
+      {/*
+        Sign-in is additive in this phase: nothing on any page requires it, so
+        an unconfigured build simply renders nothing here.
+      */}
+      {configured ? (
+        <div data-testid="auth-controls" className="flex items-center gap-2">
+          {loading ? null : name ? (
+            <>
+              <span
+                data-testid="auth-user"
+                title={name}
+                className="max-w-[10rem] truncate text-xs text-zinc-400"
+              >
+                {name}
+              </span>
+              <button
+                type="button"
+                data-testid="sign-out"
+                onClick={signOut}
+                className="rounded-2xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600"
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              data-testid="sign-in"
+              onClick={signIn}
+              className="rounded-2xl border border-cyan-800/60 bg-cyan-950/40 px-3 py-1.5 text-xs text-cyan-200 hover:border-cyan-600"
+            >
+              Sign in
+            </button>
+          )}
+        </div>
+      ) : null}
 
       <Link
         to="/"
