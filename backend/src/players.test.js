@@ -388,3 +388,9 @@ test("gameLogThrough rides along with the log", async () => {
   const { body } = await getOne("4034");
   assert.strictEqual(body.player.gameLogThrough, 12);
 });
+
+test("yearsExp rides along on the single player", async () => {
+  stubGet(player("4034", 7, { yearsExp: 0 }));
+  const { body } = await getOne("4034");
+  assert.strictEqual(body.player.yearsExp, 0);
+});

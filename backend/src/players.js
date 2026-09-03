@@ -20,6 +20,7 @@ function toDetail(p, format) {
     position: p.position,
     team: p.team,
     status: p.status ?? null,
+    yearsExp: p.yearsExp ?? null,
     rank: p.rank?.[format] ?? null,
     adp: p.adp?.[format] ?? null,
     tier: p.tier?.[format] ?? null,

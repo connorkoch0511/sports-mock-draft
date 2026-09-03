@@ -159,6 +159,38 @@ test.describe("player drill-down", () => {
     await expect(page.getByTestId("player-modal-log")).toHaveCount(0);
   });
 
+  // Both have an empty log; only one of them sat out a season he could have
+  // played. Saying "did not play" of a rookie asserts something untrue.
+  test("a rookie's empty log is explained as a rookie's, not as a season missed", async ({ page }) => {
+    mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
+    await page.route(`${API}/players/*`, (r) =>
+      r.fulfill({
+        json: { player: { id: "p1", name: MCCAFFREY, position: "RB", team: "SF", yearsExp: 0 } },
+      })
+    );
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+    await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+
+    await expect(page.getByTestId("player-modal-no-log")).toContainText("rookie");
+    await expect(page.getByTestId("player-modal-no-log")).not.toContainText("did not play");
+  });
+
+  test("a veteran who missed the season is not called a rookie", async ({ page }) => {
+    mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
+    await page.route(`${API}/players/*`, (r) =>
+      r.fulfill({
+        json: { player: { id: "p1", name: MCCAFFREY, position: "RB", team: "SF", yearsExp: 8 } },
+      })
+    );
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+    await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+
+    await expect(page.getByTestId("player-modal-no-log")).toContainText("did not play");
+    await expect(page.getByTestId("player-modal-no-log")).not.toContainText("rookie");
+  });
+
   test("a failed fetch says the log is missing, keeping what the row knew", async ({ page }) => {
     mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
     await page.route(`${API}/players/*`, (r) => r.fulfill({ status: 500, json: { error: "nope" } }));
