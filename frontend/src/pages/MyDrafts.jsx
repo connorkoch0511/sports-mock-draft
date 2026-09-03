@@ -40,6 +40,10 @@ export default function MyDrafts() {
   usePageTitle("My Drafts");
 
   const forget = (id) => {
+    // Clear any error first: a failed delete leaves a banner naming this
+    // draft, and forgetting the row would otherwise leave the message behind
+    // pointing at something no longer listed.
+    setErr("");
     forgetDraft(id);
     setDrafts(listDrafts());
   };

@@ -75,8 +75,11 @@ test.describe("player drill-down", () => {
 
     const gaps = page.getByTestId("game-log-gap");
     await expect(gaps.first()).toContainText("did not play");
-    // Week 3 is missing from the fixture; weeks 5-18 are too.
-    await expect(gaps).toHaveCount(18 - MOCK_GAME_LOG.length);
+    // Weeks 1, 2 and 4 were played. That leaves week 3 alone, and 5-18 as one
+    // run -- two gap rows, not fifteen.
+    await expect(gaps).toHaveCount(2);
+    await expect(gaps.nth(0)).toContainText("3");
+    await expect(gaps.nth(1)).toContainText("5-18");
 
     const played = page.getByTestId("game-log-week");
     await expect(played).toHaveCount(MOCK_GAME_LOG.length);
@@ -250,5 +253,27 @@ test.describe("player drill-down", () => {
     await expect(log.locator('[data-week="5"]')).toHaveCount(1);
     await expect(log.locator('[data-week="6"]')).toHaveCount(0);
     await expect(page.getByTestId("game-log-gap")).toHaveCount(2);
+  });
+
+  test("the card and the dialog both show where the player started", async ({ page }) => {
+    await openDraft(page);
+    await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+
+    const start = page.getByTestId("player-modal").getByTestId("starting-point");
+    await expect(start).toBeVisible();
+    // He is first in the order, so he starts 1st and the base costs nothing.
+    await expect(start).toContainText("Starts 1st");
+    await expect(start).toContainText("0");
+  });
+
+  test("a player further down starts lower, and says by how much", async ({ page }) => {
+    await openDraft(page);
+    await rowFor(page, "Travis Kelce").getByTestId("open-player").click();
+
+    const start = page.getByTestId("player-modal").getByTestId("starting-point");
+    await expect(start).toBeVisible();
+    // Kelce is 10th in the pool, so he starts 10th at a base of -9.
+    await expect(start).toContainText("Starts 10th");
+    await expect(start).toContainText("-9");
   });
 });

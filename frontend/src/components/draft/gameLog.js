@@ -81,7 +81,28 @@ export function withByeGaps(gameLog, weeks) {
   const out = [];
   for (let wk = 1; wk <= weeks; wk++) {
     const row = byWeek.get(wk);
-    out.push(row ? { wk, played: true, row } : { wk, played: false, row: null });
+    if (row) {
+      out.push({ wk, played: true, row });
+      continue;
+    }
+
+    // Consecutive missed weeks collapse into one line. A player who missed
+    // fourteen produced fourteen identical "did not play" rows, burying the
+    // three games he actually played. The span is still stated exactly, so
+    // nothing is lost -- "5-18" says as much as fourteen rows did.
+    const last = out[out.length - 1];
+    if (last && !last.played) {
+      last.to = wk;
+      continue;
+    }
+    out.push({ wk, to: wk, played: false, row: null });
   }
   return out;
+}
+
+/**
+ * How a gap names itself: a single week is "3", a run is "5-18".
+ */
+export function gapLabel(entry) {
+  return entry.to > entry.wk ? `${entry.wk}-${entry.to}` : String(entry.wk);
 }

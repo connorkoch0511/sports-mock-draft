@@ -129,6 +129,11 @@ export default function Board() {
     }
   }, [boardId]);
 
+  // A false positive. `load` awaits apiGet before it touches state, so every
+  // setState inside it runs in a later microtask, never synchronously in this
+  // effect body -- the rule cannot see through the await. Fetching on mount is
+  // what effects are for; there is nothing here to restructure.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(); }, [load]);
 
   // Known limitation, accepted as-is: navigating away inside the 800ms

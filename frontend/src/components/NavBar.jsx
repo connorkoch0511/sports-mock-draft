@@ -16,9 +16,15 @@ export default function NavBar() {
 
   // Close on route change. Driven off pathname rather than the links' onClick
   // so that programmatic navigation closes the menu too.
-  useEffect(() => {
+  //
+  // Adjusted during render, not in an effect: React re-runs the component
+  // before committing, so the menu is never painted open over the new route
+  // and then closed a frame later.
+  const [lastPath, setLastPath] = useState(pathname);
+  if (lastPath !== pathname) {
+    setLastPath(pathname);
     setOpen(false);
-  }, [pathname]);
+  }
 
   useEffect(() => {
     if (!open) return;
