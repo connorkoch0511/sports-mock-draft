@@ -193,3 +193,160 @@ test("pickAvailability ignores practice_participation", () => {
   const out = pickAvailability({ practice_participation: "Limited" });
   assert.strictEqual(out, null);
 });
+
+// --- stale row pruning -------------------------------------------------
+
+const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
+const { pruneStale, MIN_EXPECTED_PLAYERS } = require("./syncPlayers");
+
+// Drives pruneStale against a fake table. Returns the delete keys actually
+// issued so tests can assert on WHICH rows went, not merely how many.
+function fakeDdb(t, rows, { queryThrows = false } = {}) {
+  const deleted = [];
+  t.mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const name = cmd.constructor.name;
+    if (name === "QueryCommand") {
+      if (queryThrows) throw new Error("query blew up");
+      return { Items: rows };
+    }
+    if (name === "BatchWriteCommand") {
+      const table = Object.keys(cmd.input.RequestItems)[0];
+      for (const r of cmd.input.RequestItems[table]) {
+        if (r.DeleteRequest) deleted.push(r.DeleteRequest.Key);
+      }
+      return { UnprocessedItems: {} };
+    }
+    throw new Error(`unexpected command ${name}`);
+  });
+  return deleted;
+}
+
+test("pruneStale deletes only rows this run did not rewrite", async (t) => {
+  const NOW = 1_000_000;
+  const deleted = fakeDdb(t, [
+    { playerId: "fresh1", updatedAt: NOW },
+    { playerId: "fresh2", updatedAt: NOW + 5 },
+    { playerId: "retired", updatedAt: NOW - 86_400_000 },
+    { playerId: "freeagent", updatedAt: NOW - 1 },
+  ]);
+
+  const res = await pruneStale({
+    table: "t",
+    sport: "nfl",
+    runStartedAt: NOW,
+    wrote: 815,
+  });
+
+  assert.strictEqual(res.skipped, false);
+  assert.strictEqual(res.pruned, 2);
+  assert.deepStrictEqual(
+    deleted.map((k) => k.playerId).sort(),
+    ["freeagent", "retired"]
+  );
+  // The key must carry BOTH halves of the composite key, or the delete is a
+  // no-op against a table partitioned on sport.
+  assert.ok(deleted.every((k) => k.sport === "nfl"));
+});
+
+test("pruneStale treats a row with no updatedAt as stale", async (t) => {
+  const NOW = 1_000_000;
+  const deleted = fakeDdb(t, [
+    { playerId: "current", updatedAt: NOW },
+    { playerId: "ancient" },
+  ]);
+
+  await pruneStale({ table: "t", sport: "nfl", runStartedAt: NOW, wrote: 600 });
+
+  assert.deepStrictEqual(deleted.map((k) => k.playerId), ["ancient"]);
+});
+
+// The safety valve. An untested valve is decoration -- this is the assertion
+// that stands between a Sleeper hiccup and an emptied table.
+test("pruneStale deletes NOTHING when the run wrote implausibly few players", async (t) => {
+  const NOW = 1_000_000;
+  const deleted = fakeDdb(t, [
+    { playerId: "a", updatedAt: NOW - 999 },
+    { playerId: "b", updatedAt: NOW - 999 },
+    { playerId: "c", updatedAt: NOW - 999 },
+  ]);
+
+  const res = await pruneStale({
+    table: "t",
+    sport: "nfl",
+    runStartedAt: NOW,
+    wrote: MIN_EXPECTED_PLAYERS - 1,
+  });
+
+  assert.strictEqual(res.skipped, true);
+  assert.strictEqual(res.pruned, 0);
+  assert.deepStrictEqual(deleted, [], "a short run must delete nothing at all");
+});
+
+test("pruneStale prunes at exactly the floor", async (t) => {
+  const NOW = 1_000_000;
+  const deleted = fakeDdb(t, [{ playerId: "old", updatedAt: NOW - 1 }]);
+
+  const res = await pruneStale({
+    table: "t",
+    sport: "nfl",
+    runStartedAt: NOW,
+    wrote: MIN_EXPECTED_PLAYERS,
+  });
+
+  assert.strictEqual(res.skipped, false);
+  assert.deepStrictEqual(deleted.map((k) => k.playerId), ["old"]);
+});
+
+test("pruneStale pages through a truncated Query rather than pruning one page", async (t) => {
+  const NOW = 1_000_000;
+  const deleted = [];
+  let call = 0;
+  t.mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "QueryCommand") {
+      call += 1;
+      if (call === 1) {
+        return {
+          Items: [{ playerId: "page1", updatedAt: NOW - 1 }],
+          LastEvaluatedKey: { sport: "nfl", playerId: "page1" },
+        };
+      }
+      return { Items: [{ playerId: "page2", updatedAt: NOW - 1 }] };
+    }
+    const table = Object.keys(cmd.input.RequestItems)[0];
+    for (const r of cmd.input.RequestItems[table]) deleted.push(r.DeleteRequest.Key);
+    return { UnprocessedItems: {} };
+  });
+
+  await pruneStale({ table: "t", sport: "nfl", runStartedAt: NOW, wrote: 815 });
+
+  assert.strictEqual(call, 2, "must follow LastEvaluatedKey");
+  assert.deepStrictEqual(deleted.map((k) => k.playerId).sort(), ["page1", "page2"]);
+});
+
+test("pruneStale retries DynamoDB's unprocessed deletes", async (t) => {
+  const NOW = 1_000_000;
+  const seen = [];
+  let writes = 0;
+  t.mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "QueryCommand") {
+      return { Items: [{ playerId: "x", updatedAt: NOW - 1 }] };
+    }
+    writes += 1;
+    const table = Object.keys(cmd.input.RequestItems)[0];
+    const reqs = cmd.input.RequestItems[table];
+    seen.push(reqs.length);
+    if (writes === 1) return { UnprocessedItems: { [table]: reqs } };
+    return { UnprocessedItems: {} };
+  });
+
+  const res = await pruneStale({
+    table: "t",
+    sport: "nfl",
+    runStartedAt: NOW,
+    wrote: 815,
+  });
+
+  assert.strictEqual(writes, 2, "an unprocessed delete must be resent");
+  // Counted once on the first attempt, so a retry does not double-count.
+  assert.strictEqual(res.pruned, 1);
+});
