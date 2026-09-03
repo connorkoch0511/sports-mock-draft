@@ -382,3 +382,9 @@ test("GET /players never ships a game log", async () => {
   assert.ok(!("gameLog" in body.players[0]), "the list must stay lean");
   assert.ok(!("gameLogSeason" in body.players[0]));
 });
+
+test("gameLogThrough rides along with the log", async () => {
+  stubGet(player("4034", 7, { gameLog: GAME_LOG, gameLogSeason: 2025, gameLogThrough: 12 }));
+  const { body } = await getOne("4034");
+  assert.strictEqual(body.player.gameLogThrough, 12);
+});

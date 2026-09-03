@@ -140,11 +140,14 @@ test("the board is fetched exactly once, even after a pick", async ({ page }) =>
   });
 
   await page.goto(`/draft/${DRAFT_ID}`);
-  // Do NOT pause — players are clickable only when not paused.
+  // Do NOT pause — the Draft button is enabled only when not paused.
 
-  const firstPlayer = page.getByRole("button", { name: /CeeDee Lamb/ }).first();
-  await expect(firstPlayer).toBeEnabled();
-  await firstPlayer.click();
+  const draftBtn = page
+    .getByTestId("big-board-row")
+    .filter({ hasText: "CeeDee Lamb" })
+    .getByTestId("draft-player");
+  await expect(draftBtn).toBeEnabled();
+  await draftBtn.click();
 
   // Confirms the pick — and the post-pick load() that refetches draft state —
   // actually completed, so the board-fetch count below reflects a full cycle.

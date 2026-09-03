@@ -163,11 +163,14 @@ test.describe("Draft page", () => {
     });
 
     await page.goto(`/draft/${DRAFT_ID}`);
-    // Do NOT pause — players are clickable only when not paused
+    // Do NOT pause — the Draft button is enabled only when not paused
 
-    const firstPlayer = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
-    await expect(firstPlayer).toBeEnabled();
-    await firstPlayer.click();
+    const draftBtn = page
+      .getByTestId("big-board-row")
+      .filter({ hasText: "Christian McCaffrey" })
+      .getByTestId("draft-player");
+    await expect(draftBtn).toBeEnabled();
+    await draftBtn.click();
 
     await expect(() => expect(pickPayload?.playerId).toBe("p1")).toPass();
   });
@@ -254,9 +257,9 @@ test.describe("Draft page", () => {
 // something moved which should not have.
 //
 // Note: no Pause click. canManualPick is `!paused && !busy && !completed &&
-// isMyTurn`, so pausing disables the row for your own turn too.
+// isMyTurn`, so pausing disables the Draft button for your own turn too.
 
-test("clicking a Big Board row drafts that player", async ({ page }) => {
+test("the row's Draft button drafts that player", async ({ page }) => {
   const state = makeDraftState({ currentIndex: 0 });
   page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
   page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
@@ -268,14 +271,18 @@ test("clicking a Big Board row drafts that player", async ({ page }) => {
   });
 
   await page.goto(`/draft/${DRAFT_ID}`);
-  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
-  await expect(row).toBeEnabled();
-  await row.click();
+  // The row itself opens the player now; only this button drafts him.
+  const draftBtn = page
+    .getByTestId("big-board-row")
+    .filter({ hasText: "Christian McCaffrey" })
+    .getByTestId("draft-player");
+  await expect(draftBtn).toBeEnabled();
+  await draftBtn.click();
 
   await expect(() => expect(picked).toBe("p1")).toPass();
 });
 
-test("Big Board rows are disabled when picking is not allowed", async ({ page }) => {
+test("the Draft button is disabled when picking is not allowed", async ({ page }) => {
   // Pause is the stable way to reach canManualPick === false. Driving it via
   // "not your turn" instead would let the autopick effect loop against a
   // static mock, and the row would end up disabled by `busy` rather than by
@@ -291,16 +298,25 @@ test("Big Board rows are disabled when picking is not allowed", async ({ page })
   });
 
   await page.goto(`/draft/${DRAFT_ID}`);
-  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
-  await expect(row).toBeEnabled();
+  const draftBtn = page
+    .getByTestId("big-board-row")
+    .filter({ hasText: "Christian McCaffrey" })
+    .getByTestId("draft-player");
+  const openBtn = page
+    .getByTestId("big-board-row")
+    .filter({ hasText: "Christian McCaffrey" })
+    .getByTestId("open-player");
+  await expect(draftBtn).toBeEnabled();
 
   await page.getByRole("button", { name: "Pause" }).click();
 
-  await expect(row).toBeDisabled();
+  await expect(draftBtn).toBeDisabled();
+  // Reading is never gated on being able to pick.
+  await expect(openBtn).toBeEnabled();
   expect(calls).toBe(0);
 });
 
-test("a Big Board row can be drafted from the keyboard", async ({ page }) => {
+test("a player can be drafted from the keyboard", async ({ page }) => {
   const state = makeDraftState({ currentIndex: 0 });
   page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
   page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
@@ -312,9 +328,12 @@ test("a Big Board row can be drafted from the keyboard", async ({ page }) => {
   });
 
   await page.goto(`/draft/${DRAFT_ID}`);
-  const row = page.getByRole("button", { name: /Christian McCaffrey/ }).first();
-  await expect(row).toBeEnabled();
-  await row.focus();
+  const draftBtn = page
+    .getByTestId("big-board-row")
+    .filter({ hasText: "Christian McCaffrey" })
+    .getByTestId("draft-player");
+  await expect(draftBtn).toBeEnabled();
+  await draftBtn.focus();
   await page.keyboard.press("Enter");
 
   await expect(() => expect(picked).toBe("p1")).toPass();

@@ -32,6 +32,10 @@ function toDetail(p, format) {
   if (Array.isArray(p.gameLog) && p.gameLog.length > 0) {
     out.gameLog = p.gameLog;
     out.gameLogSeason = p.gameLogSeason ?? null;
+    // How far the season had actually got when this was synced. The table
+    // renders gaps up to here and no further, so a mid-season log does not
+    // report weeks nobody has played as games this player missed.
+    out.gameLogThrough = p.gameLogThrough ?? null;
   }
   if (p.injuryStatus) out.injuryStatus = p.injuryStatus;
   if (p.injuryBodyPart) out.injuryBodyPart = p.injuryBodyPart;

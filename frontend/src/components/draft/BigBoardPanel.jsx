@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { orderByBoard } from "../../lib/boardOrder";
 import { adviseOnPick, NO_ADVICE } from "../../lib/pickAdvice";
-import { ReasonList, SCORED_NOTHING, NOT_EVALUATED, ADVICE_BASIS } from "./ReasonList";
+import { ReasonList, ADVICE_BASIS } from "./ReasonList";
+import { PlayerModal } from "./PlayerModal";
 import { Pill } from "./Pill";
 
 const PAGE_SIZE = 25;
@@ -29,7 +30,7 @@ export function BigBoardPanel({
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState("");
   const [page, setPage] = useState(0);
-  const [whyId, setWhyId] = useState(null);
+  const [openPlayerId, setOpenPlayerId] = useState(null);
 
   const filtered = useMemo(() => {
     if (!draft) return [];
@@ -55,6 +56,12 @@ export function BigBoardPanel({
     setPage(0);
   }
 
+  // Resolved from the whole pool rather than the visible page. Typing in the
+  // search box while the dialog is open must not yank it shut.
+  const openPlayer = openPlayerId != null
+    ? players.find((x) => x.id === openPlayerId) ?? null
+    : null;
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pagedPlayers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
@@ -67,10 +74,10 @@ export function BigBoardPanel({
   // draft itself does.
   //
   // And only when somebody is going to read it. The card is for the user's
-  // own turn, and a why panel is either open or it is not; the app auto-picks
+  // own turn, and the drill-down is either open or it is not; the app auto-picks
   // the other eleven teams, so this skips the engine on eleven of every
   // twelve picks rather than scoring the whole pool for a card nobody sees.
-  const adviceWanted = isMyTurn || whyId != null;
+  const adviceWanted = isMyTurn || openPlayerId != null;
   const advice = useMemo(
     () => (adviceWanted ? adviseOnPick({ players, draft, boardRows, myTeam }) : NO_ADVICE),
     [adviceWanted, players, draft, boardRows, myTeam]
@@ -209,82 +216,83 @@ export function BigBoardPanel({
 
         <div data-testid="scroll-big-board" className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
           {pagedPlayers.map((p) => (
-            // The row is a container now, not a button: a <button> cannot
-            // nest inside a <button>, and the row needs a second control.
-            // The draft button is untouched -- same disabled, same
-            // onClick, same title, same contents -- and the why control is
-            // overlaid on it rather than placed beside it, so the row
-            // still looks and measures exactly as it did.
-            <div key={p.id} data-testid="big-board-row">
-              <div className="relative">
-                <button
-                  disabled={!canManualPick}
-                  onClick={() => makePick(p.id)}
-                  className="w-full text-left rounded-2xl border border-zinc-900 bg-black/60 p-3 hover:border-zinc-700 disabled:opacity-50"
-                  title={
-                    canManualPick
-                      ? `Click to draft for Team ${myTeam}`
-                      : draft.completed
-                      ? "Draft completed"
-                      : paused
-                      ? "Paused"
-                      : `You can only draft when Team ${myTeam} is on the clock`
-                  }
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium">
-                      {p.myRank != null
-                        ? `${p.myRank}. `
-                        : p.rank != null
-                        ? `${p.rank}. `
-                        : ""}
-                      {p.name}
-                    </div>
-                    <div className="text-xs text-zinc-400">
-                      {p.adp != null ? `ADP ${p.adp}` : "ADP —"}
-                      {p.delta != null && p.delta !== 0 ? (
-                        <span className={p.delta > 0 ? "ml-1 text-emerald-400" : "ml-1 text-rose-400"}>
-                          {p.delta > 0 ? `+${p.delta}` : p.delta}
-                        </span>
-                      ) : null}
-                    </div>
+            // The row opens the player; the Draft button drafts him. Reading
+            // is the safe default and committing is deliberate -- a whole-row
+            // click that instantly and irreversibly drafted somebody made the
+            // destructive action the easiest one to hit by accident, and left
+            // no way to look a player up at all.
+            //
+            // A <button> cannot nest inside a <button>, so the row is a
+            // container with the Draft control overlaid rather than nested.
+            <div key={p.id} data-testid="big-board-row" className="relative">
+              <button
+                type="button"
+                data-testid="open-player"
+                onClick={() => setOpenPlayerId(p.id)}
+                title={`${p.name} — stats and reasons. Reading never drafts anybody.`}
+                className="w-full text-left rounded-2xl border border-zinc-900 bg-black/60 p-3 pb-9 hover:border-zinc-700"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="font-medium">
+                    {p.myRank != null
+                      ? `${p.myRank}. `
+                      : p.rank != null
+                      ? `${p.rank}. `
+                      : ""}
+                    {p.name}
                   </div>
-                  <div className="mt-1 flex gap-2 text-xs text-zinc-300 flex-wrap">
-                    <Pill>{p.position}</Pill>
-                    <Pill>{p.team}</Pill>
-                    {p.tier != null ? <Pill>Tier {p.tier}</Pill> : null}
+                  <div className="text-xs text-zinc-400">
+                    {p.adp != null ? `ADP ${p.adp}` : "ADP —"}
+                    {p.delta != null && p.delta !== 0 ? (
+                      <span className={p.delta > 0 ? "ml-1 text-emerald-400" : "ml-1 text-rose-400"}>
+                        {p.delta > 0 ? `+${p.delta}` : p.delta}
+                      </span>
+                    ) : null}
                   </div>
-                </button>
-
-                <button
-                  type="button"
-                  data-testid="why-player"
-                  aria-label={`Why ${p.name}?`}
-                  aria-expanded={whyId === p.id}
-                  onClick={() => setWhyId((cur) => (cur === p.id ? null : p.id))}
-                  title={`Why ${p.name} is here — reading never drafts anybody`}
-                  className="absolute bottom-2 right-2 rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[11px] font-normal text-zinc-400 hover:text-cyan-200"
-                >
-                  Why?
-                </button>
-              </div>
-
-              {whyId === p.id ? (
-                <div
-                  data-testid="why-panel"
-                  className="mt-2 rounded-2xl border border-cyan-900/50 bg-cyan-950/20 px-3 py-2 space-y-2"
-                >
-                  <div className="text-xs font-medium text-cyan-100">Why {p.name} is here</div>
-                  <ReasonList
-                    reasons={advice.reasonsFor(p.id)}
-                    emptyText={playersWereEvaluated ? SCORED_NOTHING : NOT_EVALUATED}
-                  />
-                  <p className="text-[11px] leading-snug text-zinc-500">{ADVICE_BASIS}</p>
                 </div>
-              ) : null}
+                <div className="mt-1 flex gap-2 text-xs text-zinc-300 flex-wrap">
+                  <Pill>{p.position}</Pill>
+                  <Pill>{p.team}</Pill>
+                  {p.tier != null ? <Pill>Tier {p.tier}</Pill> : null}
+                </div>
+              </button>
+
+              <button
+                type="button"
+                data-testid="draft-player"
+                aria-label={`Draft ${p.name}`}
+                disabled={!canManualPick}
+                onClick={() => makePick(p.id)}
+                title={
+                  canManualPick
+                    ? `Draft ${p.name} for Team ${myTeam}`
+                    : draft.completed
+                    ? "Draft completed"
+                    : paused
+                    ? "Paused"
+                    : `You can only draft when Team ${myTeam} is on the clock`
+                }
+                className="absolute bottom-2 right-2 rounded-full border border-emerald-800/70 bg-emerald-950/50 px-2.5 py-1 text-[11px] font-medium text-emerald-300 hover:border-emerald-600 hover:text-emerald-200 disabled:opacity-40 disabled:hover:border-emerald-800/70"
+              >
+                Draft
+              </button>
             </div>
           ))}
         </div>
+
+        {openPlayer ? (
+          <PlayerModal
+            // Keyed on the player, so opening a different one remounts with
+            // clean state instead of the previous player's log lingering
+            // while the new fetch is in flight.
+            key={openPlayer.id}
+            player={openPlayer}
+            format={draft.format}
+            reasons={advice.reasonsFor(openPlayer.id)}
+            playersWereEvaluated={playersWereEvaluated}
+            onClose={() => setOpenPlayerId(null)}
+          />
+        ) : null}
       </div>
   );
 }

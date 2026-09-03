@@ -518,3 +518,30 @@ test("a player who never played gets no gameLog key at all", async () => {
   assert.strictEqual(players[0].gameLog, undefined);
   assert.strictEqual(players[0].gameLogSeason, undefined);
 });
+
+// Mid-season, weeks 12-18 have not been played. Rendering them as "did not
+// play" would accuse the player of missing games nobody has played.
+test("gameLogThrough marks how far the season had got", async () => {
+  const players = [{ id: "7" }];
+  const res = await mergeGameLogs(players, 2025, async (_s, w) =>
+    w <= 5 ? { 7: { gp: 1, rec: w } } : {}
+  );
+
+  assert.strictEqual(res.lastWeekWithData, 5);
+  assert.strictEqual(players[0].gameLogThrough, 5);
+});
+
+test("a week is counted as played even when nobody in our pool appeared", async () => {
+  // Week 6 has football in it, just not for this player. The season still got
+  // that far, so his week 6 is a genuine absence rather than an unplayed week.
+  const players = [{ id: "7" }];
+  const res = await mergeGameLogs(players, 2025, async (_s, w) => {
+    if (w <= 5) return { 7: { gp: 1, rec: w } };
+    if (w === 6) return { 999: { gp: 1, rec: 3 } };
+    return {};
+  });
+
+  assert.strictEqual(res.lastWeekWithData, 6);
+  assert.strictEqual(players[0].gameLogThrough, 6);
+  assert.strictEqual(players[0].gameLog.length, 5);
+});

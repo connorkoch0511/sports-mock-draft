@@ -480,6 +480,10 @@ async function mergeGameLogs(players, season, fetchWeek = fetchWeekStats) {
   for (const p of players) byId.set(p.id, p);
 
   let weeksLoaded = 0;
+  // The highest week that actually carried player data. Mid-season the later
+  // weeks have not been played, and a log that rendered them as "did not
+  // play" would accuse a player of missing games nobody has played yet.
+  let lastWeekWithData = 0;
   for (let week = 1; week <= SEASON_WEEKS; week++) {
     let raw;
     try {
@@ -491,14 +495,19 @@ async function mergeGameLogs(players, season, fetchWeek = fetchWeekStats) {
     if (!raw || typeof raw !== "object") continue;
     weeksLoaded += 1;
 
+    let weekHadPlay = false;
     for (const [id, line] of Object.entries(raw)) {
       if (!isPlayerId(id)) continue;
-      const player = byId.get(id);
-      if (!player) continue;
       const row = pickWeek(line, week);
       if (!row) continue;
+      weekHadPlay = true;
+      const player = byId.get(id);
+      if (!player) continue;
       (player.gameLog ||= []).push(row);
     }
+    // Tracked from the feed, not from our own players: a week in which only
+    // players outside our pool appeared was still a week of football.
+    if (weekHadPlay) lastWeekWithData = week;
   }
 
   // Fetched in order, so the rows are already ascending; sorted anyway so the
@@ -508,11 +517,12 @@ async function mergeGameLogs(players, season, fetchWeek = fetchWeekStats) {
     if (p.gameLog) {
       p.gameLog.sort((a, b) => a.wk - b.wk);
       p.gameLogSeason = season;
+      p.gameLogThrough = lastWeekWithData;
       playersWithLog += 1;
     }
   }
 
-  return { weeksLoaded, playersWithLog };
+  return { weeksLoaded, playersWithLog, lastWeekWithData };
 }
 
 exports.handler = async () => {
