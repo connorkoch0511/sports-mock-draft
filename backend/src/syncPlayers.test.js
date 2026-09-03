@@ -407,3 +407,114 @@ test("a rostered player at a non-fantasy position is dropped", () => {
     null
   );
 });
+
+// --- weekly game logs --------------------------------------------------
+
+const {
+  WEEK_FIELDS, SEASON_WEEKS, isPlayerId, pickWeek, mergeGameLogs,
+} = require("./syncPlayers");
+
+test("pickWeek keeps a real week", () => {
+  // Brock Bowers, week 9 2025, from the live feed.
+  const out = pickWeek(
+    { gp: 1, rec: 12, rec_tgt: 13, rec_yd: 127, rec_td: 3, rec_rz_tgt: 5,
+      rush_att: 1, rush_yd: 6, off_snp: 52, tm_off_snp: 64, pts_ppr: 43.3 },
+    9
+  );
+  assert.strictEqual(out.wk, 9);
+  assert.strictEqual(out.rec_tgt, 13);
+  assert.strictEqual(out.rec_td, 3);
+  assert.strictEqual(out.off_snp, 52);
+  assert.strictEqual(out.pts_ppr, 43.3);
+});
+
+// The interception defect. `int` is a DEFENSIVE stat -- interceptions caught
+// -- and appears on zero players in a real week. A fixture carrying both is
+// the only thing that fails when the wrong one is curated.
+test("a quarterback's interceptions come from pass_int, never int", () => {
+  const out = pickWeek({ gp: 1, pass_att: 50, pass_yd: 342, pass_td: 1, pass_int: 3, int: 99 }, 9);
+  assert.strictEqual(out.pass_int, 3);
+  assert.ok(!("int" in out), "the defensive `int` must not be stored");
+  assert.ok(!WEEK_FIELDS.includes("int"), "`int` must not be a curated field");
+  assert.ok(WEEK_FIELDS.includes("pass_int"));
+});
+
+// Two kinds of absence, and a single rule covering both is what would be
+// written by mistake -- so both directions are asserted.
+test("a week the player did not play is a gap, not a row of zeroes", () => {
+  assert.strictEqual(pickWeek({ gp: 0, pts_ppr: 0 }, 3), null);
+  assert.strictEqual(pickWeek({}, 3), null);
+  assert.strictEqual(pickWeek(null, 3), null);
+  assert.strictEqual(pickWeek(undefined, 3), null);
+});
+
+test("a week he played but recorded nothing is a row, with the fields absent", () => {
+  const out = pickWeek({ gp: 1, off_snp: 12, tm_off_snp: 60 }, 4);
+  assert.ok(out, "he played, so the week exists");
+  assert.strictEqual(out.wk, 4);
+  assert.ok(!("rec_td" in out), "absent fields stay absent; the UI renders 0");
+  assert.strictEqual(out.off_snp, 12);
+});
+
+test("non-numeric junk is not stored as a stat", () => {
+  const out = pickWeek({ gp: 1, rec_yd: "127", rec_tgt: null, rec_td: NaN, rec: 5 }, 1);
+  assert.strictEqual(out.rec, 5);
+  for (const bad of ["rec_yd", "rec_tgt", "rec_td"]) {
+    assert.ok(!(bad in out), `${bad} must not be stored`);
+  }
+});
+
+test("isPlayerId accepts numeric ids and rejects team aggregates", () => {
+  assert.strictEqual(isPlayerId("4034"), true);
+  assert.strictEqual(isPlayerId("TEAM_CHI"), false);
+  assert.strictEqual(isPlayerId("TEAM_BUF"), false);
+  assert.strictEqual(isPlayerId(""), false);
+  assert.strictEqual(isPlayerId(undefined), false);
+});
+
+// The defect most likely to ship silently: TEAM_CHI's pts_ppr is the whole
+// offence's and outscores every human in the feed.
+test("a team aggregate is never merged onto a player", async () => {
+  const players = [{ id: "4034", name: "Isiah Pacheco" }, { id: "TEAM_CHI", name: "not a player" }];
+  const week = { 1: { "4034": { gp: 1, rec: 2, pts_ppr: 9.9 },
+                      TEAM_CHI: { gp: 1, rec: 22, pts_ppr: 154.58 } } };
+  const res = await mergeGameLogs(players, 2025, async (_s, w) => week[w] || {});
+
+  assert.deepStrictEqual(players[0].gameLog, [{ wk: 1, rec: 2, pts_ppr: 9.9 }]);
+  assert.strictEqual(players[1].gameLog, undefined, "TEAM_CHI must get no game log");
+  assert.strictEqual(res.playersWithLog, 1);
+});
+
+test("mergeGameLogs builds an ascending log across the season", async () => {
+  const players = [{ id: "7", name: "A player" }];
+  const res = await mergeGameLogs(players, 2025, async (_s, w) => {
+    if (w === 1) return { 7: { gp: 1, rec: 1 } };
+    if (w === 5) return { 7: { gp: 1, rec: 5 } };
+    if (w === 3) return { 7: { gp: 0 } };            // did not play
+    return {};
+  });
+
+  assert.deepStrictEqual(players[0].gameLog.map((r) => r.wk), [1, 5]);
+  assert.strictEqual(players[0].gameLogSeason, 2025);
+  assert.strictEqual(res.weeksLoaded, SEASON_WEEKS);
+  assert.ok(!players[0].gameLog.some((r) => r.wk === 3), "week 3 must be a gap");
+});
+
+test("a week that fails to fetch is skipped, not fatal", async () => {
+  const players = [{ id: "7" }];
+  const res = await mergeGameLogs(players, 2025, async (_s, w) => {
+    if (w === 2) throw new Error("upstream 500");
+    return { 7: { gp: 1, rec: w } };
+  });
+
+  assert.strictEqual(res.weeksLoaded, SEASON_WEEKS - 1);
+  assert.strictEqual(players[0].gameLog.length, SEASON_WEEKS - 1);
+  assert.ok(!players[0].gameLog.some((r) => r.wk === 2));
+});
+
+test("a player who never played gets no gameLog key at all", async () => {
+  const players = [{ id: "7" }];
+  await mergeGameLogs(players, 2025, async () => ({ 7: { gp: 0 } }));
+  assert.strictEqual(players[0].gameLog, undefined);
+  assert.strictEqual(players[0].gameLogSeason, undefined);
+});

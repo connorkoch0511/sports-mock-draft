@@ -290,3 +290,95 @@ test("an unranked player carries no availability fields", () => {
     }
   });
 });
+
+// --- GET /players/{playerId} ------------------------------------------
+
+const GAME_LOG = [
+  { wk: 1, rec: 4, rec_tgt: 6, rec_yd: 51, pts_ppr: 9.1, off_snp: 40, tm_off_snp: 62 },
+  { wk: 3, rec: 12, rec_tgt: 13, rec_yd: 127, rec_td: 3, pts_ppr: 43.3 },
+];
+
+function stubGet(item) {
+  const keys = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    keys.push(cmd?.input?.Key);
+    return item ? { Item: item } : {};
+  });
+  return keys;
+}
+
+async function getOne(playerId, query) {
+  const res = await handler({
+    requestContext: { http: { method: "GET" } },
+    pathParameters: { playerId },
+    queryStringParameters: query || {},
+  });
+  return { code: res.statusCode, body: JSON.parse(res.body) };
+}
+
+test("one player comes back with the game log", async (t) => {
+  const keys = stubGet(player("4034", 7, { gameLog: GAME_LOG, gameLogSeason: 2025 }));
+
+  const { code, body } = await getOne("4034", { format: "ppr" });
+
+  assert.strictEqual(code, 200);
+  assert.strictEqual(body.player.id, "4034");
+  assert.deepStrictEqual(body.player.gameLog, GAME_LOG);
+  assert.strictEqual(body.player.gameLogSeason, 2025);
+  // The composite key -- a Get against a table partitioned on sport needs both.
+  assert.deepStrictEqual(keys[0], { sport: "nfl", playerId: "4034" });
+});
+
+test("the single player uses the requested format's rank and adp", async () => {
+  stubGet(player("4034", 7, {}));
+  const { body } = await getOne("4034", { format: "ppr" });
+  assert.strictEqual(body.player.rank, 107);
+  assert.strictEqual(body.player.adp, 107.5);
+});
+
+test("an unknown player is a 404, not an empty player", async () => {
+  stubGet(null);
+  const { code, body } = await getOne("nope");
+  assert.strictEqual(code, 404);
+  assert.ok(body.error);
+  assert.ok(!body.player);
+});
+
+test("a player with no game log simply omits it", async () => {
+  stubGet(player("4034", 7, {}));
+  const { body } = await getOne("4034");
+  assert.ok(!("gameLog" in body.player), "absent, not an empty array");
+});
+
+test("an empty stored game log is not served as a log", async () => {
+  stubGet(player("4034", 7, { gameLog: [], gameLogSeason: 2025 }));
+  const { body } = await getOne("4034");
+  assert.ok(!("gameLog" in body.player));
+});
+
+// The single player is looked at deliberately, so availability rides along
+// whether or not he is ranked -- unlike the list projection.
+test("availability comes back for an unranked player too", async () => {
+  stubGet(
+    player("4034", 7, {
+      rank: {}, adp: {},
+      injuryStatus: "IR", injuryBodyPart: "Knee", depthChartOrder: 0,
+    })
+  );
+  const { body } = await getOne("4034", { format: "ppr" });
+  assert.strictEqual(body.player.rank, null);
+  assert.strictEqual(body.player.injuryStatus, "IR");
+  assert.strictEqual(body.player.injuryBodyPart, "Knee");
+  // 0 is a real depth-chart position and must survive a truthiness check.
+  assert.strictEqual(body.player.depthChartOrder, 0);
+});
+
+// The guard on the payload decision. Without it the list quietly regains the
+// game log the moment someone reuses the detail projection.
+test("GET /players never ships a game log", async () => {
+  stubPages([{ Items: [player("a", 1, { gameLog: GAME_LOG, gameLogSeason: 2025 })] }]);
+  const { body } = await get({ format: "standard" });
+  assert.strictEqual(body.players.length, 1);
+  assert.ok(!("gameLog" in body.players[0]), "the list must stay lean");
+  assert.ok(!("gameLogSeason" in body.players[0]));
+});
