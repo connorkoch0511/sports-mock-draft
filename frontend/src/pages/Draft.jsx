@@ -596,13 +596,7 @@ export default function Draft() {
                       aria-expanded={whyId === p.id}
                       onClick={() => setWhyId((cur) => (cur === p.id ? null : p.id))}
                       title={`Why ${p.name} is here — reading never drafts anybody`}
-                      // The `!`s are not decoration: index.css carries an
-                      // unlayered `button { padding: 0.6em 1.2em; font-size:
-                      // 1em; ... }` from the Vite template, and unlayered CSS
-                      // beats every Tailwind utility whatever its specificity.
-                      // Without them this chip is 82x45 and sits on top of the
-                      // row's ADP.
-                      className="absolute bottom-2 right-2 rounded-full! border! border-zinc-700! bg-zinc-900! px-2! py-0.5! text-[11px]! font-normal! text-zinc-400 hover:text-cyan-200"
+                      className="absolute bottom-2 right-2 rounded-full border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-[11px] font-normal text-zinc-400 hover:text-cyan-200"
                     >
                       Why?
                     </button>

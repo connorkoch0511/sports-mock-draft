@@ -15,15 +15,6 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
-}
-
 body {
   margin: 0;
   min-width: 320px;
@@ -31,27 +22,28 @@ body {
 
 html { height: 100%; }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
-}
+/* The Vite starter's `a`, `h1`, and `button` rules lived here unlayered, which
+   beats every Tailwind utility no matter how specific. Measured before removal:
+   an <h1 class="text-2xl"> rendered at 51.2px instead of 24px, and a
+   <Link class="text-white"> rendered Vite purple. The elements already carried
+   the classes expressing intent; the starter was simply outranking them.
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+   What follows is what the starter provided that Tailwind's reset does not
+   restore on its own, kept deliberately rather than by inheritance. */
+@layer base {
+  /* Tailwind's preflight sets `cursor: auto` on buttons, so without this every
+     button in the app silently loses its pointer. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  /* Losing the focus ring is an accessibility regression, not a cosmetic one.
+     Scoped to :focus-visible so it shows for keyboard users without ringing
+     every mouse click, which the starter's bare :focus did. */
+  :focus-visible {
+    outline: 2px solid #22d3ee;
+    outline-offset: 2px;
+  }
 }
 

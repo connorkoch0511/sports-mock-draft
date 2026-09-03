@@ -93,6 +93,7 @@ test("deleting a board removes it from the list", async ({ page }) => {
   await page.reload();
 
   await expect(page.getByTestId("board-list")).toContainText("My PPR Board");
+  page.on("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Delete My PPR Board" }).click();
 
   await expect(page.getByTestId("board-list")).toHaveCount(0);
@@ -219,4 +220,53 @@ test("screenshot — boards list", async ({ page }) => {
   await expect(page.getByTestId("board-list")).toBeVisible();
 
   await page.screenshot({ path: `${SCREENSHOTS}/boards.png`, fullPage: false });
+});
+
+// Deleting a board destroys hand-ranked work with no undo, and it sits one nav
+// item away from My drafts, which has always confirmed. The accept case above
+// passes just as green against no confirmation at all -- these are the ones
+// that actually hold the gate in place.
+test("dismissing the delete confirmation deletes nothing", async ({ page }) => {
+  let called = false;
+  await page.route(`**/boards/${BOARD_ID}`, (route) => {
+    if (route.request().method() === "DELETE") called = true;
+    return route.fulfill({ json: { ok: true } });
+  });
+
+  await page.goto("/boards");
+  await page.evaluate((id) => {
+    localStorage.setItem(
+      "perfectpick.myBoards",
+      JSON.stringify([{ id, name: "My PPR Board", updatedAt: Date.now() }])
+    );
+  }, BOARD_ID);
+  await page.reload();
+
+  page.on("dialog", (d) => d.dismiss());
+  await page.getByRole("button", { name: "Delete My PPR Board" }).click();
+
+  await expect(page.getByTestId("board-list")).toContainText("My PPR Board");
+  expect(called, "no DELETE should be sent when the dialog is dismissed").toBe(false);
+});
+
+test("the delete confirmation names the board", async ({ page }) => {
+  await page.route(`**/boards/${BOARD_ID}`, (route) => route.fulfill({ json: { ok: true } }));
+
+  await page.goto("/boards");
+  await page.evaluate((id) => {
+    localStorage.setItem(
+      "perfectpick.myBoards",
+      JSON.stringify([{ id, name: "My PPR Board", updatedAt: Date.now() }])
+    );
+  }, BOARD_ID);
+  await page.reload();
+
+  let message = "";
+  page.on("dialog", (d) => {
+    message = d.message();
+    d.dismiss();
+  });
+  await page.getByRole("button", { name: "Delete My PPR Board" }).click();
+
+  await expect.poll(() => message).toContain("My PPR Board");
 });
