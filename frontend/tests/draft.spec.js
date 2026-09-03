@@ -91,7 +91,10 @@ test.describe("Draft page", () => {
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
-    await expect(page.getByText(/\d+s/)).toBeVisible();
+    // Anchored on the clock glyph. A bare /\d+s/ also matches copy like
+    // "Starts 1st on the consensus board", which is a different thing on the
+    // same screen.
+    await expect(page.getByText(/⏱\s*\d+s/)).toBeVisible();
   });
 
   test("Auto Pick button calls the auto-pick endpoint", async ({ page }) => {

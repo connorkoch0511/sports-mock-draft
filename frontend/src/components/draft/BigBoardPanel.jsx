@@ -3,6 +3,7 @@ import { orderByBoard } from "../../lib/boardOrder";
 import { adviseOnPick, NO_ADVICE } from "../../lib/pickAdvice";
 import { ReasonList, ADVICE_BASIS } from "./ReasonList";
 import { PlayerModal } from "./PlayerModal";
+import { StartingPoint } from "./StartingPoint";
 import { Pill } from "./Pill";
 
 const PAGE_SIZE = 25;
@@ -115,6 +116,13 @@ export function BigBoardPanel({
           </div>
         )}
 
+        {boardMeta && boardRows?.length === 0 && (
+          <div data-testid="board-empty-note" className="rounded-2xl border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+            <span className="font-medium">{boardMeta.name}</span> has no players on it
+            yet — showing consensus order.
+          </div>
+        )}
+
         {boardFailed && (
           <div data-testid="board-load-note" className="rounded-2xl border border-amber-900/50 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
             Your board could not be loaded — showing consensus order.
@@ -150,6 +158,14 @@ export function BigBoardPanel({
             <div className="text-sm font-semibold text-zinc-100">
               {recommendation.player.name}
             </div>
+            <StartingPoint
+              startingPoint={{
+                base: recommendation.base,
+                position: 1 - recommendation.base,
+                score: recommendation.score,
+              }}
+              onBoard={boardRows?.length > 0}
+            />
             <ReasonList reasons={recommendation.reasons} />
             <p className="text-[11px] leading-snug text-zinc-500">{ADVICE_BASIS}</p>
           </div>
@@ -234,11 +250,30 @@ export function BigBoardPanel({
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="font-medium">
-                    {p.myRank != null
-                      ? `${p.myRank}. `
-                      : p.rank != null
-                      ? `${p.rank}. `
-                      : ""}
+                    {/*
+                      myRank and rank are ordinals over different populations
+                      -- your board only covers players ranked in ITS format,
+                      the pool covers the draft's. Rendered as bare numbers
+                      they can repeat on adjacent rows, reading as one broken
+                      sequence. The marker says which scale you are reading.
+                    */}
+                    {p.myRank != null ? (
+                      <span
+                        data-testid="rank-mine"
+                        title={`Your board has him at ${p.myRank}`}
+                        className="mr-1 text-cyan-300 tabular-nums"
+                      >
+                        ★{p.myRank}
+                      </span>
+                    ) : p.rank != null ? (
+                      <span
+                        data-testid="rank-consensus"
+                        title={`Consensus rank ${p.rank}`}
+                        className="mr-1 font-normal text-zinc-500 tabular-nums"
+                      >
+                        {p.rank}
+                      </span>
+                    ) : null}
                     {p.name}
                   </div>
                   <div className="text-xs text-zinc-400">
@@ -289,6 +324,8 @@ export function BigBoardPanel({
             player={openPlayer}
             format={draft.format}
             reasons={advice.reasonsFor(openPlayer.id)}
+            startingPoint={advice.startingPointFor(openPlayer.id)}
+            onBoard={boardRows?.length > 0}
             playersWereEvaluated={playersWereEvaluated}
             onClose={() => setOpenPlayerId(null)}
           />

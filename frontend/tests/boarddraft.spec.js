@@ -106,9 +106,11 @@ test("the Big Board renders in the board's order, not ADP order", async ({ page 
   await page.goto(`/draft/${DRAFT_ID}`);
 
   // p3 (CeeDee Lamb) is ADP #3 but the user's #1, so it must lead.
-  const first = page.getByRole("button", { name: /CeeDee Lamb/ }).first();
-  await expect(first).toBeVisible();
-  await expect(first).toContainText("1. CeeDee Lamb");
+  const rows = page.getByTestId("big-board-row");
+  await expect(rows.first()).toContainText("CeeDee Lamb");
+
+  const first = rows.first();
+  await expect(first.getByTestId("rank-mine")).toContainText("1");
   await expect(first).toContainText("+2");
 });
 
@@ -284,4 +286,55 @@ test("a matching format shows no mismatch note", async ({ page }) => {
   await expect(page.getByTestId("board-active-note")).toBeVisible();
 
   await expect(page.getByTestId("draft-board-format-note")).toHaveCount(0);
+});
+
+// `myRank` and the pool's consensus `rank` are ordinals over different
+// populations -- a board only covers players ranked in ITS format. Rendered as
+// bare numbers they can repeat on adjacent rows and read as one broken
+// sequence, so each says which scale it is on.
+test("board ranks and consensus ranks are told apart", async ({ page }) => {
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({ json: { ...makeDraftState(), boardId: BID } })
+  );
+  await page.route(`${API}/boards/${BID}`, (route) =>
+    route.fulfill({
+      json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS, changelog: { added: 0, removed: 0 } },
+    })
+  );
+  await seedBoard(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  const lamb = page.getByTestId("big-board-row").filter({ hasText: "CeeDee Lamb" });
+  await expect(lamb.getByTestId("rank-mine")).toContainText("1");
+  await expect(lamb.getByTestId("rank-consensus")).toHaveCount(0);
+
+  // Justin Jefferson is not on the board, so his number is the consensus one.
+  const jefferson = page.getByTestId("big-board-row").filter({ hasText: "Justin Jefferson" });
+  await expect(jefferson.getByTestId("rank-consensus")).toBeVisible();
+  await expect(jefferson.getByTestId("rank-mine")).toHaveCount(0);
+});
+
+// A board with no players on it silently produced consensus order with no
+// note at all, so the user believed they were drafting off their board.
+test("an empty board says so instead of silently using consensus order", async ({ page }) => {
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({ json: { ...makeDraftState(), boardId: BID } })
+  );
+  await page.route(`${API}/boards/${BID}`, (route) =>
+    route.fulfill({
+      json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: [], changelog: { added: 0, removed: 0 } },
+    })
+  );
+  await seedBoard(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  const note = page.getByTestId("board-empty-note");
+  await expect(note).toBeVisible();
+  await expect(note).toContainText("My PPR Board");
+  // And the "drafting off your board" note must NOT claim the board is in use.
+  await expect(page.getByTestId("board-active-note")).toHaveCount(0);
 });

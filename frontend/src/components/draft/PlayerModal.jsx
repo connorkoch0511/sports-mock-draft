@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { apiGet } from "../../lib/api";
 import { ReasonList, SCORED_NOTHING, NOT_EVALUATED, ADVICE_BASIS } from "./ReasonList";
-import { columnsFor, statValue, snapShare, withByeGaps } from "./gameLog";
+import { columnsFor, statValue, snapShare, withByeGaps, gapLabel } from "./gameLog";
+import { StartingPoint } from "./StartingPoint";
 
 const SEASON_WEEKS = 18;
 
@@ -25,7 +26,15 @@ function Stat({ label, value }) {
  * name in it rather than a spinner. The fetch then fills in the game log,
  * which the pool endpoint deliberately does not carry.
  */
-export function PlayerModal({ player, format, reasons, playersWereEvaluated, onClose }) {
+export function PlayerModal({
+  player,
+  format,
+  reasons,
+  startingPoint,
+  onBoard,
+  playersWereEvaluated,
+  onClose,
+}) {
   const [detail, setDetail] = useState(null);
   const [failed, setFailed] = useState(false);
   const dialogRef = useRef(null);
@@ -147,6 +156,7 @@ export function PlayerModal({ player, format, reasons, playersWereEvaluated, onC
         {reasons !== undefined ? (
           <div className="mt-4 rounded-2xl border border-cyan-900/50 bg-cyan-950/20 px-3 py-2 space-y-2">
             <div className="text-xs font-medium text-cyan-100">Why {p.name} is here</div>
+            <StartingPoint startingPoint={startingPoint} onBoard={onBoard} />
             <ReasonList
               reasons={reasons}
               emptyText={playersWereEvaluated ? SCORED_NOTHING : NOT_EVALUATED}
@@ -191,11 +201,11 @@ export function PlayerModal({ player, format, reasons, playersWereEvaluated, onC
                   </tr>
                 </thead>
                 <tbody>
-                  {weeks.map(({ wk, played, row }) => {
+                  {weeks.map(({ wk, played, row }, i) => {
                     if (!played) {
                       return (
                         <tr key={wk} data-testid="game-log-gap" data-week={wk} className="border-t border-zinc-900 text-zinc-700">
-                          <td className="px-2 py-1.5 tabular-nums">{wk}</td>
+                          <td className="px-2 py-1.5 tabular-nums">{gapLabel(weeks[i])}</td>
                           <td className="px-2 py-1.5 text-zinc-600" colSpan={cols.length + 2}>
                             did not play
                           </td>
