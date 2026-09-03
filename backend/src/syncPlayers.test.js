@@ -350,3 +350,60 @@ test("pruneStale retries DynamoDB's unprocessed deletes", async (t) => {
   // Counted once on the first attempt, so a retry does not double-count.
   assert.strictEqual(res.pruned, 1);
 });
+
+// --- who belongs in the pool ------------------------------------------
+
+const { normalizeSleeperPlayer } = require("./syncPlayers");
+
+function sleeperPlayer(over = {}) {
+  return {
+    first_name: "Isiah",
+    last_name: "Pacheco",
+    position: "RB",
+    fantasy_positions: ["RB"],
+    team: "DET",
+    status: "Active",
+    ...over,
+  };
+}
+
+// The regression that reached production: an "active"-only filter dropped 88
+// rostered players, 6 of them carrying a live FFC ADP. Sleeper marks a player
+// on IR "Inactive" while they stay rostered and stay drafted.
+test("a rostered player on injured reserve is kept", () => {
+  const out = normalizeSleeperPlayer(
+    sleeperPlayer({ status: "Inactive", injury_status: "IR" }),
+    "4034"
+  );
+  assert.ok(out, "an Inactive player with a team must survive normalization");
+  assert.strictEqual(out.team, "DET");
+  assert.strictEqual(out.position, "RB");
+});
+
+test("a practice squad player on a roster is kept", () => {
+  const out = normalizeSleeperPlayer(sleeperPlayer({ status: "Practice Squad" }), "999");
+  assert.ok(out);
+});
+
+// The other half of the rule. Sleeper still flags long-retired players
+// "Active" with no team; those are what pruning is meant to remove.
+test("a player on no NFL team is dropped whatever their status says", () => {
+  assert.strictEqual(
+    normalizeSleeperPlayer(sleeperPlayer({ status: "Active", team: null }), "1"),
+    null
+  );
+  assert.strictEqual(
+    normalizeSleeperPlayer(sleeperPlayer({ status: "Inactive", team: "" }), "2"),
+    null
+  );
+});
+
+test("a rostered player at a non-fantasy position is dropped", () => {
+  assert.strictEqual(
+    normalizeSleeperPlayer(
+      sleeperPlayer({ position: "OL", fantasy_positions: ["OL"] }),
+      "3"
+    ),
+    null
+  );
+});

@@ -108,10 +108,23 @@ function normalizeSleeperPlayer(p, playerId) {
     };
   }
 
-  // --- Everyone else: keep strict active filter ---
-  const status = String(p.status || "").toLowerCase();
-  if (status !== "active") return null;
-
+  // --- Everyone else: on an NFL roster, whatever their status ---
+  //
+  // Being rostered is the test, NOT status === "active". Sleeper marks a
+  // player on injured reserve "Inactive" while they stay on the roster and
+  // stay drafted: measured against Sleeper's live feed, 88 rostered players
+  // carry that status, among them Isiah Pacheco (DET), James Conner (ARI),
+  // and Tank Dell (HOU) -- all three with a current FFC ADP inside the top
+  // 165. An "active"-only filter dropped every one of them.
+  //
+  // This was invisible for as long as the sync never deleted anything: their
+  // rows survived from an earlier sync carrying stale data. Pruning removed
+  // that cover and turned a silent staleness bug into 6 missing draftable
+  // players, which is how it was found.
+  //
+  // Distinct statuses among rostered players at fantasy positions are only
+  // Active (773), Inactive (88), and Practice Squad (1) -- no retired player
+  // holds a team -- so requiring a team is the whole filter.
   const fantasyPositions = Array.isArray(p.fantasy_positions) ? p.fantasy_positions.map(toAppPos) : [];
   const fantasyPos = fantasyPositions.find((x) => ALLOWED.has(x)) || null;
   if (!fantasyPos) return null;
@@ -554,3 +567,4 @@ module.exports.mergeStats = mergeStats;
 module.exports.pickAvailability = pickAvailability;
 module.exports.pruneStale = pruneStale;
 module.exports.MIN_EXPECTED_PLAYERS = MIN_EXPECTED_PLAYERS;
+module.exports.normalizeSleeperPlayer = normalizeSleeperPlayer;
