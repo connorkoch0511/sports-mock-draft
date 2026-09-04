@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
 import { MOCK_PLAYERS, DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
@@ -165,6 +166,7 @@ test.describe("Draft page", () => {
       await route.fulfill({ json: state });
     });
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     // Do NOT pause — the Draft button is enabled only when not paused
 
@@ -232,6 +234,9 @@ test.describe("Draft page", () => {
     page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: pool } }));
     page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
 
+    // Signed in: the shipped screenshot shows the normal, capable session,
+    // not the "sign in to make picks" banner a signed-out visitor would see.
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -260,7 +265,9 @@ test.describe("Draft page", () => {
 // something moved which should not have.
 //
 // Note: no Pause click. canManualPick is `!paused && !busy && !completed &&
-// isMyTurn`, so pausing disables the Draft button for your own turn too.
+// isMyTurn && !needsSignIn`, so pausing disables the Draft button for your
+// own turn too. All three sign in first -- since ownership landed, a
+// signed-out caller can never reach "enabled" here, which used to be true.
 
 test("the row's Draft button drafts that player", async ({ page }) => {
   const state = makeDraftState({ currentIndex: 0 });
@@ -273,6 +280,7 @@ test("the row's Draft button drafts that player", async ({ page }) => {
     return r.fulfill({ json: { ok: true } });
   });
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   // The row itself opens the player now; only this button drafts him.
   const draftBtn = page
@@ -300,6 +308,7 @@ test("the Draft button is disabled when picking is not allowed", async ({ page }
     return r.fulfill({ json: { ok: true } });
   });
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   const draftBtn = page
     .getByTestId("big-board-row")
@@ -330,6 +339,7 @@ test("a player can be drafted from the keyboard", async ({ page }) => {
     return r.fulfill({ json: { ok: true } });
   });
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   const draftBtn = page
     .getByTestId("big-board-row")

@@ -5,6 +5,7 @@ import {
   makeDraftState,
   makeCompletedDraft,
 } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 const API = "http://localhost:9999";
 
@@ -77,6 +78,7 @@ test("a stat-derived reason names the season it came from", async ({ page }) => 
 test("opening a player reveals the reasons for him", async ({ page }) => {
   mockPool(page, makeDraftState({ currentIndex: 0 }));
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -95,6 +97,7 @@ test("opening a player reveals the reasons for him", async ({ page }) => {
 test("the drill-down explains a player who cannot be recommended", async ({ page }) => {
   mockPool(page, makeDraftState({ currentIndex: 0 }));
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -118,6 +121,7 @@ test("opening a player drafts nobody", async ({ page }) => {
     return r.fulfill({ json: { ok: true } });
   });
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   // Deliberately NOT paused: the rows are live, so every row opened below
   // sits beside a Draft button that WOULD have drafted somebody.

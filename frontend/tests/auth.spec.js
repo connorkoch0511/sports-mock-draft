@@ -63,7 +63,7 @@ test.describe("signed in", () => {
   test("the nav shows who you are", async ({ page }) => {
     await signIn(page);
     await page.goto("/boards");
-    await expect(page.getByTestId("auth-user")).toHaveText("me@example.com");
+    await expect(page.getByTestId("auth-user")).toHaveText("you@example.com");
   });
 
   // Intercepts the SECOND of Draft.jsx's two sequential requests, and that

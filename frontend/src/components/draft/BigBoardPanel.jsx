@@ -25,6 +25,7 @@ export function BigBoardPanel({
   myTeam,
   isMyTurn,
   paused,
+  needsSignIn,
   canManualPick,
   makePick,
 }) {
@@ -301,6 +302,8 @@ export function BigBoardPanel({
                 title={
                   canManualPick
                     ? `Draft ${p.name} for Team ${myTeam}`
+                    : needsSignIn
+                    ? "Sign in to draft"
                     : draft.completed
                     ? "Draft completed"
                     : paused

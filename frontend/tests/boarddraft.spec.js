@@ -144,6 +144,7 @@ test("the board is fetched exactly once, even after a pick", async ({ page }) =>
     await route.fulfill({ json: { ok: true } });
   });
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   // Do NOT pause — the Draft button is enabled only when not paused.
 

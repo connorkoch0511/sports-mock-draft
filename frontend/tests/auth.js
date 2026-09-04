@@ -11,7 +11,11 @@ export const ID_TOKEN = "test-id-token";
  * concerned. `expires_at` is far in the future because an expired user is
  * treated as signed out.
  */
-export async function signIn(page, { sub = "user-me", email = "me@example.com" } = {}) {
+// The default address is shown in the nav of every screenshot taken while
+// signed in, and those ship in the README -- so it reads as an illustration
+// rather than as leftover test scaffolding. example.com is reserved for
+// exactly this (RFC 2606).
+export async function signIn(page, { sub = "user-me", email = "you@example.com" } = {}) {
   const key = `oidc.user:${AUTHORITY}:${CLIENT_ID}`;
   const value = JSON.stringify({
     id_token: ID_TOKEN,

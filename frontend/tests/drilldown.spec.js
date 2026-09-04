@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import path from "path";
 import { fileURLToPath } from "url";
 import { DRAFT_ID, makeDraftState, mockDraftApis, MOCK_GAME_LOG } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 const API = "http://localhost:9999";
 const SCREENSHOTS = path.resolve(
@@ -46,6 +47,7 @@ test.describe("player drill-down", () => {
     // test would be swallowed by a disabled button rather than proving
     // anything.
     mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
 
     await rowFor(page, MCCAFFREY).getByTestId("draft-player").click();

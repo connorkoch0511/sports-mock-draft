@@ -17,6 +17,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { apiGet, apiPut } from "../lib/api";
+import { useAuth } from "../lib/authContext.js";
+import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
 import { PlayerModal } from "../components/draft/PlayerModal";
 
@@ -37,9 +39,9 @@ function DeltaBadge({ delta }) {
   );
 }
 
-function Row({ row, onOpen }) {
+function Row({ row, onOpen, canDrag }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: row.playerId });
+    useSortable({ id: row.playerId, disabled: !canDrag });
 
   return (
     <li
@@ -54,8 +56,10 @@ function Row({ row, onOpen }) {
       <button
         {...attributes}
         {...listeners}
+        disabled={!canDrag}
         aria-label={`Reorder ${row.name}`}
-        className="cursor-grab px-1 text-zinc-600 hover:text-zinc-300 active:cursor-grabbing"
+        title={canDrag ? undefined : "Sign in to reorder this board"}
+        className="cursor-grab px-1 text-zinc-600 hover:text-zinc-300 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-zinc-600"
       >
         ⠿
       </button>
@@ -104,6 +108,9 @@ export default function Board() {
   // Chains scheduled saves so a new save always waits for any in-flight
   // save to finish, instead of racing it with an out-of-date version.
   const saveChainRef = useRef(Promise.resolve());
+
+  const { configured, signedIn, signIn } = useAuth();
+  const needsSignIn = mustSignIn({ configured, signedIn });
 
   usePageTitle(board ? board.name : "Board");
 
@@ -156,13 +163,15 @@ export default function Board() {
       // indefinitely, contradicting the "Saved" status right next to it.
       setErr("");
     } catch (e) {
-      // Conflict detection is a substring match on the backend's error text
-      // because apiPut doesn't expose the HTTP status code. This couples us
-      // to that exact wording ("changed since you loaded it") on a 409 —
-      // if either side changes, this check silently stops matching.
-      if (String(e.message).includes("changed since")) {
+      if (e.status === 409) {
         setErr("This board changed elsewhere. We've refreshed your view with the latest version.");
         await load({ preserveErr: true });
+      } else if (e.status === 401) {
+        setErr("Sign in to make changes");
+        setStatus("error");
+      } else if (e.status === 404) {
+        setErr("This board isn't yours to edit");
+        setStatus("error");
       } else {
         setErr(e.message || "Save failed");
         setStatus("error");
@@ -171,6 +180,11 @@ export default function Board() {
   }, [boardId, load]);
 
   function onDragEnd(event) {
+    // Defense in depth: `disabled` on useSortable already keeps a drag from
+    // starting when signed out, but a stale drag already in flight when
+    // sign-in state flips mid-drag should not reach the API either.
+    if (needsSignIn) return;
+
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -221,13 +235,30 @@ export default function Board() {
         </div>
       )}
 
+      {needsSignIn && (
+        <div
+          data-testid="signin-required"
+          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-800/40 bg-cyan-950/20 px-4 py-3 text-sm text-cyan-200"
+        >
+          <span>Sign in to reorder this board. Reordering is disabled until you do.</span>
+          <button
+            type="button"
+            onClick={signIn}
+            data-testid="signin-required-button"
+            className="rounded-2xl border border-cyan-800/60 bg-cyan-950/40 px-3 py-1.5 text-xs text-cyan-200 hover:border-cyan-600"
+          >
+            Sign in
+          </button>
+        </div>
+      )}
+
       {err && <div className="mb-4 text-sm text-rose-300">{err}</div>}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={rows.map((r) => r.playerId)} strategy={verticalListSortingStrategy}>
           <ul className="space-y-1">
             {rows.map((row) => (
-              <Row key={row.playerId} row={row} onOpen={setOpenRow} />
+              <Row key={row.playerId} row={row} onOpen={setOpenRow} canDrag={!needsSignIn} />
             ))}
           </ul>
         </SortableContext>
