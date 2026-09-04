@@ -35,4 +35,33 @@ function canMutate(item, sub) {
   return item.ownerId === sub;
 }
 
-module.exports = { ANON, subOf, isUnowned, canMutate };
+/**
+ * One seat per team: the creator in theirs, a bot in every other.
+ *
+ * A list rather than a scalar owner because invitations fill empty seats
+ * later, and the access check below never has to change to accommodate them.
+ */
+function buildSeats(teams, userTeam, sub) {
+  return Array.from({ length: teams }, (_, i) => {
+    const team = i + 1;
+    return team === userTeam
+      ? { team, sub, kind: "human" }
+      : { team, sub: null, kind: "bot" };
+  });
+}
+
+/**
+ * May this person see and act in this draft?
+ *
+ * The `kind` check is not redundant with the sub comparison: bot seats carry
+ * `sub: null`, so without it a caller whose sub read as null would match
+ * every bot seat in the table.
+ */
+function isSeated(draft, sub) {
+  if (typeof sub !== "string" || sub.length === 0) return false;
+  const seats = draft?.seats;
+  if (!Array.isArray(seats)) return false;
+  return seats.some((s) => s && s.kind === "human" && s.sub === sub);
+}
+
+module.exports = { ANON, subOf, isUnowned, canMutate, buildSeats, isSeated };
