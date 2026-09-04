@@ -136,6 +136,11 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ### Backend
 
+`sam deploy --guided` will prompt for `GoogleClientId` and `GoogleClientSecret`
+— they have no default, so the deploy fails without them. Complete the
+[Sign-in setup](#sign-in-setup-one-time-manual) section below first if you
+haven't already; it walks through getting both.
+
 ```bash
 cd backend
 sam build
@@ -173,11 +178,14 @@ suite and commit the updated image so this README keeps matching the app.
 
 ## Sign-in setup (one-time, manual)
 
-Sign-in is **optional configuration**. Without it the stack deploys exactly as
-it does today and the app works signed out — `sam deploy` with no
-`GoogleClientId` creates no Cognito resources at all.
+Signing in is **required to create** a draft or a board, and to change or
+delete one you own. Viewing stays open to anyone with the link: a shared draft
+opens for a signed-out visitor, who simply cannot change it.
 
-To turn it on:
+Because the API's authorizer references the Cognito user pool, the four steps
+below are no longer optional — a deploy without `GoogleClientId` and
+`GoogleClientSecret` now fails at CloudFormation rather than quietly shipping
+an API that accepts anonymous writes.
 
 **1. Create a Google OAuth client**
 
@@ -229,6 +237,18 @@ VITE_COGNITO_CLIENT_ID=<UserPoolClientId>
 
 A build without these variables simply has no Sign in button.
 
+**What happens to drafts and boards made before accounts existed**
+
+They have no owner, so they are readable but frozen: the links still open, and
+nothing is deleted, but picks and edits are refused until somebody claims them.
+Signing in claims them automatically — the browser sends the ids it recorded as
+its own creations to `POST /me/claim`, and each is adopted only if nobody owns
+it yet. A draft you opened from somebody else's link is never sent.
+
+Somebody who is mid-draft and never signs in cannot finish that draft. That is
+the direct cost of requiring an owner from birth, and it is worth knowing
+before you deploy rather than after.
+
 ## Deploying
 
 ### Frontend
@@ -242,9 +262,19 @@ This builds the app, syncs to S3, and invalidates the CloudFront cache.
 
 ### Backend
 
+`GoogleClientId` and `GoogleClientSecret` have no default and are not saved in
+`backend/samconfig.toml` — the secret can never live in a committed file, so
+both must be passed on every deploy, not just the first. A plain `sam deploy`
+fails at CloudFormation for want of them.
+
 ```bash
 cd backend
-sam build && sam deploy
+sam build
+sam deploy --parameter-overrides \
+  GoogleClientId=YOUR_CLIENT_ID \
+  GoogleClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text)
 ```
 
 ---
