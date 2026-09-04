@@ -1,4 +1,4 @@
-// backend/scripts/purge-unowned.js
+// backend/src/scripts/purge-unowned.js
 //
 // One-off: delete every draft and board that nobody owns, after dumping them
 // to a file. Run once, against production, BEFORE the read gate ships --
@@ -14,6 +14,7 @@
 // few KB and nothing imports it there.
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const {
   DynamoDBDocumentClient,
@@ -27,10 +28,19 @@ const TABLES = [
   { name: "perfectpick-boards", key: "boardId" },
 ];
 
-/** Nobody owns this: no ownerId, an empty one, or the legacy placeholder. */
+/**
+ * Nobody owns this: no ownerId, an empty one, or the legacy placeholder.
+ *
+ * Spelled out rather than written as `!owner`, which would also swallow 0,
+ * false and NaN. No write path in this app can produce those -- ownerId is
+ * only ever a Cognito sub or the "anon" literal -- but this is the single
+ * predicate deciding what gets deleted, and "probably unreachable" is a poor
+ * argument to hand a future maintainer. Anything unexpected is kept, not
+ * destroyed.
+ */
 function isPurgeable(item) {
   const owner = item?.ownerId;
-  return !owner || owner === ANON;
+  return owner == null || owner === "" || owner === ANON;
 }
 
 async function scanAll(ddb, TableName) {
@@ -46,9 +56,20 @@ async function scanAll(ddb, TableName) {
 
 async function main() {
   const confirm = process.argv.includes("--confirm");
-  const outDir = process.argv.includes("--out")
-    ? process.argv[process.argv.indexOf("--out") + 1]
-    : path.join(require("node:os").homedir(), "perfectpick-purge-backups");
+  // --out takes the NEXT token, so it must be checked rather than trusted:
+  // `--out --confirm` would otherwise dump into a directory literally named
+  // "--confirm" -- relative to the cwd, so possibly inside the repo -- while
+  // --confirm still registered independently and the delete went ahead. The
+  // backup would be somewhere nobody looks, and the rows would be gone.
+  let outDir = path.join(os.homedir(), "perfectpick-purge-backups");
+  const outAt = process.argv.indexOf("--out");
+  if (outAt !== -1) {
+    const value = process.argv[outAt + 1];
+    if (!value || value.startsWith("-")) {
+      throw new Error("--out needs a directory path after it");
+    }
+    outDir = value;
+  }
 
   const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
