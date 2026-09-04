@@ -24,7 +24,20 @@ function ids(list, predicate) {
 
 export function claimableIds({ drafts, boards } = {}) {
   return {
-    draftIds: ids(drafts, (d) => Boolean(d.owned)),
+    // `owned !== false`, not `Boolean(owned)`. The flag only exists from
+    // 2026-09-01; every registry entry written before that has no `owned` at
+    // all. Requiring it to be true would leave those drafts frozen forever --
+    // sitting in the user's own My drafts list, opening fine, and 404ing on
+    // every pick, with nothing they could do about it.
+    //
+    // The cost, stated plainly: a pre-flag entry is genuinely ambiguous.
+    // rememberDraft is also called on every draft page view, so a draft
+    // somebody shared with you before that date looks identical to one you
+    // made, and is offered too. The server's conditional write still refuses
+    // anything already owned, so the exposure is a race for legacy *unowned*
+    // resources -- which before this phase anyone with the link could simply
+    // delete. Strictly safer than what it replaces, and a deliberate choice.
+    draftIds: ids(drafts, (d) => d.owned !== false),
     // Every remembered board was created by this browser: rememberBoard is
     // called from exactly one place, immediately after POST /boards.
     boardIds: ids(boards, () => true),

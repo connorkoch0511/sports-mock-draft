@@ -17,6 +17,26 @@ test("only drafts this browser created are offered", () => {
 // The board registry only ever records a board at the moment this browser
 // creates one, so every entry is a creation -- there is no `owned` flag to
 // consult and none is needed.
+// The flag only exists from 2026-09-01. Entries older than that carry no
+// `owned` at all, and requiring it to be true froze them permanently.
+test("a draft remembered before the owned flag existed is still offered", () => {
+  const { draftIds } = claimableIds({
+    drafts: [{ id: "legacy" }, { id: "mine", owned: true }],
+    boards: [],
+  });
+  assert.deepStrictEqual(draftIds, ["legacy", "mine"]);
+});
+
+// Only an explicit false is a refusal: that is a draft the registry recorded
+// as opened from somebody else's link, after the flag existed.
+test("a draft explicitly marked not-owned is still never offered", () => {
+  const { draftIds } = claimableIds({
+    drafts: [{ id: "theirs", owned: false }],
+    boards: [],
+  });
+  assert.deepStrictEqual(draftIds, []);
+});
+
 test("every remembered board is offered", () => {
   const { boardIds } = claimableIds({
     drafts: [],
