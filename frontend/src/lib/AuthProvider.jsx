@@ -50,8 +50,8 @@ export function AuthProvider({ children }) {
       user,
       name: displayNameOf(user),
       signedIn: isActive(user),
-      // The Cognito subject: the id the API writes as ownerId, and the key the
-      // claim marker is stored under.
+      // The Cognito subject: the id the API writes as ownerId and as the sub
+      // on your seat in a draft.
       sub: isActive(user) ? user.profile?.sub ?? null : null,
       loading,
       configured: isAuthConfigured,

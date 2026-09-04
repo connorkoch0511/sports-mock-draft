@@ -15,7 +15,9 @@ function event(body, claims) {
       http: { method: "POST" },
       ...(claims ? { authorizer: { jwt: { claims } } } : {}),
     },
-    rawPath: "/me/claim",
+    // Any path under /me: these two tests are about the 401 gate and the
+    // catch-all, both of which fire before routing.
+    rawPath: "/me/anything",
     body: body === undefined ? undefined : JSON.stringify(body),
   };
 }
