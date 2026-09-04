@@ -49,12 +49,15 @@ export default function Boards() {
     }
     setErr("");
     try {
-      // DELETE /boards/:id is idempotent (a DynamoDB DeleteCommand that
-      // succeeds even if the item is already gone), so a resolved call
-      // always means it's safe to forget locally. Only drop it from the
-      // registry once the server confirms the delete — on failure, keep
-      // it listed so the user can retry instead of losing their way back
-      // to a board that still exists.
+      // Server first, then local: on failure the row stays listed so the
+      // user can retry rather than losing their way back to a board that
+      // still exists.
+      //
+      // DELETE /boards/:id used to be idempotent — a DynamoDB DeleteCommand
+      // that succeeded even when the item was already gone. It is now a
+      // conditional delete on ownerId, so "already gone" and "not yours"
+      // both answer 404, which the catch below treats as a dead local entry
+      // rather than something to retry.
       await apiDelete(`/boards/${b.id}`);
       forgetBoard(b.id);
       setBoards(listBoards());
