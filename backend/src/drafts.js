@@ -15,7 +15,7 @@ const {
   kDefBlocked,
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
-const { subOf, canMutate, ANON, buildSeats, isSeated } = require("./lib/owner");
+const { subOf, ANON, buildSeats, isSeated } = require("./lib/owner");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 

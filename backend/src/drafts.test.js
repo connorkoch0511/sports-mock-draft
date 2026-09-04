@@ -147,6 +147,30 @@ test("somebody seated but not the owner can read and pick", async () => {
   assert.strictEqual(pick.statusCode, 200);
 });
 
+// /pick is covered above, but an invited person will spend most of their time
+// on these two, and the guard being byte-identical across the three branches
+// is an argument, not a test.
+for (const [name, path] of [
+  ["auto-pick", "/drafts/d1/auto-pick"],
+  ["sim-to-end", "/drafts/d1/sim-to-end"],
+]) {
+  test(`somebody seated but not the owner can ${name}`, async () => {
+    stubByTable({
+      "drafts-test": { Item: ownedDraft("user-them", "user-me") },
+      "players-test": {
+        Items: [
+          {
+            playerId: "p1", id: "p1", name: "Test Back", position: "RB", team: "SF",
+            rank: { standard: 1 }, adp: { standard: 1 }, tier: { standard: 1 },
+          },
+        ],
+      },
+    });
+    const res = await handler(evt("POST", path, { draftId: "d1", claims: ME }));
+    assert.strictEqual(res.statusCode, 200);
+  });
+}
+
 test("picking without a seat is 404 even for the ownerId", async () => {
   // seats say user-them; ownerId says user-me. The seat decides.
   stubSend({ Item: { ...ownedDraft("user-me", "user-them") } });
