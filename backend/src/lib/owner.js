@@ -53,9 +53,13 @@ function buildSeats(teams, userTeam, sub) {
 /**
  * May this person see and act in this draft?
  *
- * The `kind` check is not redundant with the sub comparison: bot seats carry
- * `sub: null`, so without it a caller whose sub read as null would match
- * every bot seat in the table.
+ * The `kind` check is not redundant with the sub comparison, but not for the
+ * reason it first appears. A null caller sub is already refused by the guard
+ * below, before any seat is examined. What `kind` actually stops is a seat
+ * that is NOT human yet carries a populated sub equal to the caller's -- a
+ * corrupted row today, and a "pending invitation" seat the moment invitations
+ * exist, where the sub is known before the person has accepted. Remove the
+ * check and that seat grants access.
  */
 function isSeated(draft, sub) {
   if (typeof sub !== "string" || sub.length === 0) return false;

@@ -108,6 +108,17 @@ test("a null sub does not match the bot seats", () => {
   assert.strictEqual(isSeated({ seats: buildSeats(4, 1, "me") }, null), false);
 });
 
+// The case the `kind` check actually earns its place for. Without it this
+// returns true, and -- verified -- no other test in this file notices, because
+// the null-sub test it was written to justify is already satisfied by the
+// typeof guard before any seat is read.
+test("a non-human seat carrying a sub does not admit that person", () => {
+  assert.strictEqual(
+    isSeated({ seats: [{ team: 1, sub: "me", kind: "bot" }] }, "me"),
+    false
+  );
+});
+
 test("a draft with no seats admits nobody", () => {
   assert.strictEqual(isSeated({}, "me"), false);
   assert.strictEqual(isSeated({ seats: [] }, "me"), false);
