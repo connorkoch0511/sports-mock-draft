@@ -66,6 +66,11 @@ test.describe("signed in", () => {
     await expect(page.getByTestId("auth-user")).toHaveText("me@example.com");
   });
 
+  // Intercepts the SECOND of Draft.jsx's two sequential requests, and that
+  // matters: AuthProvider resolves manager.getUser() asynchronously while
+  // load() fires its first apiGet immediately on mount, so the token is not
+  // necessarily in place for request one. Reordering Draft.jsx's calls would
+  // break this test for a reason that has nothing to do with auth.
   test("requests carry the bearer token", async ({ page }) => {
     await signIn(page);
     let headers = null;
