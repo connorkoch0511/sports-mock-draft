@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { getUserManager, isAuthConfigured, idTokenOf, displayNameOf } from "./auth";
+import { getUserManager, isAuthConfigured, idTokenOf, displayNameOf, isActive } from "./auth";
 import { setCurrentIdToken } from "./idToken.js";
 import { AuthContext } from "./authContext.js";
 
@@ -49,6 +49,10 @@ export function AuthProvider({ children }) {
     () => ({
       user,
       name: displayNameOf(user),
+      signedIn: isActive(user),
+      // The Cognito subject: the id the API writes as ownerId, and the key the
+      // claim marker is stored under.
+      sub: isActive(user) ? user.profile?.sub ?? null : null,
       loading,
       configured: isAuthConfigured,
       signIn: () =>

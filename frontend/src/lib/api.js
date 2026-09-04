@@ -25,7 +25,14 @@ async function req(path, options = {}) {
   let data;
   try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
-  if (!res.ok) throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data?.error || data?.message || `HTTP ${res.status}`);
+    // Callers need to tell "it is gone or not yours" from "the server broke".
+    // A delete, in particular, should stop offering a retry for a draft that
+    // no longer exists.
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 

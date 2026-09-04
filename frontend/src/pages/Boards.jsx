@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost, apiDelete } from "../lib/api";
+import { useAuth } from "../lib/authContext.js";
+import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
 import { listBoards, rememberBoard, forgetBoard } from "../lib/boardRegistry";
 
@@ -11,6 +13,9 @@ export default function Boards() {
   const [boards, setBoards] = useState(() => listBoards());
   const [format, setFormat] = useState("ppr");
   const [err, setErr] = useState("");
+
+  const { configured, signedIn, signIn } = useAuth();
+  const needsSignIn = mustSignIn({ configured, signedIn });
 
   usePageTitle("Boards");
 
@@ -54,6 +59,13 @@ export default function Boards() {
       forgetBoard(b.id);
       setBoards(listBoards());
     } catch (e) {
+      // 404 means gone or not yours. Either way the local entry is a dead
+      // link, so drop it rather than inviting a retry that cannot work.
+      if (e.status === 404) {
+        forgetBoard(b.id);
+        setBoards(listBoards());
+        return;
+      }
       setErr(e.message || "Failed to delete board");
     }
   };
@@ -80,11 +92,11 @@ export default function Boards() {
           </select>
           <button
             type="button"
-            onClick={createBoard}
+            onClick={needsSignIn ? signIn : createBoard}
             data-testid="create-board"
             className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-600"
           >
-            + New board
+            {needsSignIn ? "Sign in to create" : "+ New board"}
           </button>
         </div>
       </div>

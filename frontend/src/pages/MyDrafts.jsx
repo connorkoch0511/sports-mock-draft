@@ -61,6 +61,11 @@ export default function MyDrafts() {
       forgetDraft(d.id);
       setDrafts(listDrafts());
     } catch (e) {
+      if (e.status === 404) {
+        forgetDraft(d.id);
+        setDrafts(listDrafts());
+        return;
+      }
       setErr(e.message || "Failed to delete draft");
     }
   };
