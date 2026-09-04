@@ -39,12 +39,18 @@ function validIds(value) {
 }
 
 /**
- * Take ownership of one item, if and only if nobody has it.
+ * Take ownership of one item, if and only if nobody else has it.
  *
  * The condition is the whole security property: the write is what decides,
  * not a read before it, so two people claiming the same id at the same moment
  * cannot both win. `ANON` is here because boards.js wrote that literal as a
  * placeholder owner before this phase.
+ *
+ * `ownerId = :me` makes the claim idempotent, and steals nothing -- you
+ * cannot take from yourself what you already hold. Without it a retry lies:
+ * one failed write rejects the whole batch and 500s even though its siblings
+ * committed, and the client's second attempt reports its own freshly-claimed
+ * ids under `skipped`, the same bucket that means "somebody else owns this".
  */
 async function claimOne(table, key, sub) {
   try {
@@ -54,7 +60,7 @@ async function claimOne(table, key, sub) {
         Key: key,
         UpdateExpression: "SET ownerId = :me",
         ConditionExpression:
-          "attribute_exists(#pk) AND (attribute_not_exists(ownerId) OR ownerId = :anon)",
+          "attribute_exists(#pk) AND (attribute_not_exists(ownerId) OR ownerId = :anon OR ownerId = :me)",
         ExpressionAttributeNames: { "#pk": Object.keys(key)[0] },
         ExpressionAttributeValues: { ":me": sub, ":anon": ANON },
       })

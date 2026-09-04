@@ -74,6 +74,21 @@ test("claiming an already-owned resource steals nothing and reports it skipped",
   });
 });
 
+// A retry after a partial failure must report the truth. Claiming what you
+// already own is not theft, so it counts as claimed rather than landing in the
+// bucket that means "somebody else has this".
+test("re-claiming what you already own is claimed, not skipped", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return {};
+  });
+  const res = await handler(event({ draftIds: ["d1"] }, ME));
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body).claimed.drafts, ["d1"]);
+  assert.match(input.ConditionExpression, /ownerId = :me/);
+});
+
 test("an empty claim is a 200 that did nothing", async () => {
   const res = await handler(event({}, ME));
   assert.strictEqual(res.statusCode, 200);
