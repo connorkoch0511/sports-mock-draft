@@ -49,6 +49,7 @@ function rowFor(page, name) {
 test("the recommendation card names a player and gives a reason", async ({ page }) => {
   mockPool(page, makeDraftState({ currentIndex: 0 }));
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -65,6 +66,7 @@ test("the recommendation card names a player and gives a reason", async ({ page 
 test("a stat-derived reason names the season it came from", async ({ page }) => {
   mockPool(page, makeDraftState({ currentIndex: 0 }));
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -156,6 +158,7 @@ test("the drill-down works when it is not your turn", async ({ page }) => {
     return r.fulfill({ json: { ok: true } });
   });
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   // The page auto-picks for whoever is on the clock and the mock answers
   // with the same state every time, so it would loop. Pausing stops the
@@ -186,6 +189,7 @@ test("no card when it is not your turn", async ({ page }) => {
     r.fulfill({ json: { ok: true } })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByText("R1 P2 • Team 2")).toBeVisible();
@@ -201,6 +205,7 @@ test("no card when it is not your turn", async ({ page }) => {
 test("the card outlives the search and position filters", async ({ page }) => {
   mockPool(page, makeDraftState({ currentIndex: 0 }));
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -237,6 +242,7 @@ test("the card outlives the search and position filters", async ({ page }) => {
 test("a completed draft does not call unevaluated players neutral", async ({ page }) => {
   mockPool(page, makeCompletedDraft());
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
 
   // Josh Allen went undrafted in this fixture, so his row is still there and
@@ -254,6 +260,7 @@ test("a completed draft does not call unevaluated players neutral", async ({ pag
 test("a completed draft recommends nobody", async ({ page }) => {
   mockPool(page, makeCompletedDraft());
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
 
   await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();

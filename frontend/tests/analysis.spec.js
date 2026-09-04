@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { DRAFT_ID, makeCompletedDraft } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 import { fileURLToPath } from "url";
 import path from "path";
@@ -11,6 +12,7 @@ const API = "http://localhost:9999";
 
 async function openResults(page, draft = makeCompletedDraft(), query = "") {
   await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: draft }));
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}/results${query}`);
   await expect(page.getByRole("heading", { name: "Draft Results" })).toBeVisible();
 }
@@ -69,25 +71,28 @@ test("no unscoreable note when every pick has an ADP", async ({ page }) => {
   await expect(page.getByTestId("unscoreable-note")).toHaveCount(0);
 });
 
+// My Drafts used to read this list from localStorage, seeded here directly.
+// It now reads GET /me/drafts from the server -- the account's list, not
+// this browser's -- so these two tests mock that endpoint instead.
 test("a completed draft links to its analysis from My Drafts", async ({ page }) => {
-  await page.goto("/");
-  await page.evaluate(() =>
-    localStorage.setItem(
-      "perfectpick.myDrafts",
-      JSON.stringify([
-        {
-          id: "test-draft-abc123",
-          teams: 4,
-          rounds: 3,
-          format: "standard",
-          userTeam: 1,
-          boardId: null,
-          completed: true,
-          owned: true,
-          updatedAt: Date.now(),
-        },
-      ])
-    )
+  await signIn(page);
+  await page.route("**/me/drafts", (r) =>
+    r.fulfill({
+      json: {
+        drafts: [
+          {
+            id: "test-draft-abc123",
+            teams: 4,
+            rounds: 3,
+            format: "standard",
+            userTeam: 1,
+            boardId: null,
+            completed: true,
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    })
   );
 
   await page.goto("/drafts");
@@ -97,24 +102,24 @@ test("a completed draft links to its analysis from My Drafts", async ({ page }) 
 });
 
 test("an in-progress draft has no analysis link", async ({ page }) => {
-  await page.goto("/");
-  await page.evaluate(() =>
-    localStorage.setItem(
-      "perfectpick.myDrafts",
-      JSON.stringify([
-        {
-          id: "in-progress-1",
-          teams: 4,
-          rounds: 3,
-          format: "standard",
-          userTeam: 1,
-          boardId: null,
-          completed: false,
-          owned: true,
-          updatedAt: Date.now(),
-        },
-      ])
-    )
+  await signIn(page);
+  await page.route("**/me/drafts", (r) =>
+    r.fulfill({
+      json: {
+        drafts: [
+          {
+            id: "in-progress-1",
+            teams: 4,
+            rounds: 3,
+            format: "standard",
+            userTeam: 1,
+            boardId: null,
+            completed: false,
+            createdAt: Date.now(),
+          },
+        ],
+      },
+    })
   );
 
   await page.goto("/drafts");
@@ -164,6 +169,7 @@ test("the longest wait reports the span and the players who went during it", asy
 
 test("an unrelated query parameter survives switching tabs", async ({ page }) => {
   await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: makeCompletedDraft() }));
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}/results?keep=me`);
   await expect(page.getByRole("heading", { name: "Draft Results" })).toBeVisible();
 

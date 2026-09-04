@@ -11,15 +11,16 @@ const BOARD_ROWS = [
   { playerId: "p1", name: "Christian McCaffrey", position: "RB", team: "SF", myRank: 2, consensusRank: 1, delta: -1 },
 ];
 
+// NewDraft.jsx's board picker used to read this list from localStorage,
+// seeded here directly. It now reads GET /me/boards from the server, so this
+// mocks that endpoint instead. Call after signIn(page) -- signIn registers
+// its own empty-list /me/boards route, and Playwright matches the
+// most-recently-added handler first, so this one needs to come after it.
 async function seedBoard(page, { format = "ppr" } = {}) {
-  await page.goto("/");
-  await page.evaluate(
-    ([id, fmt]) =>
-      localStorage.setItem(
-        "perfectpick.myBoards",
-        JSON.stringify([{ id, name: "My PPR Board", format: fmt, updatedAt: Date.now() }])
-      ),
-    [BID, format]
+  await page.route("**/me/boards", (route) =>
+    route.fulfill({
+      json: { boards: [{ id: BID, name: "My PPR Board", format, season: 2026, updatedAt: Date.now() }] },
+    })
   );
 }
 
@@ -33,7 +34,6 @@ async function mockPlayers(page) {
 
 test("selecting a board sends boardId on create", async ({ page }) => {
   let posted = null;
-  await seedBoard(page);
   await page.route(`${API}/drafts`, async (route) => {
     if (route.request().method() === "POST") {
       posted = JSON.parse(route.request().postData() || "{}");
@@ -42,6 +42,7 @@ test("selecting a board sends boardId on create", async ({ page }) => {
   });
 
   await signIn(page);
+  await seedBoard(page);
   await page.goto("/draft/new");
   await page.getByTestId("board-select").selectOption(BID);
   await page.getByRole("button", { name: /Start Mock Draft/i }).click();
@@ -51,7 +52,6 @@ test("selecting a board sends boardId on create", async ({ page }) => {
 
 test("creating a draft without a board sends no boardId", async ({ page }) => {
   let posted = null;
-  await seedBoard(page);
   await page.route(`${API}/drafts`, async (route) => {
     if (route.request().method() === "POST") {
       posted = JSON.parse(route.request().postData() || "{}");
@@ -60,6 +60,7 @@ test("creating a draft without a board sends no boardId", async ({ page }) => {
   });
 
   await signIn(page);
+  await seedBoard(page);
   await page.goto("/draft/new");
   await page.getByRole("button", { name: /Start Mock Draft/i }).click();
 
@@ -68,6 +69,7 @@ test("creating a draft without a board sends no boardId", async ({ page }) => {
 });
 
 test("a format mismatch is flagged", async ({ page }) => {
+  await signIn(page);
   await seedBoard(page, { format: "ppr" });
   await page.goto("/draft/new");
 
@@ -83,12 +85,10 @@ test("a format mismatch is flagged", async ({ page }) => {
 });
 
 test("a board without a recorded format is never flagged", async ({ page }) => {
-  await page.goto("/");
-  await page.evaluate((id) =>
-    localStorage.setItem(
-      "perfectpick.myBoards",
-      JSON.stringify([{ id, name: "Legacy board", updatedAt: Date.now() }])
-    ), BID);
+  await signIn(page);
+  await page.route("**/me/boards", (route) =>
+    route.fulfill({ json: { boards: [{ id: BID, name: "Legacy board", season: 2026, updatedAt: Date.now() }] } })
+  );
 
   await page.goto("/draft/new");
   await page.getByTestId("board-select").selectOption(BID);
@@ -106,6 +106,7 @@ test("the Big Board renders in the board's order, not ADP order", async ({ page 
     route.fulfill({ json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS, changelog: { added: 0, removed: 0 } } })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
 
   // p3 (CeeDee Lamb) is ADP #3 but the user's #1, so it must lead.
@@ -171,6 +172,7 @@ test("a deleted board still leaves the draft playable", async ({ page }) => {
     route.fulfill({ status: 404, json: { error: "Board not found" } })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
 
   await expect(page.getByTestId("board-load-note")).toBeVisible();
@@ -180,7 +182,6 @@ test("a deleted board still leaves the draft playable", async ({ page }) => {
 });
 
 test("the draft page names the board driving it", async ({ page }) => {
-  await seedBoard(page);
   await mockPlayers(page);
   await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
     route.fulfill({ json: makeDraftState({ currentIndex: 0, boardId: BID, format: "ppr" }) })
@@ -189,6 +190,7 @@ test("the draft page names the board driving it", async ({ page }) => {
     route.fulfill({ json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS } })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -201,6 +203,7 @@ test("no board means no affirmation", async ({ page }) => {
     route.fulfill({ json: makeDraftState({ currentIndex: 0 }) })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
@@ -233,7 +236,6 @@ test("a board that fails to load shows the failure, not the affirmation", async 
   // no rendered-DOM assertion can ever distinguish that line's presence
   // from its absence. It is defensive, not dead: safe to keep, but there is
   // no genuine UI-level test to write for it, so none is added here.
-  await seedBoard(page);
   await mockPlayers(page);
   await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
     route.fulfill({ json: makeDraftState({ currentIndex: 0, boardId: BID, format: "ppr" }) })
@@ -242,6 +244,7 @@ test("a board that fails to load shows the failure, not the affirmation", async 
     route.fulfill({ status: 404, json: { error: "Board not found" } })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -250,7 +253,6 @@ test("a board that fails to load shows the failure, not the affirmation", async 
 });
 
 test("a board in a different format is flagged, naming both formats", async ({ page }) => {
-  await seedBoard(page);
   await mockPlayers(page);
   await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
     route.fulfill({ json: makeDraftState({ currentIndex: 0, boardId: BID, format: "standard" }) })
@@ -259,6 +261,7 @@ test("a board in a different format is flagged, naming both formats", async ({ p
     route.fulfill({ json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS } })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -276,7 +279,6 @@ test("a board in a different format is flagged, naming both formats", async ({ p
 });
 
 test("a matching format shows no mismatch note", async ({ page }) => {
-  await seedBoard(page);
   await mockPlayers(page);
   await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
     route.fulfill({ json: makeDraftState({ currentIndex: 0, boardId: BID, format: "ppr" }) })
@@ -285,6 +287,7 @@ test("a matching format shows no mismatch note", async ({ page }) => {
     route.fulfill({ json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS } })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByTestId("board-active-note")).toBeVisible();
@@ -306,7 +309,7 @@ test("board ranks and consensus ranks are told apart", async ({ page }) => {
       json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS, changelog: { added: 0, removed: 0 } },
     })
   );
-  await seedBoard(page);
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 
@@ -332,7 +335,7 @@ test("an empty board says so instead of silently using consensus order", async (
       json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: [], changelog: { added: 0, removed: 0 } },
     })
   );
-  await seedBoard(page);
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 

@@ -3,35 +3,43 @@ import { API_BASE, DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js
 import { signIn, ID_TOKEN } from "./auth.js";
 
 test.describe("signed out", () => {
-  test("viewing a shared draft needs no account", async ({ page }) => {
+  // This used to be the point of the test: a shared draft link needs no
+  // account. This branch put the whole app behind sign-in, so /draft/:id no
+  // longer renders for a visitor at all -- it renders the gate instead. The
+  // assertion is rewritten to prove that, rather than quietly dropping it.
+  test("a shared draft link now prompts for an account instead of opening", async ({ page }) => {
     mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
     await page.goto(`/draft/${DRAFT_ID}`);
-    await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
-    await expect(page.getByTestId("sign-in")).toBeVisible();
+    await expect(page.getByTestId("auth-gate")).toBeVisible();
+    await expect(page.getByTestId("auth-gate-signin")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Big Board" })).toHaveCount(0);
   });
 
-  test("no request carries an Authorization header", async ({ page }) => {
-    let headers = null;
-    // /boards never issues a GET of its own -- it's a static list plus a
-    // create/delete button, so a route on "**/players*" there never fires.
-    // A draft page is the thing that actually fetches players, so it's the
-    // one real place to observe whether a request carries a token.
+  // Superseded by the gate itself: a signed-out visitor to /draft/:id now
+  // never reaches Draft.jsx, so there is no request left to inspect a header
+  // on. Rewritten to pin that stronger guarantee -- no draft-data request is
+  // made at all -- rather than a header check that nothing would ever hit.
+  test("no draft-data request is made at all", async ({ page }) => {
+    let requested = false;
     mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
     // Registered after mockDraftApis's own players route, so it wins:
     // Playwright matches the most-recently-added handler first.
     await page.route(`${API_BASE}/players*`, (route) => {
-      headers = route.request().headers();
+      requested = true;
       return route.fulfill({ json: { players: [] } });
     });
 
     await page.goto(`/draft/${DRAFT_ID}`);
-    // Poll rather than guard on `if (headers)`: a request that never fires
-    // must fail this test, not pass it silently.
-    await expect.poll(() => headers).not.toBeNull();
-    expect(Object.keys(headers)).not.toContain("authorization");
+    await expect(page.getByTestId("auth-gate")).toBeVisible();
+    expect(requested).toBe(false);
   });
 
-  test("creating a board offers sign-in instead of failing", async ({ page }) => {
+  // Boards.jsx's own "Sign in to create" fallback is still in the code for
+  // an unconfigured build (no Cognito variables), but /boards is wrapped in
+  // RequireAuth now, so a configured, signed-out visitor is stopped by the
+  // gate before Boards.jsx ever renders that button. Rewritten to prove the
+  // gate is what actually stops the creation, not Boards.jsx's own copy.
+  test("creating a board is gated before the page ever renders", async ({ page }) => {
     let posted = false;
     // Scoped to the API origin: an unscoped "**/boards" glob also matches the
     // SPA's own /boards page navigation, so the app's index.html itself gets
@@ -42,14 +50,18 @@ test.describe("signed out", () => {
     });
 
     await page.goto("/boards");
-    await expect(page.getByTestId("create-board")).toHaveText("Sign in to create");
-    // The button is a sign-in, so nothing is created and no 401 is provoked.
+    await expect(page.getByTestId("auth-gate")).toBeVisible();
+    await expect(page.getByTestId("create-board")).toHaveCount(0);
     expect(posted).toBe(false);
   });
 
-  test("creating a draft offers sign-in instead of failing", async ({ page }) => {
+  // Same reasoning as the board-creation rewrite above: /draft/new is now
+  // wrapped in RequireAuth, so NewDraft.jsx's own "Sign in to draft" fallback
+  // is unreachable for a configured, signed-out visitor.
+  test("creating a draft is gated before the page ever renders", async ({ page }) => {
     await page.goto("/draft/new");
-    await expect(page.getByTestId("start-draft")).toHaveText("Sign in to draft");
+    await expect(page.getByTestId("auth-gate")).toBeVisible();
+    await expect(page.getByTestId("start-draft")).toHaveCount(0);
   });
 
   test("the callback page explains a failure instead of hanging", async ({ page }) => {

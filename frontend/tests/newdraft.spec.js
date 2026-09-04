@@ -12,6 +12,7 @@ const API = "http://localhost:9999";
 
 test.describe("New Draft page", () => {
   test("default form values are 12 teams, 15 rounds, standard format", async ({ page }) => {
+    await signIn(page);
     await page.goto("/draft/new");
 
     await expect(page.getByLabel("Teams")).toHaveValue("12");
@@ -20,6 +21,7 @@ test.describe("New Draft page", () => {
   });
 
   test("user can change teams, rounds, and format", async ({ page }) => {
+    await signIn(page);
     await page.goto("/draft/new");
 
     await page.getByLabel("Teams").fill("8");
@@ -62,6 +64,7 @@ test("screenshot — new draft", async ({ page }) => {
   // scroller, so the document is always exactly viewport height. Size the
   // viewport to the page's own content instead, or the image is clipped.
   await page.setViewportSize({ width: 1280, height: 800 });
+  await signIn(page);
   await page.goto("/draft/new");
   await expect(page.getByLabel("Teams")).toBeVisible();
 

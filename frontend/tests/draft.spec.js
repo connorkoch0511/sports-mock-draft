@@ -14,6 +14,7 @@ test.describe("Draft page", () => {
     const state = makeDraftState({ currentIndex: 0 });
     mockDraftApis(page, state);
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -26,6 +27,7 @@ test.describe("Draft page", () => {
     const state = makeDraftState({ currentIndex: 0 });
     mockDraftApis(page, state);
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -38,6 +40,7 @@ test.describe("Draft page", () => {
     const state = makeDraftState({ currentIndex: 0 });
     mockDraftApis(page, state);
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -56,6 +59,7 @@ test.describe("Draft page", () => {
     const state = makeDraftState({ currentIndex: 0 });
     mockDraftApis(page, state);
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -73,6 +77,7 @@ test.describe("Draft page", () => {
     const state = makeDraftState({ currentIndex: 0 });
     mockDraftApis(page, state);
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
 
     const btn = page.getByRole("button", { name: /Pause|Resume/ });
@@ -89,6 +94,7 @@ test.describe("Draft page", () => {
     const state = makeDraftState({ currentIndex: 0 }); // pick #1 = Team 1
     mockDraftApis(page, state);
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -108,6 +114,7 @@ test.describe("Draft page", () => {
       await route.fulfill({ json: { ok: true, picked: MOCK_PLAYERS[0] } });
     });
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     // Do NOT pause — Auto Pick is disabled when paused
 
@@ -125,6 +132,7 @@ test.describe("Draft page", () => {
       await route.fulfill({ json: { ok: true, completed: true } });
     });
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     // Do NOT pause — Sim to End is disabled when paused
 
@@ -143,6 +151,7 @@ test.describe("Draft page", () => {
       await route.fulfill({ json: completedState });
     });
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
 
     await expect(page.getByRole("link", { name: /View Results/i })).toBeVisible();
@@ -184,6 +193,7 @@ test.describe("Draft page", () => {
     const state = makeDraftState({ currentIndex: 0 });
     mockDraftApis(page, state);
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -196,6 +206,7 @@ test.describe("Draft page", () => {
     const state = makeDraftState({ currentIndex: 0 });
     mockDraftApis(page, state);
 
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
