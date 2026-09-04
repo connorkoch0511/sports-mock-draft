@@ -79,7 +79,7 @@ export default function MyDrafts() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">My drafts</h1>
         <p className="text-sm text-zinc-400">
-          Drafts you have started or opened on this device.
+          Every draft on your account, on whichever device you sign in from.
         </p>
       </div>
 
