@@ -8,19 +8,25 @@ const FORMAT_LABEL = { standard: "Standard", "half-ppr": "Half PPR", ppr: "PPR" 
 export default function Dashboard() {
   const [drafts, setDrafts] = useState(null);
   const [boards, setBoards] = useState(null);
-  const [err, setErr] = useState("");
-  usePageTitle("Home");
+  const [draftsErr, setDraftsErr] = useState("");
+  const [boardsErr, setBoardsErr] = useState("");
+  usePageTitle("Your drafts");
 
+  // Two independent requests, not Promise.all. All-or-nothing meant one
+  // failure discarded the other's result, and both sections then rendered
+  // "you have none" -- two confident falsehoods, on data that had actually
+  // arrived. Each half now succeeds or fails on its own.
   useEffect(() => {
     let cancelled = false;
-    Promise.all([fetchMyDrafts(), fetchMyBoards()])
-      .then(([d, b]) => {
-        if (cancelled) return;
-        setDrafts(d);
-        setBoards(b);
-      })
+    fetchMyDrafts()
+      .then((d) => { if (!cancelled) setDrafts(d); })
       .catch((e) => {
-        if (!cancelled) setErr(e.message || "Could not load your drafts");
+        if (!cancelled) setDraftsErr(e.message || "Could not load your drafts");
+      });
+    fetchMyBoards()
+      .then((b) => { if (!cancelled) setBoards(b); })
+      .catch((e) => {
+        if (!cancelled) setBoardsErr(e.message || "Could not load your boards");
       });
     return () => { cancelled = true; };
   }, []);
@@ -40,9 +46,11 @@ export default function Dashboard() {
         </Link>
       </div>
 
-      {err && <div data-testid="dashboard-error" className="mb-4 text-sm text-rose-300">{err}</div>}
+      {draftsErr && (
+        <div data-testid="dashboard-error" className="mb-4 text-sm text-rose-300">{draftsErr}</div>
+      )}
 
-      {drafts === null && !err ? (
+      {drafts === null && !draftsErr ? (
         <div className="text-sm text-zinc-500">Loading…</div>
       ) : inProgress.length === 0 ? (
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-8 text-center text-sm text-zinc-500">
@@ -69,7 +77,14 @@ export default function Dashboard() {
         <Link to="/boards" className="text-sm text-cyan-300">All boards</Link>
       </div>
 
-      {boards && boards.length > 0 ? (
+      {boardsErr ? (
+        <div data-testid="dashboard-boards-error" className="text-sm text-rose-300">{boardsErr}</div>
+      ) : boards === null ? (
+        // Without this the empty state showed on every single load until the
+        // request came back -- telling you that you have no boards, while
+        // fetching your boards.
+        <div className="text-sm text-zinc-500">Loading…</div>
+      ) : boards.length > 0 ? (
         <ul className="grid gap-2 sm:grid-cols-2" data-testid="dashboard-boards">
           {boards.slice(0, 4).map((b) => (
             <li key={b.id}>

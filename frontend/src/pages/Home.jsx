@@ -1,4 +1,5 @@
 import { useAuth } from "../lib/authContext.js";
+import { gateState } from "../lib/gatedRoutes.js";
 import Landing from "./Landing.jsx";
 import Dashboard from "./Dashboard.jsx";
 
@@ -16,7 +17,10 @@ import Dashboard from "./Dashboard.jsx";
 export default function Home() {
   const { configured, signedIn, loading } = useAuth();
 
-  if (configured && loading) {
+  // Asked through gateState rather than re-derived, so this page and
+  // RequireAuth cannot drift apart on what "still deciding" means. That
+  // helper is the unit-tested one.
+  if (gateState({ configured, signedIn, loading }) === "wait") {
     return <div data-testid="home-wait" className="p-8 text-sm text-zinc-500">Loading…</div>;
   }
   return configured && signedIn ? <Dashboard /> : <Landing />;
