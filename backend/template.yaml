@@ -219,6 +219,8 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}
             Method: GET
+            Auth:
+              Authorizer: CognitoAuth
         Pick:
           Type: HttpApi
           Properties:
@@ -306,6 +308,8 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /boards/{boardId}
             Method: GET
+            Auth:
+              Authorizer: CognitoAuth
         SaveBoard:
           Type: HttpApi
           Properties:

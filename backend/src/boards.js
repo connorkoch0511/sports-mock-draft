@@ -140,10 +140,11 @@ exports.handler = async (event) => {
     }
 
     if (method === "GET" && boardId) {
+      if (!sub) return needsAuth();
       const res = await ddb.send(
         new GetCommand({ TableName: boardsTable, Key: { boardId } })
       );
-      if (!res.Item) return notFound();
+      if (!res.Item || !canMutate(res.Item, sub)) return notFound();
 
       const board = res.Item;
       const pool = await loadPool(playersTable, board.sport, board.format);
