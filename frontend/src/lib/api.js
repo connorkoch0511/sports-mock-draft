@@ -7,9 +7,9 @@ if (!API_BASE) {
 
 async function req(path, options = {}) {
   // Attached only when there is one. An absent token means an absent header,
-  // never an empty or "Bearer null" one -- today every endpoint is
-  // unauthenticated, and a malformed header would be a change in what they
-  // receive rather than the no-op this is meant to be.
+  // never an empty or "Bearer null" one -- every mutating endpoint now
+  // requires a signed-in owner, and a malformed header would be a change in
+  // what they receive rather than the no-op this is meant to be.
   const token = getCurrentIdToken();
 
   const res = await fetch(`${API_BASE}${path}`, {

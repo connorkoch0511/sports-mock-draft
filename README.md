@@ -245,7 +245,10 @@ VITE_COGNITO_AUTHORITY=https://cognito-idp.us-east-1.amazonaws.com/<UserPoolId>
 VITE_COGNITO_CLIENT_ID=<UserPoolClientId>
 ```
 
-A build without these variables simply has no Sign in button.
+A build without these variables cannot create, edit, or delete anything, and
+offers no way to sign in to fix that — every mutating call reaches the API
+with no token and comes back 401. `npm run deploy` refuses to run without
+both variables set, for exactly this reason.
 
 **What happens to drafts and boards made before accounts existed**
 
