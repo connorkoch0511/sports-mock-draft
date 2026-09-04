@@ -5,7 +5,7 @@ function Step({ n, title, children }) {
   return (
     <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-6">
       <div className="font-mono text-xs text-cyan-300">{n}</div>
-      <div className="mt-2 text-sm font-semibold text-white">{title}</div>
+      <h2 className="mt-2 text-sm font-semibold text-white">{title}</h2>
       <p className="mt-1 text-sm text-zinc-400">{children}</p>
     </div>
   );

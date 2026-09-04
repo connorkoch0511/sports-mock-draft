@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/authContext.js";
+import { mustSignIn } from "../lib/authGate.js";
 import { Link, useLocation } from "react-router-dom";
 
 const LINKS = [
@@ -16,10 +17,12 @@ export default function NavBar() {
   const toggleRef = useRef(null);
   const menuRef = useRef(null);
 
-  // Signed out, every app link leads to the same sign-in prompt. An
-  // unconfigured build has no sign-in to offer, so it keeps its nav -- the
-  // same rule mustSignIn already follows.
-  const showAppLinks = !configured || signedIn;
+  // Signed out, every app link leads to the same sign-in prompt, so the nav
+  // is a row of identical doors. Asked through mustSignIn rather than
+  // re-derived as `!configured || signedIn`: the algebra is the same, but
+  // that helper exists precisely so this rule cannot drift between the pages
+  // that ask it, and its own comment says so.
+  const showAppLinks = !mustSignIn({ configured, signedIn });
 
   // Close on route change. Driven off pathname rather than the links' onClick
   // so that programmatic navigation closes the menu too.
