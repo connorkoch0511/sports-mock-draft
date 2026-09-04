@@ -89,13 +89,10 @@ exports.handler = async (event) => {
   if (!sub) return json(401, { error: "Sign in required" });
 
   try {
-    // Parsed ahead of the route match: a malformed body is a client error no
-    // matter what path sent it, and this Lambda serves exactly one route, so
-    // there is no ambiguity about which handler a bad body belongs to.
-    const body = parseBody(event);
-    if (body === undefined) return json(400, { error: "Invalid JSON body" });
-
     if (method === "POST" && path.endsWith("/claim")) {
+      const body = parseBody(event);
+      if (body === undefined) return json(400, { error: "Invalid JSON body" });
+
       const draftIds = validIds(body.draftIds);
       const boardIds = validIds(body.boardIds);
       if (draftIds === undefined || boardIds === undefined) {

@@ -101,6 +101,7 @@ test("a malformed body is a 400", async () => {
       http: { method: "POST" },
       authorizer: { jwt: { claims: ME } },
     },
+    rawPath: "/me/claim",
     body: "not json",
   });
   assert.strictEqual(res.statusCode, 400);
