@@ -136,16 +136,26 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ### Backend
 
-`sam deploy --guided` will prompt for `GoogleClientId` and `GoogleClientSecret`
-— they have no default, so the deploy fails without them. Complete the
-[Sign-in setup](#sign-in-setup-one-time-manual) section below first if you
-haven't already; it walks through getting both.
+`GoogleClientId` and `GoogleClientSecret` have no default, so the deploy fails
+without them. Complete the [Sign-in setup](#sign-in-setup-one-time-manual)
+section below first if you haven't already; it walks through getting both.
 
 ```bash
 cd backend
 sam build
-sam deploy --guided   # follow prompts to set stack name, region, etc.
+sam deploy --parameter-overrides \
+  GoogleClientId=YOUR_CLIENT_ID \
+  GoogleClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text)
 ```
+
+**Not `sam deploy --guided`.** It offers to save your answers to
+`backend/samconfig.toml`, which this repo tracks in git, and it writes
+parameter values there in plaintext — `NoEcho` keeps the secret out of console
+output and stack events, not out of that file. One prompt answered on autopilot
+is all it takes to commit the secret. Pass the parameters explicitly instead,
+the same way every deploy does.
 
 The deploy outputs the `ApiBaseUrl` — use that as `VITE_API_BASE_URL`.
 
