@@ -25,9 +25,10 @@ function isUnowned(item) {
 
 /**
  * Deliberately not "the owner OR anybody if it is unowned": an unowned draft
- * is readable but frozen, and the way to thaw it is POST /me/claim, which is
- * a conditional write. Letting a mutation adopt it as a side effect would make
- * the first person to send a pick its owner.
+ * is readable but frozen, and nothing can adopt it any more -- the purge
+ * script removes unowned rows before this gate ever ships. Letting a mutation
+ * adopt one as a side effect would make the first person to send a pick its
+ * owner.
  */
 function canMutate(item, sub) {
   if (typeof sub !== "string" || sub.length === 0) return false;

@@ -30,12 +30,4 @@ export async function signIn(page, { sub = "user-me", email = "you@example.com" 
     ([k, v]) => window.localStorage.setItem(k, v),
     [key, value]
   );
-
-  // Signing in triggers a claim of whatever this browser made. Every spec that
-  // signs in would otherwise see an unmocked request to a dead API base.
-  await page.route("**/me/claim", (route) =>
-    route.fulfill({
-      json: { claimed: { drafts: [], boards: [] }, skipped: { drafts: [], boards: [] } },
-    })
-  );
 }

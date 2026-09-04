@@ -342,15 +342,6 @@ Resources:
             TableName: !Ref DraftsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BoardsTable
-      Events:
-        Claim:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /me/claim
-            Method: POST
-            Auth:
-              Authorizer: CognitoAuth
 
 Outputs:
 

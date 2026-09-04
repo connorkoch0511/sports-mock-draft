@@ -252,11 +252,10 @@ both variables set, for exactly this reason.
 
 **What happens to drafts and boards made before accounts existed**
 
-They have no owner, so they are readable but frozen: the links still open, and
-nothing is deleted, but picks and edits are refused until somebody claims them.
-Signing in claims them automatically — the browser sends the ids it recorded as
-its own creations to `POST /me/claim`, and each is adopted only if nobody owns
-it yet. A draft you opened from somebody else's link is never sent.
+A one-off script (`backend/src/scripts/purge-unowned.js`) deletes every draft
+and board with no owner before this read gate ever ships, so there is nothing
+left to adopt: every draft and board a signed-in caller can reach was owned
+from the moment it was created.
 
 Somebody who is mid-draft and never signs in cannot finish that draft. That is
 the direct cost of requiring an owner from birth, and it is worth knowing
