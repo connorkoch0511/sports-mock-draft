@@ -27,7 +27,7 @@ export default defineConfig([
     },
   },
   {
-    files: ['playwright.config.js'],
+    files: ['playwright.config.js', 'scripts/**/*.js'],
     languageOptions: {
       globals: globals.node,
     },

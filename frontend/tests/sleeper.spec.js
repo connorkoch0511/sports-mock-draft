@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { signIn } from "./auth.js";
 
 const SLEEPER = "https://api.sleeper.app/v1";
 const USER_ID = "865123803410374656";
@@ -73,6 +74,7 @@ test("the imported roster is sent when the draft is created", async ({ page }) =
     await route.fulfill({ json: { draftId: "abc" } });
   });
 
+  await signIn(page);
   await page.goto("/draft/new");
   await page.getByTestId("sleeper-username").fill("ck15");
   await page.getByTestId("sleeper-find").click();
@@ -94,6 +96,7 @@ test("a draft created without importing sends no rosterSlots", async ({ page }) 
     await route.fulfill({ json: { draftId: "abc" } });
   });
 
+  await signIn(page);
   await page.goto("/draft/new");
   await page.getByRole("button", { name: /Start Mock Draft/i }).click();
 

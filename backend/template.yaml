@@ -5,15 +5,15 @@ Description: Mock Draft - serverless API
 Parameters:
   GoogleClientId:
     Type: String
-    Description: OAuth 2.0 client ID from the Google Cloud project.
-    Default: ""
+    Description: >-
+      OAuth 2.0 client ID from the Google Cloud project. Required: the API's
+      JWT authorizer references the user pool this creates.
   GoogleClientSecret:
     Type: String
     NoEcho: true
     Description: >-
       OAuth 2.0 client secret. NoEcho keeps it out of console output and stack
       events. Pass it at deploy time from SSM; never commit it.
-    Default: ""
   SiteUrl:
     Type: String
     Description: Origin the hosted sign-in returns to.
@@ -22,12 +22,6 @@ Parameters:
     Type: String
     Description: Prefix for the Cognito hosted sign-in domain.
     Default: "perfectpick-auth"
-
-# Cognito is only created once a Google client id is supplied. Until then the
-# stack deploys exactly as it does today, so this phase cannot break a deploy
-# that has not been configured yet.
-Conditions:
-  HasGoogle: !Not [!Equals [!Ref GoogleClientId, ""]]
 
 Globals:
   Function:
@@ -45,7 +39,6 @@ Resources:
 
   UserPool:
     Type: AWS::Cognito::UserPool
-    Condition: HasGoogle
     Properties:
       UserPoolName: perfectpick-users
       # Google is the sole provider, so email arrives already verified and
@@ -62,7 +55,6 @@ Resources:
 
   UserPoolGoogleProvider:
     Type: AWS::Cognito::UserPoolIdentityProvider
-    Condition: HasGoogle
     Properties:
       UserPoolId: !Ref UserPool
       ProviderName: Google
@@ -79,7 +71,6 @@ Resources:
 
   UserPoolClient:
     Type: AWS::Cognito::UserPoolClient
-    Condition: HasGoogle
     # Without this the client can be created before the provider exists and
     # SupportedIdentityProviders fails to resolve.
     DependsOn: UserPoolGoogleProvider
@@ -108,7 +99,6 @@ Resources:
 
   UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
-    Condition: HasGoogle
     Properties:
       UserPoolId: !Ref UserPool
       Domain: !Ref AuthDomainPrefix
@@ -154,9 +144,22 @@ Resources:
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
+      # No DefaultAuthorizer on purpose. Reads stay public -- a shared link
+      # must still open -- so protection is opted into route by route, and
+      # template.test.js is what makes sure nobody forgets to opt in.
+      Auth:
+        Authorizers:
+          CognitoAuth:
+            IdentitySource: "$request.header.Authorization"
+            JwtConfiguration:
+              issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+              audience:
+                - !Ref UserPoolClient
       CorsConfiguration:
         AllowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-        AllowHeaders: ["content-type"]
+        # A signed-in request is preflighted because of its Authorization
+        # header; without it here the browser refuses to send the real request.
+        AllowHeaders: ["content-type", "authorization"]
         AllowOrigins:
           - "https://d2kf4b52rvabfv.cloudfront.net"
 
@@ -208,6 +211,8 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /drafts
             Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         GetDraft:
           Type: HttpApi
           Properties:
@@ -220,24 +225,32 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}/pick
             Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         AutoPick:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}/auto-pick
             Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         SimToEnd:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}/sim-to-end
             Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         DeleteDraft:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}
             Method: DELETE
+            Auth:
+              Authorizer: CognitoAuth
   SyncPlayersFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -285,6 +298,8 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /boards
             Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         GetBoard:
           Type: HttpApi
           Properties:
@@ -297,25 +312,51 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /boards/{boardId}
             Method: PUT
+            Auth:
+              Authorizer: CognitoAuth
         DeleteBoard:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
             Path: /boards/{boardId}
             Method: DELETE
+            Auth:
+              Authorizer: CognitoAuth
+
+  MeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: me.handler
+      Environment:
+        Variables:
+          DRAFTS_TABLE: !Ref DraftsTable
+          BOARDS_TABLE: !Ref BoardsTable
+          ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DraftsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BoardsTable
+      Events:
+        Claim:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /me/claim
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
 
 Outputs:
 
   UserPoolId:
-    Condition: HasGoogle
     Description: Cognito user pool id
     Value: !Ref UserPool
   UserPoolClientId:
-    Condition: HasGoogle
     Description: Cognito app client id for the web app
     Value: !Ref UserPoolClient
   AuthDomain:
-    Condition: HasGoogle
     Description: Hosted sign-in domain
     Value: !Sub "https://${AuthDomainPrefix}.auth.${AWS::Region}.amazoncognito.com"
   ApiBaseUrl:

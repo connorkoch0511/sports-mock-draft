@@ -9,7 +9,7 @@ function corsHeaders() {
   const origin = process.env.ALLOWED_ORIGIN || "*";
   return {
     "Access-Control-Allow-Origin": origin,
-    "Access-Control-Allow-Headers": "content-type",
+    "Access-Control-Allow-Headers": "content-type,authorization",
     "Access-Control-Allow-Methods": ALLOWED_METHODS,
   };
 }

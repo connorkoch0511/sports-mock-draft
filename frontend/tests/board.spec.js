@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { BOARD_ID, makeBoardState } from "./fixtures.js";
+import { signIn } from "./auth.js";
 import { fileURLToPath } from "url";
 import path from "path";
 
@@ -52,6 +53,7 @@ test("hides the changelog when nothing changed", async ({ page }) => {
 test("keyboard reorder saves the new order", async ({ page }) => {
   let saved = null;
   await mockBoard(page, makeBoardState(), { onSave: (body) => { saved = body; } });
+  await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
 
   await page.getByRole("button", { name: "Reorder Christian McCaffrey" }).focus();
@@ -118,6 +120,7 @@ test("surfaces a conflict when the board changed elsewhere", async ({ page }) =>
       body: JSON.stringify(makeBoardState()),
     });
   });
+  await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
 
   await page.getByRole("button", { name: "Reorder Christian McCaffrey" }).focus();
@@ -158,6 +161,7 @@ test("a successful save clears a stale conflict notice", async ({ page }) => {
       body: JSON.stringify(makeBoardState()),
     });
   });
+  await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
 
   // First reorder: save 409s, "changed elsewhere" notice appears and the
@@ -192,6 +196,9 @@ test("screenshot — board editor", async ({ page }) => {
   // viewport instead.
   await page.setViewportSize({ width: 1280, height: 920 });
   await mockBoard(page, makeBoardState());
+  // Signed in: the shipped screenshot shows the normal, capable session, not
+  // the "sign in to reorder" banner a signed-out visitor would see.
+  await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
   await expect(page.getByTestId("board-row").first()).toBeVisible();
 

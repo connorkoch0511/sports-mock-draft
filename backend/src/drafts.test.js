@@ -7,9 +7,15 @@ const { handler } = require("./drafts");
 process.env.DRAFTS_TABLE = "drafts-test";
 process.env.PLAYERS_TABLE = "players-test";
 
-function evt(method, path, { draftId, body } = {}) {
+// `claims` is exactly the shape API Gateway's JWT authorizer puts on the
+// event, which is the boundary this code actually depends on -- Cognito
+// itself cannot run locally.
+function evt(method, path, { draftId, body, claims } = {}) {
   return {
-    requestContext: { http: { method } },
+    requestContext: {
+      http: { method },
+      ...(claims ? { authorizer: { jwt: { claims } } } : {}),
+    },
     rawPath: path,
     pathParameters: draftId ? { draftId } : undefined,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -41,6 +47,164 @@ function stubByTable(map) {
 }
 
 test.afterEach(() => mock.restoreAll());
+
+const ME = { sub: "user-me", email: "me@example.com" };
+const THEM = { sub: "user-them", email: "them@example.com" };
+
+function ownedDraft(ownerId) {
+  return {
+    draftId: "d1",
+    ownerId,
+    sport: "nfl",
+    format: "standard",
+    teams: 2,
+    rounds: 1,
+    userTeam: 1,
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: null, player: null },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+    ],
+    picked: [],
+    currentIndex: 0,
+    version: 1,
+  };
+}
+
+test("POST /drafts without claims is 401", async () => {
+  const res = await handler(evt("POST", "/drafts", { body: { teams: 12 } }));
+  assert.strictEqual(res.statusCode, 401);
+});
+
+test("POST /drafts stores the caller's sub as ownerId", async () => {
+  let put = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    put = cmd.input;
+    return {};
+  });
+  const res = await handler(
+    evt("POST", "/drafts", { body: { teams: 2, rounds: 1 }, claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(put.Item.ownerId, "user-me");
+});
+
+for (const [name, path] of [
+  ["pick", "/drafts/d1/pick"],
+  ["auto-pick", "/drafts/d1/auto-pick"],
+  ["sim-to-end", "/drafts/d1/sim-to-end"],
+]) {
+  test(`${name} without claims is 401`, async () => {
+    const res = await handler(
+      evt("POST", path, { draftId: "d1", body: { playerId: "p1" } })
+    );
+    assert.strictEqual(res.statusCode, 401);
+  });
+
+  test(`${name} on someone else's draft is 404, worded as not-found`, async () => {
+    stubSend({ Item: ownedDraft("user-them") });
+    const res = await handler(
+      evt("POST", path, { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+    );
+    assert.strictEqual(res.statusCode, 404);
+    // Byte-identical to a genuine miss: a distinguishable body confirms the id
+    // exists, which is precisely what an id-guessing probe is looking for.
+    assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
+  });
+
+  test(`${name} on an unclaimed legacy draft is 404 -- readable but frozen`, async () => {
+    stubSend({ Item: ownedDraft(undefined) });
+    const res = await handler(
+      evt("POST", path, { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+    );
+    assert.strictEqual(res.statusCode, 404);
+  });
+}
+
+test("the owner can pick", async () => {
+  stubByTable({
+    "drafts-test": { Item: ownedDraft("user-me") },
+    "players-test": {
+      Item: {
+        playerId: "p1",
+        id: "p1",
+        name: "Test Back",
+        position: "RB",
+        team: "SF",
+        rank: { standard: 1 },
+        adp: { standard: 1 },
+        tier: { standard: 1 },
+      },
+    },
+  });
+  const res = await handler(
+    evt("POST", "/drafts/d1/pick", {
+      draftId: "d1",
+      body: { playerId: "p1" },
+      claims: ME,
+    })
+  );
+  assert.strictEqual(res.statusCode, 200);
+});
+
+test("GET of a draft needs no claims at all -- sharing still works", async () => {
+  stubSend({ Item: ownedDraft("user-them") });
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 200);
+});
+
+test("DELETE without claims is 401", async () => {
+  const res = await handler(evt("DELETE", "/drafts/d1", { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 401);
+});
+
+test("DELETE deletes only on a matching ownerId", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return {};
+  });
+  const res = await handler(
+    evt("DELETE", "/drafts/d1", { draftId: "d1", claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(
+    input.ConditionExpression,
+    "ownerId = :me AND ownerId <> :anon"
+  );
+  assert.strictEqual(input.ExpressionAttributeValues[":me"], "user-me");
+  assert.strictEqual(input.ExpressionAttributeValues[":anon"], "anon");
+});
+
+test("DELETE of someone else's draft is 404", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
+    const e = new Error("The conditional request failed");
+    e.name = "ConditionalCheckFailedException";
+    throw e;
+  });
+  const res = await handler(
+    evt("DELETE", "/drafts/d1", { draftId: "d1", claims: THEM })
+  );
+  assert.strictEqual(res.statusCode, 404);
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
+});
+
+// The 404 tests above prove the answer. These prove nothing happened to get
+// there -- a refactor that moved the ownership check below the UpdateCommand
+// would still return 404 and keep every one of them green.
+for (const [name, path] of [
+  ["pick", "/drafts/d1/pick"],
+  ["auto-pick", "/drafts/d1/auto-pick"],
+  ["sim-to-end", "/drafts/d1/sim-to-end"],
+]) {
+  test(`${name} on someone else's draft writes nothing at all`, async () => {
+    const calls = stubSend({ Item: ownedDraft("user-them") });
+    await handler(
+      evt("POST", path, { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+    );
+    // Exactly one send: the Get that fetched the draft. Nothing after it.
+    assert.strictEqual(calls(), 1);
+  });
+}
 
 test("OPTIONS returns 200", async () => {
   const res = await handler(evt("OPTIONS", "/drafts"));
@@ -82,7 +246,7 @@ test("GET of a missing draft is 404 with its error message", async () => {
 test("pick without a playerId is 400", async () => {
   stubSend({});
   const res = await handler(
-    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: {} })
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: {}, claims: ME })
   );
   assert.strictEqual(res.statusCode, 400);
   assert.deepStrictEqual(JSON.parse(res.body), { error: "Missing playerId" });
@@ -91,7 +255,7 @@ test("pick without a playerId is 400", async () => {
 test("pick on a missing draft is 404", async () => {
   stubSend({});
   const res = await handler(
-    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" } })
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
   );
   assert.strictEqual(res.statusCode, 404);
   // Distinguishes the intended "Draft not found" branch from the router's
@@ -101,11 +265,13 @@ test("pick on a missing draft is 404", async () => {
 });
 
 test("picking an already-picked player is 409", async () => {
+  // ownerId must match the caller, or ownership fails first and this never
+  // reaches the already-picked check it's meant to exercise.
   stubSend({
-    Item: { draftId: "d1", picked: ["p1"], picks: [{}], currentIndex: 0 },
+    Item: { draftId: "d1", ownerId: "user-me", picked: ["p1"], picks: [{}], currentIndex: 0 },
   });
   const res = await handler(
-    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" } })
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
   );
   assert.strictEqual(res.statusCode, 409);
   assert.deepStrictEqual(JSON.parse(res.body), { error: "Player already picked" });
@@ -113,10 +279,10 @@ test("picking an already-picked player is 409", async () => {
 
 test("picking in a completed draft is 409", async () => {
   stubSend({
-    Item: { draftId: "d1", picked: [], picks: [{}], currentIndex: 1 },
+    Item: { draftId: "d1", ownerId: "user-me", picked: [], picks: [{}], currentIndex: 1 },
   });
   const res = await handler(
-    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" } })
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
   );
   assert.strictEqual(res.statusCode, 409);
   assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft already completed" });
@@ -125,7 +291,7 @@ test("picking in a completed draft is 409", async () => {
 test("auto-pick on a missing draft is 404", async () => {
   stubSend({});
   const res = await handler(
-    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} })
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME })
   );
   assert.strictEqual(res.statusCode, 404);
   // See the "pick on a missing draft" test above: pins the branch, not just
@@ -135,10 +301,10 @@ test("auto-pick on a missing draft is 404", async () => {
 
 test("auto-pick in a completed draft is 409", async () => {
   stubSend({
-    Item: { draftId: "d1", picked: [], picks: [{}], currentIndex: 1 },
+    Item: { draftId: "d1", ownerId: "user-me", picked: [], picks: [{}], currentIndex: 1 },
   });
   const res = await handler(
-    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} })
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME })
   );
   assert.strictEqual(res.statusCode, 409);
   assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft already completed" });
@@ -147,7 +313,7 @@ test("auto-pick in a completed draft is 409", async () => {
 test("sim-to-end on a missing draft is 404", async () => {
   stubSend({});
   const res = await handler(
-    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", body: {} })
+    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", body: {}, claims: ME })
   );
   assert.strictEqual(res.statusCode, 404);
   // See the "pick on a missing draft" test above: pins the branch, not just
@@ -158,7 +324,7 @@ test("sim-to-end on a missing draft is 404", async () => {
 test("POST /drafts success returns a draftId", async () => {
   stubSend({}); // PutCommand result is ignored
   const res = await handler(
-    evt("POST", "/drafts", { body: { teams: 8, rounds: 3, sport: "nfl", format: "standard" } })
+    evt("POST", "/drafts", { body: { teams: 8, rounds: 3, sport: "nfl", format: "standard" }, claims: ME })
   );
   assert.strictEqual(res.statusCode, 200);
   const body = JSON.parse(res.body);
@@ -226,6 +392,7 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
 test("pick success returns { ok: true }", async () => {
   const draftItem = {
     draftId: "d1",
+    ownerId: "user-me",
     sport: "nfl",
     format: "standard",
     picked: [],
@@ -248,7 +415,7 @@ test("pick success returns { ok: true }", async () => {
     "players-test": { Item: playerItem },
   });
   const res = await handler(
-    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" } })
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
   );
   assert.strictEqual(res.statusCode, 200);
   assert.deepStrictEqual(JSON.parse(res.body), { ok: true });
@@ -257,6 +424,7 @@ test("pick success returns { ok: true }", async () => {
 test("auto-pick success returns { ok: true, picked }", async () => {
   const draftItem = {
     draftId: "d1",
+    ownerId: "user-me",
     sport: "nfl",
     format: "standard",
     picked: [],
@@ -284,7 +452,7 @@ test("auto-pick success returns { ok: true, picked }", async () => {
     "players-test": { Items: poolItems },
   });
   const res = await handler(
-    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} })
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME })
   );
   assert.strictEqual(res.statusCode, 200);
   assert.deepStrictEqual(JSON.parse(res.body), {
@@ -304,6 +472,7 @@ test("auto-pick success returns { ok: true, picked }", async () => {
 test("sim-to-end success returns { ok: true, completed }", async () => {
   const draftItem = {
     draftId: "d1",
+    ownerId: "user-me",
     sport: "nfl",
     format: "standard",
     picked: [],
@@ -328,7 +497,7 @@ test("sim-to-end success returns { ok: true, completed }", async () => {
     "players-test": { Items: poolItems },
   });
   const res = await handler(
-    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", body: {} })
+    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", body: {}, claims: ME })
   );
   assert.strictEqual(res.statusCode, 200);
   assert.deepStrictEqual(JSON.parse(res.body), { ok: true, completed: true });
@@ -377,7 +546,7 @@ test("the player pool query pages until exhausted", async () => {
     // currentIndex 0 with two picks queued keeps the completed-draft check
     // from short-circuiting before the pool load is reached.
     if (cmd?.input?.Key) {
-      return { Item: { draftId: "d1", picked: [], picks: [{}, {}], currentIndex: 0 } };
+      return { Item: { draftId: "d1", ownerId: "user-me", picked: [], picks: [{}, {}], currentIndex: 0 } };
     }
     queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
@@ -385,7 +554,7 @@ test("the player pool query pages until exhausted", async () => {
     return page;
   });
 
-  await handler(evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} }));
+  await handler(evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME }));
 
   assert.strictEqual(queries >= 2, true, "should page past the first LastEvaluatedKey");
 });
@@ -413,7 +582,7 @@ test("the player pool query threads ExclusiveStartKey from the prior page's Last
   const queryStartKeys = [];
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     if (cmd?.input?.Key) {
-      return { Item: { draftId: "d1", picked: [], picks: [{}, {}], currentIndex: 0 } };
+      return { Item: { draftId: "d1", ownerId: "user-me", picked: [], picks: [{}, {}], currentIndex: 0 } };
     }
     queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
@@ -421,7 +590,7 @@ test("the player pool query threads ExclusiveStartKey from the prior page's Last
     return page;
   });
 
-  await handler(evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {} }));
+  await handler(evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME }));
 
   assert.strictEqual(queries, 2, "should query exactly twice for these two pages");
   assert.strictEqual(
@@ -438,7 +607,7 @@ test("the player pool query threads ExclusiveStartKey from the prior page's Last
 
 test("DELETE removes a draft and reports ok", async () => {
   stubSend({});
-  const res = await handler(evt("DELETE", "/drafts/d1", { draftId: "d1" }));
+  const res = await handler(evt("DELETE", "/drafts/d1", { draftId: "d1", claims: ME }));
   assert.strictEqual(res.statusCode, 200);
   assert.deepStrictEqual(JSON.parse(res.body), { ok: true });
 });
@@ -450,20 +619,29 @@ test("DELETE issues a DeleteCommand against the drafts table", async () => {
     return {};
   });
 
-  await handler(evt("DELETE", "/drafts/d1", { draftId: "d1" }));
+  await handler(evt("DELETE", "/drafts/d1", { draftId: "d1", claims: ME }));
 
   assert.strictEqual(seen.constructor.name, "DeleteCommand");
   assert.strictEqual(seen.input.TableName, "drafts-test");
   assert.deepStrictEqual(seen.input.Key, { draftId: "d1" });
 });
 
-test("deleting a draft that is already gone still returns 200", async () => {
-  // DynamoDB's DeleteCommand succeeds whether or not the item existed, and
-  // the frontend relies on that: a resolved call always means it is safe to
-  // drop the row locally, so a retry after a network blip cannot error.
-  stubSend({});
-  const res = await handler(evt("DELETE", "/drafts/never-existed", { draftId: "never-existed" }));
-  assert.strictEqual(res.statusCode, 200);
+// Superseded by the ownership condition: a delete on an already-gone draft
+// now fails its ConditionExpression exactly like a delete on someone else's
+// draft does (see "DELETE of someone else's draft is 404" above), and the two
+// cases are deliberately indistinguishable to the caller. The frontend is
+// updated for this in a later task -- this is no longer idempotent by design.
+test("deleting an already-gone draft is 404, not idempotent success", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
+    const e = new Error("The conditional request failed");
+    e.name = "ConditionalCheckFailedException";
+    throw e;
+  });
+  const res = await handler(
+    evt("DELETE", "/drafts/never-existed", { draftId: "never-existed", claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 404);
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
 });
 
 test("DELETE without a draftId falls through to the catch-all", async () => {

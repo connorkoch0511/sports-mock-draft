@@ -7,9 +7,9 @@ if (!API_BASE) {
 
 async function req(path, options = {}) {
   // Attached only when there is one. An absent token means an absent header,
-  // never an empty or "Bearer null" one -- today every endpoint is
-  // unauthenticated, and a malformed header would be a change in what they
-  // receive rather than the no-op this is meant to be.
+  // never an empty or "Bearer null" one -- every mutating endpoint now
+  // requires a signed-in owner, and a malformed header would be a change in
+  // what they receive rather than the no-op this is meant to be.
   const token = getCurrentIdToken();
 
   const res = await fetch(`${API_BASE}${path}`, {
@@ -25,7 +25,14 @@ async function req(path, options = {}) {
   let data;
   try { data = JSON.parse(text); } catch { data = { raw: text }; }
 
-  if (!res.ok) throw new Error(data?.error || data?.message || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data?.error || data?.message || `HTTP ${res.status}`);
+    // Callers need to tell "it is gone or not yours" from "the server broke".
+    // A delete, in particular, should stop offering a retry for a draft that
+    // no longer exists.
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 

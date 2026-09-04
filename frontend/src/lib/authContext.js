@@ -10,6 +10,8 @@ import { createContext, useContext } from "react";
 export const AuthContext = createContext({
   user: null,
   name: null,
+  signedIn: false,
+  sub: null,
   loading: false,
   configured: false,
   signIn: () => {},

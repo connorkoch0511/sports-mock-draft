@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { DRAFT_ID } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 import { fileURLToPath } from "url";
 import path from "path";
@@ -37,6 +38,7 @@ test.describe("New Draft page", () => {
       }
     });
 
+    await signIn(page);
     await page.goto("/draft/new");
     await page.getByRole("button", { name: /Start Mock Draft/i }).click();
     await expect(page).toHaveURL(`/draft/${DRAFT_ID}`);
@@ -47,6 +49,7 @@ test.describe("New Draft page", () => {
       await route.fulfill({ status: 500, json: { error: "Server error" } });
     });
 
+    await signIn(page);
     await page.goto("/draft/new");
     await page.getByRole("button", { name: /Start Mock Draft/i }).click();
 

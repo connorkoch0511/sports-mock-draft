@@ -98,8 +98,11 @@ export default function NavBar() {
       )}
 
       {/*
-        Sign-in is additive in this phase: nothing on any page requires it, so
-        an unconfigured build simply renders nothing here.
+        Every mutation now requires a signed-in owner, so an unconfigured
+        build (no Cognito variables) has no way to satisfy that -- creating,
+        picking, saving and deleting all just 401. Rendering nothing here in
+        that case is not "auth is optional"; it is why `npm run deploy`
+        refuses to ship without the two Cognito variables set.
       */}
       {configured ? (
         <div data-testid="auth-controls" className="flex items-center gap-2">

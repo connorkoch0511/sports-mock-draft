@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { DRAFT_ID, MOCK_PLAYERS, makeDraftState } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 test("pick schedule updates with the selected slot", async ({ page }) => {
   await page.goto("/draft/new");
@@ -34,6 +35,7 @@ test("selected slot is sent when creating a draft", async ({ page }) => {
     })
   );
 
+  await signIn(page);
   await page.goto("/draft/new");
   await page.getByTestId("slot-select").selectOption("7");
   await page.getByRole("button", { name: "Start Mock Draft" }).click();

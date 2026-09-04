@@ -25,6 +25,12 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     env: {
       VITE_API_BASE_URL: "http://localhost:9999",
+      // A pool that does not exist. Nothing here ever reaches Cognito: the
+      // tests seed a session directly and never redirect, which is the point
+      // -- driving Google's consent screen in CI is not a test of this app.
+      VITE_COGNITO_AUTHORITY:
+        "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test",
+      VITE_COGNITO_CLIENT_ID: "test-client-id",
     },
   },
 });

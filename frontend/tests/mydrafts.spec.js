@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
+import { signIn } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
@@ -473,6 +474,7 @@ test("a draft created through the New Draft flow shows both Forget and Delete", 
     })
   );
 
+  await signIn(page);
   await page.goto("/draft/new");
   await page.getByRole("button", { name: /Start Mock Draft/i }).click();
   await expect(page).toHaveURL(`/draft/${NEW_ID}`);

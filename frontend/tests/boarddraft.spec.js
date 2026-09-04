@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { DRAFT_ID, MOCK_PLAYERS, makeDraftState } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 const API = "http://localhost:9999";
 const BID = "board-abc";
@@ -40,6 +41,7 @@ test("selecting a board sends boardId on create", async ({ page }) => {
     }
   });
 
+  await signIn(page);
   await page.goto("/draft/new");
   await page.getByTestId("board-select").selectOption(BID);
   await page.getByRole("button", { name: /Start Mock Draft/i }).click();
@@ -57,6 +59,7 @@ test("creating a draft without a board sends no boardId", async ({ page }) => {
     }
   });
 
+  await signIn(page);
   await page.goto("/draft/new");
   await page.getByRole("button", { name: /Start Mock Draft/i }).click();
 
@@ -141,6 +144,7 @@ test("the board is fetched exactly once, even after a pick", async ({ page }) =>
     await route.fulfill({ json: { ok: true } });
   });
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   // Do NOT pause — the Draft button is enabled only when not paused.
 

@@ -50,7 +50,10 @@ export default function MyDrafts() {
 
   // Server first, then local: on failure the row stays listed so the user can
   // retry rather than losing their way back to a draft that still exists.
-  // DELETE is idempotent, so a resolved call always means it is safe to drop.
+  //
+  // DELETE is no longer idempotent: it is a conditional delete on ownerId, so
+  // "already gone" and "not yours" both answer 404. The catch treats that as a
+  // dead local entry rather than something to retry.
   const remove = async (d) => {
     if (!window.confirm(`Delete this ${describe(d)} draft? This cannot be undone, and anyone you shared it with will lose access.`)) {
       return;
@@ -61,6 +64,11 @@ export default function MyDrafts() {
       forgetDraft(d.id);
       setDrafts(listDrafts());
     } catch (e) {
+      if (e.status === 404) {
+        forgetDraft(d.id);
+        setDrafts(listDrafts());
+        return;
+      }
       setErr(e.message || "Failed to delete draft");
     }
   };
