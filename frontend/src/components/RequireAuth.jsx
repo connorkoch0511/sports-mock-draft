@@ -11,7 +11,11 @@ export default function RequireAuth({ children }) {
 
   if (state === "allow") return children;
   if (state === "wait") {
-    return <div className="p-8 text-sm text-zinc-500">Loading…</div>;
+    return (
+      <div data-testid="auth-wait" className="p-8 text-sm text-zinc-500">
+        Loading…
+      </div>
+    );
   }
 
   return (
