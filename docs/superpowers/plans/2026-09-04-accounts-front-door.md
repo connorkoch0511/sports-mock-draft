@@ -542,7 +542,7 @@ unreachable and the dump is the only way back.
 - [ ] **Step 1: Write the failing test for the pure part**
 
 ```js
-// backend/scripts/purge-unowned.test.js
+// backend/src/scripts/purge-unowned.test.js
 const test = require("node:test");
 const assert = require("node:assert");
 const { isPurgeable } = require("./purge-unowned");
@@ -574,7 +574,7 @@ Expected: FAIL — cannot find module
 - [ ] **Step 3: Write the script**
 
 ```js
-// backend/scripts/purge-unowned.js
+// backend/src/scripts/purge-unowned.js
 //
 // One-off: delete every draft and board that nobody owns, after dumping them
 // to a file. Run once, against production, BEFORE the read gate ships --
@@ -1786,7 +1786,7 @@ pre-account drafts (the whole "What happens to drafts and boards made before
 accounts existed" section goes — those rows are deleted by Task 4's script);
 and the screenshot captions if the images changed.
 
-Add a line to the deploy section noting that `backend/scripts/purge-unowned.js`
+Add a line to the deploy section noting that `backend/src/scripts/purge-unowned.js`
 runs once, before the read gate is deployed.
 
 - [ ] **Step 3: Commit**
