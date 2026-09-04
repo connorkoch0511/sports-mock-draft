@@ -4,7 +4,6 @@ import { apiGet, apiPost } from "../lib/api";
 import { useAuth } from "../lib/authContext.js";
 import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
-import { useRememberDraft } from "../lib/useRememberDraft";
 import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
@@ -103,7 +102,6 @@ export default function Draft() {
   }, [draft?.boardId]);
 
   usePageTitle(draft ? `Draft ${draftId}` : "Draft");
-  useRememberDraft(draft);
 
   const playersById = useMemo(() => {
     const m = new Map();

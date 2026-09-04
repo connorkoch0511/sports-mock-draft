@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiGet } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
-import { useRememberDraft } from "../lib/useRememberDraft";
 import { analyzeDraft } from "../lib/draftAnalysis";
 
 export default function Results() {
@@ -22,7 +21,6 @@ export default function Results() {
   }, [draftId]);
 
   usePageTitle(draftId ? `Results ${draftId}` : "Results");
-  useRememberDraft(draft);
 
   if (err) return <div className="p-6 text-red-300">{err}</div>;
   if (!draft) return <div className="p-6 text-zinc-300">Loading results…</div>;

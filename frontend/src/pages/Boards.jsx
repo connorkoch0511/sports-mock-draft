@@ -1,16 +1,16 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost, apiDelete } from "../lib/api";
 import { useAuth } from "../lib/authContext.js";
 import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
-import { listBoards, rememberBoard, forgetBoard } from "../lib/boardRegistry";
+import { fetchMyBoards } from "../lib/me";
 
 const BOARD_SEASON = 2026;
 
 export default function Boards() {
   const nav = useNavigate();
-  const [boards, setBoards] = useState(() => listBoards());
+  const [boards, setBoards] = useState(null);
   const [format, setFormat] = useState("ppr");
   const [err, setErr] = useState("");
 
@@ -18,6 +18,14 @@ export default function Boards() {
   const needsSignIn = mustSignIn({ configured, signedIn });
 
   usePageTitle("Boards");
+
+  const load = useCallback(() => {
+    fetchMyBoards()
+      .then(setBoards)
+      .catch((e) => setErr(e.message || "Could not load your boards"));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const createBoard = async () => {
     setErr("");
@@ -28,8 +36,8 @@ export default function Boards() {
         format,
         season: BOARD_SEASON,
       });
-      rememberBoard({ id: boardId, name, format });
-      setBoards(listBoards());
+      // No local list to update -- navigating away leaves the page anyway,
+      // and the server already has it.
       nav(`/board/${boardId}`);
     } catch (e) {
       setErr(e.message || "Failed to create board");
@@ -49,26 +57,19 @@ export default function Boards() {
     }
     setErr("");
     try {
-      // Server first, then local: on failure the row stays listed so the
+      // Server first, then reload: on failure the row stays listed so the
       // user can retry rather than losing their way back to a board that
       // still exists.
       //
       // DELETE /boards/:id used to be idempotent — a DynamoDB DeleteCommand
       // that succeeded even when the item was already gone. It is now a
       // conditional delete on ownerId, so "already gone" and "not yours"
-      // both answer 404, which the catch below treats as a dead local entry
-      // rather than something to retry.
+      // both answer 404, which the catch below treats as stale rather than
+      // something to retry -- either way, re-reading the server is correct.
       await apiDelete(`/boards/${b.id}`);
-      forgetBoard(b.id);
-      setBoards(listBoards());
+      load();
     } catch (e) {
-      // 404 means gone or not yours. Either way the local entry is a dead
-      // link, so drop it rather than inviting a retry that cannot work.
-      if (e.status === 404) {
-        forgetBoard(b.id);
-        setBoards(listBoards());
-        return;
-      }
+      if (e.status === 404) { load(); return; }
       setErr(e.message || "Failed to delete board");
     }
   };
@@ -110,7 +111,11 @@ export default function Boards() {
         </div>
       )}
 
-      {boards.length === 0 ? (
+      {boards === null ? (
+        // Not shown once an error lands -- the banner above already explains
+        // why there is nothing, so "Loading…" underneath it would be a lie.
+        !err && <div className="text-sm text-zinc-500">Loading…</div>
+      ) : boards.length === 0 ? (
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-8 text-center text-sm text-zinc-500">
           No boards yet. Create one to rank players your way.
         </div>

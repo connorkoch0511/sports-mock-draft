@@ -1,8 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePageTitle } from "../lib/usePageTitle";
-import { listDrafts, forgetDraft } from "../lib/draftRegistry";
-import { listBoards } from "../lib/boardRegistry";
+import { fetchMyDrafts, fetchMyBoards } from "../lib/me";
 import { apiDelete } from "../lib/api";
 
 const FORMAT_LABEL = {
@@ -15,11 +14,11 @@ function describe(d) {
   // Format+teams alone collides constantly -- 12-team PPR is the default,
   // so two unrelated drafts both read "PPR, 12 teams". Rounds and pick
   // narrow it further, and the relative time makes even two drafts with
-  // identical settings distinguishable, since they were not remembered at
+  // identical settings distinguishable, since they were not created at
   // the exact same millisecond. This string backs both the aria-label and
   // the delete confirmation, so it is the only thing standing between a
   // careful user and deleting the wrong one.
-  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams, ${d.rounds} rounds, pick ${d.userTeam}, updated ${relativeTime(d.updatedAt)}`;
+  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams, ${d.rounds} rounds, pick ${d.userTeam}, created ${relativeTime(d.createdAt)}`;
 }
 
 function relativeTime(ts) {
@@ -33,27 +32,34 @@ function relativeTime(ts) {
 }
 
 export default function MyDrafts() {
-  const [drafts, setDrafts] = useState(() => listDrafts());
+  const [drafts, setDrafts] = useState(null);
+  const [boards, setBoards] = useState([]);
   const [err, setErr] = useState("");
-  const boards = listBoards();
 
   usePageTitle("My Drafts");
 
-  const forget = (id) => {
-    // Clear any error first: a failed delete leaves a banner naming this
-    // draft, and forgetting the row would otherwise leave the message behind
-    // pointing at something no longer listed.
-    setErr("");
-    forgetDraft(id);
-    setDrafts(listDrafts());
-  };
+  // Two independent requests, not Promise.all -- boards are only used to
+  // resolve a name onto a draft row, so a failed boards fetch should not
+  // block the drafts list (or, worse, leave drafts stuck at null forever
+  // while an error banner is shown for something the boards fetch caused).
+  const load = useCallback(() => {
+    fetchMyDrafts()
+      .then(setDrafts)
+      .catch((e) => setErr(e.message || "Could not load your drafts"));
+    fetchMyBoards()
+      .then(setBoards)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   // Server first, then local: on failure the row stays listed so the user can
   // retry rather than losing their way back to a draft that still exists.
   //
   // DELETE is no longer idempotent: it is a conditional delete on ownerId, so
-  // "already gone" and "not yours" both answer 404. The catch treats that as a
-  // dead local entry rather than something to retry.
+  // "already gone" and "not yours" both answer 404. The catch re-reads from
+  // the server rather than trusting a local list -- there is no local list
+  // anymore for that row to be a dead entry in.
   const remove = async (d) => {
     if (!window.confirm(`Delete this ${describe(d)} draft? This cannot be undone, and anyone you shared it with will lose access.`)) {
       return;
@@ -61,14 +67,9 @@ export default function MyDrafts() {
     setErr("");
     try {
       await apiDelete(`/drafts/${d.id}`);
-      forgetDraft(d.id);
-      setDrafts(listDrafts());
+      load();
     } catch (e) {
-      if (e.status === 404) {
-        forgetDraft(d.id);
-        setDrafts(listDrafts());
-        return;
-      }
+      if (e.status === 404) { load(); return; }
       setErr(e.message || "Failed to delete draft");
     }
   };
@@ -88,16 +89,20 @@ export default function MyDrafts() {
         </div>
       )}
 
-      {drafts.length === 0 ? (
+      {drafts === null ? (
+        // Not shown once an error lands -- the banner above already explains
+        // why there is nothing, so "Loading…" underneath it would be a lie.
+        !err && <div className="text-sm text-zinc-500">Loading…</div>
+      ) : drafts.length === 0 ? (
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-8 text-center text-sm text-zinc-500">
           No drafts yet. Start one and it will show up here.
         </div>
       ) : (
         <ul className="space-y-1" data-testid="my-drafts-list">
           {drafts.map((d) => {
-            // The registry stores boardId; names live in the board registry,
-            // so a board that is not yours resolves to a generic label rather
-            // than a stale name or a raw id.
+            // The board name isn't on the draft row, so a board that is not
+            // (or no longer) yours resolves to a generic label rather than a
+            // stale name or a raw id.
             const boardName = d.boardId
               ? boards.find((b) => b.id === d.boardId)?.name || "a custom board"
               : null;
@@ -124,7 +129,7 @@ export default function MyDrafts() {
                   </div>
                   <div className="mt-1 text-xs text-zinc-500">
                     Pick {d.userTeam}
-                    {boardName ? ` · off ${boardName}` : ""} · {relativeTime(d.updatedAt)}
+                    {boardName ? ` · off ${boardName}` : ""} · {relativeTime(d.createdAt)}
                   </div>
                 </Link>
                 {d.completed && (
@@ -139,26 +144,14 @@ export default function MyDrafts() {
                 )}
                 <button
                   type="button"
-                  onClick={() => forget(d.id)}
-                  data-testid="forget-draft"
-                  aria-label={`Forget ${describe(d)} draft`}
-                  title="Removes it from this list only. The draft still exists and its link still works."
-                  className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-zinc-600 hover:text-zinc-300"
+                  onClick={() => remove(d)}
+                  data-testid="delete-draft"
+                  aria-label={`Delete ${describe(d)} draft`}
+                  title="Deletes the draft for everyone. Anyone you shared it with will lose access."
+                  className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
                 >
-                  Forget
+                  Delete
                 </button>
-                {d.owned && (
-                  <button
-                    type="button"
-                    onClick={() => remove(d)}
-                    data-testid="delete-draft"
-                    aria-label={`Delete ${describe(d)} draft`}
-                    title="Deletes the draft for everyone. Anyone you shared it with will lose access."
-                    className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
-                  >
-                    Delete
-                  </button>
-                )}
               </li>
             );
           })}

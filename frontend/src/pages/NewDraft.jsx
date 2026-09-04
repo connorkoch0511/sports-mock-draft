@@ -1,12 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost } from "../lib/api";
 import { useAuth } from "../lib/authContext.js";
 import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
-import { listBoards } from "../lib/boardRegistry";
-import { rememberDraft } from "../lib/draftRegistry";
+import { fetchMyBoards } from "../lib/me";
 import {
   fetchUser,
   fetchLeagues,
@@ -36,7 +35,7 @@ export default function NewDraft() {
   const [randomSlot, setRandomSlot] = useState(false);
   const [rosterSlots, setRosterSlots] = useState(null);
   const [boardId, setBoardId] = useState("");
-  const [myBoards] = useState(() => listBoards());
+  const [myBoards, setMyBoards] = useState([]);
   const [username, setUsername] = useState("");
   const [leagues, setLeagues] = useState(null);
   const [sleeperErr, setSleeperErr] = useState("");
@@ -47,6 +46,13 @@ export default function NewDraft() {
   const needsSignIn = mustSignIn({ configured, signedIn });
 
   usePageTitle("New Draft");
+
+  // Populates the "Use my board" select below. A failed fetch just leaves the
+  // list empty -- the board picker is optional, so there is nothing to show
+  // an error for.
+  useEffect(() => {
+    fetchMyBoards().then(setMyBoards).catch(() => {});
+  }, []);
 
   const safeSlot = Math.min(Math.max(1, slot), teams);
   const schedule = useMemo(
@@ -74,21 +80,6 @@ export default function NewDraft() {
         userTeam,
         ...(rosterSlots?.length ? { rosterSlots } : {}),
         ...(boardId ? { boardId } : {}),
-      });
-      // This is the only place that knows a draft is new -- it holds the
-      // POST /drafts response. Mark it owned here; the draft page's own
-      // load effect re-remembers this id moments later (see
-      // useRememberDraft.js) and must not know to pass owned itself, so
-      // rememberDraft carries this flag forward on its own.
-      rememberDraft({
-        id: draft.draftId,
-        teams,
-        rounds,
-        format,
-        userTeam,
-        boardId: boardId || null,
-        completed: false,
-        owned: true,
       });
       nav(`/draft/${draft.draftId}`);
     } catch (e) {
