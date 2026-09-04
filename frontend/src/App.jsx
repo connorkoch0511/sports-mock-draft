@@ -10,10 +10,12 @@ import Player from "./pages/Player.jsx";
 import AuthCallback from "./pages/AuthCallback.jsx";
 import { AuthProvider } from "./lib/AuthProvider.jsx";
 import NavBar from "./components/NavBar.jsx";
+import ClaimOnSignIn from "./components/ClaimOnSignIn.jsx";
 
 export default function App() {
   return (
     <AuthProvider>
+      <ClaimOnSignIn />
       <div className="flex h-dvh flex-col bg-[#070A0F] text-white">
         <div className="mx-auto flex w-full max-w-[1400px] flex-1 min-h-0 flex-col px-4 sm:px-6 lg:px-8">
           <div className="shrink-0">
