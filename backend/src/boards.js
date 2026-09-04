@@ -143,7 +143,7 @@ exports.handler = async (event) => {
       const res = await ddb.send(
         new GetCommand({ TableName: boardsTable, Key: { boardId } })
       );
-      if (!res.Item) return json(404, { error: "Board not found" });
+      if (!res.Item) return notFound();
 
       const board = res.Item;
       const pool = await loadPool(playersTable, board.sport, board.format);

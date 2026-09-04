@@ -220,6 +220,29 @@ test("DELETE requires a matching, non-anon ownerId in its condition", async () =
   mock.restoreAll();
 });
 
+// Every board created before this phase carries ownerId "anon" -- the literal
+// boards.js itself wrote. It is the single most common stored value on this
+// table, so the freeze is asserted here at the handler, not only against
+// canMutate in owner.test.js.
+test("PUT on an unclaimed legacy board is 404, not an adoption", async () => {
+  let call = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
+    call += 1;
+    if (call === 1) {
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
+    }
+    return { Item: { boardId: "b1", ownerId: "anon", version: 1 } };
+  });
+  const res = await handler(
+    event("PUT", { order: ["p1"], version: 1 }, "b1", ME)
+  );
+  assert.strictEqual(res.statusCode, 404);
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Board not found" });
+  mock.restoreAll();
+});
+
 test("DELETE of someone else's board is 404", async () => {
   mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
     const e = new Error("The conditional request failed");
