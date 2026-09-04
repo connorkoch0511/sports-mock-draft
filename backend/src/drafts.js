@@ -15,7 +15,7 @@ const {
   kDefBlocked,
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
-const { subOf, canMutate } = require("./lib/owner");
+const { subOf, canMutate, ANON } = require("./lib/owner");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -409,8 +409,15 @@ exports.handler = async (event) => {
             Key: { draftId },
             // One round trip instead of read-then-delete, and no window
             // between the ownership check and the delete.
-            ConditionExpression: "ownerId = :me",
-            ExpressionAttributeValues: { ":me": sub },
+            //
+            // The second clause keeps this condition from drifting away from
+            // canMutate, which refuses the legacy "anon" owner for every
+            // caller. Without it a caller whose sub were literally "anon"
+            // could delete every unclaimed draft. Cognito subs are UUIDs so
+            // that cannot happen today -- but the rule is written in two
+            // places here, and only one of them is enforced by lib/owner.js.
+            ConditionExpression: "ownerId = :me AND ownerId <> :anon",
+            ExpressionAttributeValues: { ":me": sub, ":anon": ANON },
           })
         );
         return json(200, { ok: true });

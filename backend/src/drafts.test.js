@@ -167,8 +167,12 @@ test("DELETE deletes only on a matching ownerId", async () => {
     evt("DELETE", "/drafts/d1", { draftId: "d1", claims: ME })
   );
   assert.strictEqual(res.statusCode, 200);
-  assert.strictEqual(input.ConditionExpression, "ownerId = :me");
+  assert.strictEqual(
+    input.ConditionExpression,
+    "ownerId = :me AND ownerId <> :anon"
+  );
   assert.strictEqual(input.ExpressionAttributeValues[":me"], "user-me");
+  assert.strictEqual(input.ExpressionAttributeValues[":anon"], "anon");
 });
 
 test("DELETE of someone else's draft is 404", async () => {
@@ -183,6 +187,24 @@ test("DELETE of someone else's draft is 404", async () => {
   assert.strictEqual(res.statusCode, 404);
   assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
 });
+
+// The 404 tests above prove the answer. These prove nothing happened to get
+// there -- a refactor that moved the ownership check below the UpdateCommand
+// would still return 404 and keep every one of them green.
+for (const [name, path] of [
+  ["pick", "/drafts/d1/pick"],
+  ["auto-pick", "/drafts/d1/auto-pick"],
+  ["sim-to-end", "/drafts/d1/sim-to-end"],
+]) {
+  test(`${name} on someone else's draft writes nothing at all`, async () => {
+    const calls = stubSend({ Item: ownedDraft("user-them") });
+    await handler(
+      evt("POST", path, { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+    );
+    // Exactly one send: the Get that fetched the draft. Nothing after it.
+    assert.strictEqual(calls(), 1);
+  });
+}
 
 test("OPTIONS returns 200", async () => {
   const res = await handler(evt("OPTIONS", "/drafts"));
