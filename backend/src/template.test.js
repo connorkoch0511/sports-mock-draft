@@ -34,6 +34,15 @@ function httpRoutes(tpl) {
       });
     }
   }
+  // Without this, the two "no route escapes the authorizer" assertions below
+  // pass vacuously whenever extraction returns nothing -- a renamed Resources
+  // key, a restructured template, a parse that degrades a block to a scalar.
+  // An empty result means the test lost sight of the routes, which is exactly
+  // when it must fail rather than go green.
+  assert.ok(
+    rows.length >= 12,
+    `expected at least 12 HttpApi routes, extracted ${rows.length}`
+  );
   return rows;
 }
 
