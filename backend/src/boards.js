@@ -10,6 +10,7 @@ const {
 const { randomUUID } = require("crypto");
 const { json, responder } = require("./lib/http");
 const { reconcile } = require("./lib/reconcile");
+const { subOf, canMutate, ANON } = require("./lib/owner");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -88,8 +89,19 @@ exports.handler = async (event) => {
 
   if (method === "OPTIONS") return json(200, {});
 
+  // Read once. The authorizer has already verified the token by the time this
+  // runs; an absent sub means the route was reached without one, which is a
+  // 401 rather than a crash.
+  const sub = subOf(event);
+
+  // A resource owned by somebody else answers exactly like one that does not
+  // exist. A 403 would confirm the id is real.
+  const notFound = () => json(404, { error: "Board not found" });
+  const needsAuth = () => json(401, { error: "Sign in required" });
+
   try {
     if (method === "POST" && !boardId) {
+      if (!sub) return needsAuth();
       const body = parseJsonBody(event);
       if (body === undefined) return json(400, { error: "Invalid JSON body" });
 
@@ -111,7 +123,7 @@ exports.handler = async (event) => {
 
       const item = {
         boardId: randomUUID(),
-        ownerId: "anon",
+        ownerId: sub,
         name,
         sport,
         format,
@@ -150,6 +162,7 @@ exports.handler = async (event) => {
     }
 
     if (method === "PUT" && boardId) {
+      if (!sub) return needsAuth();
       const body = parseJsonBody(event);
       if (body === undefined) return json(400, { error: "Invalid JSON body" });
 
@@ -187,13 +200,16 @@ exports.handler = async (event) => {
             Key: { boardId },
             UpdateExpression:
               "SET #o = :order, updatedAt = :now, version = :next",
-            ConditionExpression: "attribute_exists(boardId) AND version = :expected",
+            ConditionExpression:
+              "attribute_exists(boardId) AND version = :expected AND ownerId = :me AND ownerId <> :anon",
             ExpressionAttributeNames: { "#o": "order" },
             ExpressionAttributeValues: {
               ":order": order,
               ":now": Date.now(),
               ":next": expectedVersion + 1,
               ":expected": expectedVersion,
+              ":me": sub,
+              ":anon": ANON,
             },
             ReturnValues: "ALL_NEW",
           })
@@ -204,7 +220,10 @@ exports.handler = async (event) => {
           const current = await ddb.send(
             new GetCommand({ TableName: boardsTable, Key: { boardId } })
           );
-          if (!current.Item) return json(404, { error: "Board not found" });
+          if (!current.Item) return notFound();
+          // Not yours -- including a legacy board nobody has claimed. Same
+          // answer as a board that isn't there, deliberately.
+          if (!canMutate(current.Item, sub)) return notFound();
           return json(409, {
             error: "Board changed since you loaded it",
             currentVersion: current.Item.version,
@@ -215,10 +234,25 @@ exports.handler = async (event) => {
     }
 
     if (method === "DELETE" && boardId) {
-      await ddb.send(
-        new DeleteCommand({ TableName: boardsTable, Key: { boardId } })
-      );
-      return json(200, { ok: true });
+      if (!sub) return needsAuth();
+      try {
+        await ddb.send(
+          new DeleteCommand({
+            TableName: boardsTable,
+            Key: { boardId },
+            // The second clause keeps this condition from drifting away from
+            // canMutate, which refuses the legacy "anon" owner for every
+            // caller. Without it a caller whose sub were literally "anon"
+            // could delete every unclaimed board.
+            ConditionExpression: "ownerId = :me AND ownerId <> :anon",
+            ExpressionAttributeValues: { ":me": sub, ":anon": ANON },
+          })
+        );
+        return json(200, { ok: true });
+      } catch (e) {
+        if (e.name === "ConditionalCheckFailedException") return notFound();
+        throw e;
+      }
     }
 
     return json(404, { error: "Not found" });
