@@ -828,3 +828,19 @@ test("DELETE without a draftId falls through to the catch-all", async () => {
   assert.strictEqual(res.statusCode, 404);
   assert.deepStrictEqual(JSON.parse(res.body), { error: "Not found" });
 });
+
+// Listing goes by ownerId; access goes by seats. Those give the same answer
+// only while a draft has exactly one human seat. When invitations arrive this
+// test fails, which is the intended alarm -- otherwise /me/drafts would
+// silently omit drafts you were invited to.
+test("a new draft has exactly one human seat, and it is the owner", async () => {
+  let put = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    put = cmd.input;
+    return {};
+  });
+  await handler(evt("POST", "/drafts", { body: { teams: 8, rounds: 2 }, claims: ME }));
+  const humans = put.Item.seats.filter((s) => s.kind === "human");
+  assert.strictEqual(humans.length, 1);
+  assert.strictEqual(humans[0].sub, put.Item.ownerId);
+});

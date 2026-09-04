@@ -111,9 +111,29 @@ Resources:
       AttributeDefinitions:
         - AttributeName: draftId
           AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
       KeySchema:
         - AttributeName: draftId
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        # "My drafts" is a query, not a scan. The projection deliberately
+        # excludes `picks`, which is the whole draft board and would make every
+        # list read as expensive as loading the draft itself.
+        - IndexName: byOwner
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - teams
+              - rounds
+              - format
+              - userTeam
+              - boardId
+              - currentIndex
+              - createdAt
   PlayersTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -137,9 +157,23 @@ Resources:
       AttributeDefinitions:
         - AttributeName: boardId
           AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
       KeySchema:
         - AttributeName: boardId
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: byOwner
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - name
+              - format
+              - season
+              - updatedAt
 
   HttpApi:
     Type: AWS::Serverless::HttpApi
@@ -342,6 +376,23 @@ Resources:
             TableName: !Ref DraftsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BoardsTable
+      Events:
+        MyDrafts:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /me/drafts
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuth
+        MyBoards:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /me/boards
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuth
 
 Outputs:
 

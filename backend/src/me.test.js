@@ -2,6 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const { mock } = require("node:test");
+const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
 const { handler } = require("./me");
 
 process.env.DRAFTS_TABLE = "drafts-test";
@@ -35,4 +36,79 @@ test("an unknown path under /me is 404", async () => {
     rawPath: "/me/nope",
   });
   assert.strictEqual(res.statusCode, 404);
+});
+
+const { QueryCommand } = require("@aws-sdk/lib-dynamodb");
+
+function getEvent(rawPath, claims) {
+  return {
+    requestContext: {
+      http: { method: "GET" },
+      ...(claims ? { authorizer: { jwt: { claims } } } : {}),
+    },
+    rawPath,
+  };
+}
+
+test("GET /me/drafts without claims is 401", async () => {
+  const res = await handler(getEvent("/me/drafts"));
+  assert.strictEqual(res.statusCode, 401);
+});
+
+test("GET /me/drafts queries the byOwner index for the caller", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return { Items: [] };
+  });
+  await handler(getEvent("/me/drafts", ME));
+  assert.strictEqual(input.IndexName, "byOwner");
+  assert.strictEqual(input.ExpressionAttributeValues[":me"], "user-me");
+});
+
+test("GET /me/drafts shapes each row for the list", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [
+      { draftId: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 4,
+        boardId: null, currentIndex: 3, createdAt: 1000 },
+    ],
+  }));
+  const res = await handler(getEvent("/me/drafts", ME));
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body), {
+    drafts: [
+      { id: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 4,
+        boardId: null, completed: false, createdAt: 1000 },
+    ],
+  });
+});
+
+test("a draft whose picks are all made reports completed", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ draftId: "d1", teams: 2, rounds: 2, format: "ppr", userTeam: 1,
+              currentIndex: 4, createdAt: 1 }],
+  }));
+  const res = await handler(getEvent("/me/drafts", ME));
+  assert.strictEqual(JSON.parse(res.body).drafts[0].completed, true);
+});
+
+test("GET /me/boards shapes each row for the list", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ boardId: "b1", name: "My PPR Board", format: "ppr", season: 2026, updatedAt: 5 }],
+  }));
+  const res = await handler(getEvent("/me/boards", ME));
+  assert.deepStrictEqual(JSON.parse(res.body), {
+    boards: [{ id: "b1", name: "My PPR Board", format: "ppr", season: 2026, updatedAt: 5 }],
+  });
+});
+
+test("the newest draft comes first", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [
+      { draftId: "old", teams: 2, rounds: 1, format: "ppr", userTeam: 1, currentIndex: 0, createdAt: 100 },
+      { draftId: "new", teams: 2, rounds: 1, format: "ppr", userTeam: 1, currentIndex: 0, createdAt: 900 },
+    ],
+  }));
+  const res = await handler(getEvent("/me/drafts", ME));
+  assert.deepStrictEqual(JSON.parse(res.body).drafts.map((d) => d.id), ["new", "old"]);
 });
