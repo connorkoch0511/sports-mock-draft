@@ -15,6 +15,7 @@ const {
   kDefBlocked,
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
+const { subOf, canMutate } = require("./lib/owner");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -169,9 +170,20 @@ exports.handler = async (event) => {
     return json(200, {});
   }
 
+  // Read once. The authorizer has already verified the token by the time this
+  // runs; an absent sub means the route was reached without one, which is a
+  // 401 rather than a crash.
+  const sub = subOf(event);
+
+  // A resource owned by somebody else answers exactly like one that does not
+  // exist. A 403 would confirm the id is real.
+  const notFound = () => json(404, { error: "Draft not found" });
+  const needsAuth = () => json(401, { error: "Sign in required" });
+
   try {
     // POST /drafts
     if (method === "POST" && path === "/drafts") {
+      if (!sub) return needsAuth();
       const body = event.body ? JSON.parse(event.body) : {};
       const teams = Math.max(2, Math.min(32, Number(body.teams || 12)));
       const rounds = Math.max(1, Math.min(40, Number(body.rounds || 15)));
@@ -196,6 +208,7 @@ exports.handler = async (event) => {
 
       const item = {
         draftId: id,
+        ownerId: sub,
         sport,
         format,
         year,
@@ -252,12 +265,13 @@ exports.handler = async (event) => {
 
     // POST /drafts/{draftId}/pick
     if (method === "POST" && draftId && path.endsWith("/pick")) {
+      if (!sub) return needsAuth();
       const body = event.body ? JSON.parse(event.body) : {};
       const playerId = String(body.playerId || "").trim();
       if (!playerId) return json(400, { error: "Missing playerId" });
 
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return json(404, { error: "Draft not found" });
+      if (!res.Item || !canMutate(res.Item, sub)) return notFound();
 
       const d = res.Item;
       if ((d.picked || []).includes(playerId)) return json(409, { error: "Player already picked" });
@@ -299,8 +313,9 @@ exports.handler = async (event) => {
 
     // POST /drafts/{draftId}/auto-pick
     if (method === "POST" && draftId && path.endsWith("/auto-pick")) {
+      if (!sub) return needsAuth();
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return json(404, { error: "Draft not found" });
+      if (!res.Item || !canMutate(res.Item, sub)) return notFound();
 
       const d = res.Item;
       if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
@@ -342,8 +357,9 @@ exports.handler = async (event) => {
 
     // POST /drafts/{draftId}/sim-to-end
     if (method === "POST" && draftId && path.endsWith("/sim-to-end")) {
+      if (!sub) return needsAuth();
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return json(404, { error: "Draft not found" });
+      if (!res.Item || !canMutate(res.Item, sub)) return notFound();
 
       const d = res.Item;
       const sport = (d.sport || "nfl").toLowerCase();
@@ -385,10 +401,25 @@ exports.handler = async (event) => {
 
     // DELETE /drafts/{draftId}
     if (method === "DELETE" && draftId) {
-      await ddb.send(
-        new DeleteCommand({ TableName: draftsTable, Key: { draftId } })
-      );
-      return json(200, { ok: true });
+      if (!sub) return needsAuth();
+      try {
+        await ddb.send(
+          new DeleteCommand({
+            TableName: draftsTable,
+            Key: { draftId },
+            // One round trip instead of read-then-delete, and no window
+            // between the ownership check and the delete.
+            ConditionExpression: "ownerId = :me",
+            ExpressionAttributeValues: { ":me": sub },
+          })
+        );
+        return json(200, { ok: true });
+      } catch (e) {
+        // Covers all three of: already gone, owned by someone else, never
+        // claimed. The client cannot tell them apart, which is the point.
+        if (e.name === "ConditionalCheckFailedException") return notFound();
+        throw e;
+      }
     }
 
     return json(404, { error: "Not found" });
