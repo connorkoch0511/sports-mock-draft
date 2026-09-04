@@ -603,17 +603,16 @@ test("POST /drafts stores the caller's sub as ownerId", async () => {
   assert.strictEqual(put.Item.ownerId, "user-me");
 });
 
-for (const [name, path, suffix] of [
-  ["pick", "/drafts/d1/pick", "/pick"],
-  ["auto-pick", "/drafts/d1/auto-pick", "/auto-pick"],
-  ["sim-to-end", "/drafts/d1/sim-to-end", "/sim-to-end"],
+for (const [name, path] of [
+  ["pick", "/drafts/d1/pick"],
+  ["auto-pick", "/drafts/d1/auto-pick"],
+  ["sim-to-end", "/drafts/d1/sim-to-end"],
 ]) {
   test(`${name} without claims is 401`, async () => {
     const res = await handler(
       evt("POST", path, { draftId: "d1", body: { playerId: "p1" } })
     );
     assert.strictEqual(res.statusCode, 401);
-    assert.ok(suffix);
   });
 
   test(`${name} on someone else's draft is 404, worded as not-found`, async () => {
@@ -1990,11 +1989,10 @@ test.describe("signed out", () => {
     });
 
     await page.goto("/boards");
-    await page.waitForTimeout(300);
-
-    if (headers) {
-      expect(Object.keys(headers)).not.toContain("authorization");
-    }
+    // Poll rather than guard on `if (headers)`: a request that never fires
+    // must fail this test, not pass it silently.
+    await expect.poll(() => headers).not.toBeNull();
+    expect(Object.keys(headers)).not.toContain("authorization");
   });
 
   test("creating a board offers sign-in instead of failing", async ({ page }) => {
@@ -2038,11 +2036,8 @@ test.describe("signed in", () => {
     });
 
     await page.goto("/boards");
-    await page.waitForTimeout(300);
-
-    if (headers) {
-      expect(headers["authorization"]).toBe(`Bearer ${ID_TOKEN}`);
-    }
+    await expect.poll(() => headers).not.toBeNull();
+    expect(headers["authorization"]).toBe(`Bearer ${ID_TOKEN}`);
   });
 
   test("creating a board is offered again", async ({ page }) => {
