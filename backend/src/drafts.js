@@ -15,7 +15,7 @@ const {
   kDefBlocked,
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
-const { subOf, canMutate, ANON } = require("./lib/owner");
+const { subOf, canMutate, ANON, buildSeats, isSeated } = require("./lib/owner");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -209,6 +209,9 @@ exports.handler = async (event) => {
       const item = {
         draftId: id,
         ownerId: sub,
+        // Who may act, as distinct from who created it. One human today; a
+        // later phase fills the bot seats with invitations.
+        seats: buildSeats(teams, userTeam, sub),
         sport,
         format,
         year,
@@ -231,8 +234,11 @@ exports.handler = async (event) => {
 
     // GET /drafts/{draftId}
     if (method === "GET" && draftId) {
+      if (!sub) return needsAuth();
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item) return json(404, { error: "Draft not found" });
+      // Not seated is indistinguishable from not there. Reading a draft you
+      // were not invited to is exactly what this phase closes.
+      if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
       const current = d.picks[d.currentIndex] || null;
@@ -271,7 +277,7 @@ exports.handler = async (event) => {
       if (!playerId) return json(400, { error: "Missing playerId" });
 
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item || !canMutate(res.Item, sub)) return notFound();
+      if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
       if ((d.picked || []).includes(playerId)) return json(409, { error: "Player already picked" });
@@ -315,7 +321,7 @@ exports.handler = async (event) => {
     if (method === "POST" && draftId && path.endsWith("/auto-pick")) {
       if (!sub) return needsAuth();
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item || !canMutate(res.Item, sub)) return notFound();
+      if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
       if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
@@ -359,7 +365,7 @@ exports.handler = async (event) => {
     if (method === "POST" && draftId && path.endsWith("/sim-to-end")) {
       if (!sub) return needsAuth();
       const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-      if (!res.Item || !canMutate(res.Item, sub)) return notFound();
+      if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
       const sport = (d.sport || "nfl").toLowerCase();

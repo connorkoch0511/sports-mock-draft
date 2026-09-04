@@ -51,10 +51,14 @@ test.afterEach(() => mock.restoreAll());
 const ME = { sub: "user-me", email: "me@example.com" };
 const THEM = { sub: "user-them", email: "them@example.com" };
 
-function ownedDraft(ownerId) {
+function ownedDraft(ownerId, seatSub = ownerId) {
   return {
     draftId: "d1",
     ownerId,
+    seats: [
+      { team: 1, sub: seatSub, kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+    ],
     sport: "nfl",
     format: "standard",
     teams: 2,
@@ -69,6 +73,101 @@ function ownedDraft(ownerId) {
     version: 1,
   };
 }
+
+test("POST /drafts seats the creator", async () => {
+  let put = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    put = cmd.input;
+    return {};
+  });
+  await handler(
+    evt("POST", "/drafts", { body: { teams: 4, rounds: 1, userTeam: 2 }, claims: ME })
+  );
+  assert.strictEqual(put.Item.seats.length, 4);
+  assert.deepStrictEqual(put.Item.seats[1], { team: 2, sub: "user-me", kind: "human" });
+  assert.strictEqual(put.Item.seats.filter((s) => s.kind === "bot").length, 3);
+  // ownerId survives: it is who created it, which is a different question
+  // from who may act in it, and delete still turns on it.
+  assert.strictEqual(put.Item.ownerId, "user-me");
+});
+
+// The clamp in the POST /drafts branch (requestedTeam falls back to 1 when
+// out of 1..teams) is the only thing standing between a bad request and an
+// unreachable draft: buildSeats produces zero human seats for an
+// out-of-range userTeam, so if the clamp were ever removed nobody could
+// ever get seated in the draft they just created.
+test("POST /drafts with an out-of-range userTeam still seats exactly one human", async () => {
+  let put = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    put = cmd.input;
+    return {};
+  });
+  await handler(
+    evt("POST", "/drafts", { body: { teams: 4, rounds: 1, userTeam: 99 }, claims: ME })
+  );
+  assert.strictEqual(put.Item.seats.filter((s) => s.kind === "human").length, 1);
+});
+
+test("GET of a draft now requires claims", async () => {
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 401);
+});
+
+test("GET by somebody with no seat is 404, worded as not-found", async () => {
+  stubSend({ Item: ownedDraft("user-them") });
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.strictEqual(res.statusCode, 404);
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
+});
+
+test("GET by the person seated in it works", async () => {
+  stubSend({ Item: ownedDraft("user-me") });
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.strictEqual(res.statusCode, 200);
+});
+
+// Access is the seat, not the ownerId -- this is the case that proves it, and
+// the one invitations will rely on.
+test("somebody seated but not the owner can read and pick", async () => {
+  const draft = ownedDraft("user-them", "user-me");
+  stubByTable({
+    "drafts-test": { Item: draft },
+    "players-test": {
+      Item: {
+        playerId: "p1", id: "p1", name: "Test Back", position: "RB", team: "SF",
+        rank: { standard: 1 }, adp: { standard: 1 }, tier: { standard: 1 },
+      },
+    },
+  });
+  const read = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.strictEqual(read.statusCode, 200);
+  const pick = await handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+  );
+  assert.strictEqual(pick.statusCode, 200);
+});
+
+test("picking without a seat is 404 even for the ownerId", async () => {
+  // seats say user-them; ownerId says user-me. The seat decides.
+  stubSend({ Item: { ...ownedDraft("user-me", "user-them") } });
+  const res = await handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 404);
+});
+
+// Delete stays owner-only on purpose: an invited person must not be able to
+// destroy the draft they were invited to.
+test("DELETE still turns on ownerId, not on the seat", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return {};
+  });
+  const res = await handler(evt("DELETE", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.strictEqual(res.statusCode, 200);
+  assert.match(input.ConditionExpression, /ownerId = :me/);
+});
 
 test("POST /drafts without claims is 401", async () => {
   const res = await handler(evt("POST", "/drafts", { body: { teams: 12 } }));
@@ -111,8 +210,30 @@ for (const [name, path] of [
     assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
   });
 
-  test(`${name} on an unclaimed legacy draft is 404 -- readable but frozen`, async () => {
-    stubSend({ Item: ownedDraft(undefined) });
+  // A genuine pre-Task-1 draft predates the seats array entirely -- it isn't
+  // "unowned with a seat nobody holds," it has no `seats` field at all. This
+  // used to be readable-but-frozen (public GET, ownerless mutation refused);
+  // now nobody is seated in it either, so both are refused the same way.
+  // isSeated's Array.isArray guard is what keeps this from throwing.
+  test(`${name} on a legacy pre-seats draft is 404`, async () => {
+    stubSend({
+      Item: {
+        draftId: "d1",
+        ownerId: undefined,
+        sport: "nfl",
+        format: "standard",
+        teams: 2,
+        rounds: 1,
+        userTeam: 1,
+        picks: [
+          { overall: 1, round: 1, team: 1, playerId: null, player: null },
+          { overall: 2, round: 1, team: 2, playerId: null, player: null },
+        ],
+        picked: [],
+        currentIndex: 0,
+        version: 1,
+      },
+    });
     const res = await handler(
       evt("POST", path, { draftId: "d1", body: { playerId: "p1" }, claims: ME })
     );
@@ -146,10 +267,14 @@ test("the owner can pick", async () => {
   assert.strictEqual(res.statusCode, 200);
 });
 
-test("GET of a draft needs no claims at all -- sharing still works", async () => {
+// Superseded: sharing a link no longer grants access on its own. This task
+// closes exactly the path this test used to assert -- rewritten to prove
+// the refusal happens before the draft is even consulted, not merely that
+// it happens.
+test("GET of a draft without claims is 401, even when the draft exists", async () => {
   stubSend({ Item: ownedDraft("user-them") });
   const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1" }));
-  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(res.statusCode, 401);
 });
 
 test("DELETE without claims is 401", async () => {
@@ -238,7 +363,7 @@ test("OPTIONS response carries Vary: Accept-Encoding", async () => {
 
 test("GET of a missing draft is 404 with its error message", async () => {
   stubSend({});
-  const res = await handler(evt("GET", "/drafts/nope", { draftId: "nope" }));
+  const res = await handler(evt("GET", "/drafts/nope", { draftId: "nope", claims: ME }));
   assert.strictEqual(res.statusCode, 404);
   assert.deepStrictEqual(JSON.parse(res.body), { error: "Draft not found" });
 });
@@ -265,10 +390,17 @@ test("pick on a missing draft is 404", async () => {
 });
 
 test("picking an already-picked player is 409", async () => {
-  // ownerId must match the caller, or ownership fails first and this never
+  // The caller must hold the seat, or access fails first and this never
   // reaches the already-picked check it's meant to exercise.
   stubSend({
-    Item: { draftId: "d1", ownerId: "user-me", picked: ["p1"], picks: [{}], currentIndex: 0 },
+    Item: {
+      draftId: "d1",
+      ownerId: "user-me",
+      seats: [{ team: 1, sub: "user-me", kind: "human" }],
+      picked: ["p1"],
+      picks: [{}],
+      currentIndex: 0,
+    },
   });
   const res = await handler(
     evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
@@ -279,7 +411,14 @@ test("picking an already-picked player is 409", async () => {
 
 test("picking in a completed draft is 409", async () => {
   stubSend({
-    Item: { draftId: "d1", ownerId: "user-me", picked: [], picks: [{}], currentIndex: 1 },
+    Item: {
+      draftId: "d1",
+      ownerId: "user-me",
+      seats: [{ team: 1, sub: "user-me", kind: "human" }],
+      picked: [],
+      picks: [{}],
+      currentIndex: 1,
+    },
   });
   const res = await handler(
     evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
@@ -301,7 +440,14 @@ test("auto-pick on a missing draft is 404", async () => {
 
 test("auto-pick in a completed draft is 409", async () => {
   stubSend({
-    Item: { draftId: "d1", ownerId: "user-me", picked: [], picks: [{}], currentIndex: 1 },
+    Item: {
+      draftId: "d1",
+      ownerId: "user-me",
+      seats: [{ team: 1, sub: "user-me", kind: "human" }],
+      picked: [],
+      picks: [{}],
+      currentIndex: 1,
+    },
   });
   const res = await handler(
     evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME })
@@ -336,6 +482,11 @@ test("POST /drafts success returns a draftId", async () => {
 test("GET /drafts/{id} found returns the full draft object", async () => {
   const draftItem = {
     draftId: "d1",
+    ownerId: "user-me",
+    seats: [
+      { team: 1, sub: null, kind: "bot" },
+      { team: 2, sub: "user-me", kind: "human" },
+    ],
     sport: "nfl",
     format: "standard",
     year: 2024,
@@ -354,7 +505,7 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     ],
   };
   stubSend({ Item: draftItem }); // GET only issues one GetCommand
-  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1" }));
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
   assert.strictEqual(res.statusCode, 200);
   // Headers on a success-path response, so a headers regression on a success
   // branch (not just the error branches covered elsewhere) is caught.
@@ -393,6 +544,7 @@ test("pick success returns { ok: true }", async () => {
   const draftItem = {
     draftId: "d1",
     ownerId: "user-me",
+    seats: [{ team: 1, sub: "user-me", kind: "human" }],
     sport: "nfl",
     format: "standard",
     picked: [],
@@ -425,6 +577,7 @@ test("auto-pick success returns { ok: true, picked }", async () => {
   const draftItem = {
     draftId: "d1",
     ownerId: "user-me",
+    seats: [{ team: 1, sub: "user-me", kind: "human" }],
     sport: "nfl",
     format: "standard",
     picked: [],
@@ -473,6 +626,7 @@ test("sim-to-end success returns { ok: true, completed }", async () => {
   const draftItem = {
     draftId: "d1",
     ownerId: "user-me",
+    seats: [{ team: 1, sub: "user-me", kind: "human" }],
     sport: "nfl",
     format: "standard",
     picked: [],
@@ -546,7 +700,7 @@ test("the player pool query pages until exhausted", async () => {
     // currentIndex 0 with two picks queued keeps the completed-draft check
     // from short-circuiting before the pool load is reached.
     if (cmd?.input?.Key) {
-      return { Item: { draftId: "d1", ownerId: "user-me", picked: [], picks: [{}, {}], currentIndex: 0 } };
+      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{}, {}], currentIndex: 0 } };
     }
     queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
@@ -582,7 +736,7 @@ test("the player pool query threads ExclusiveStartKey from the prior page's Last
   const queryStartKeys = [];
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     if (cmd?.input?.Key) {
-      return { Item: { draftId: "d1", ownerId: "user-me", picked: [], picks: [{}, {}], currentIndex: 0 } };
+      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{}, {}], currentIndex: 0 } };
     }
     queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
