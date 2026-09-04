@@ -102,6 +102,20 @@ test("GET /me/boards shapes each row for the list", async () => {
   });
 });
 
+// "Newest first" was specified for both lists, but boards sort on updatedAt
+// where drafts sort on createdAt -- two comparators, so one passing test does
+// not cover the other.
+test("the most recently touched board comes first", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [
+      { boardId: "stale", name: "Stale", format: "ppr", season: 2026, updatedAt: 100 },
+      { boardId: "fresh", name: "Fresh", format: "ppr", season: 2026, updatedAt: 900 },
+    ],
+  }));
+  const res = await handler(getEvent("/me/boards", ME));
+  assert.deepStrictEqual(JSON.parse(res.body).boards.map((b) => b.id), ["fresh", "stale"]);
+});
+
 test("the newest draft comes first", async () => {
   mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
     Items: [
