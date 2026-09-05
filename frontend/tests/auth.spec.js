@@ -78,25 +78,32 @@ test.describe("signed in", () => {
     await expect(page.getByTestId("auth-user")).toHaveText("you@example.com");
   });
 
-  // Intercepts the SECOND of Draft.jsx's two sequential requests, and that
-  // matters: AuthProvider resolves manager.getUser() asynchronously while
-  // load() fires its first apiGet immediately on mount, so the token is not
-  // necessarily in place for request one. Reordering Draft.jsx's calls would
-  // break this test for a reason that has nothing to do with auth.
-  test("requests carry the bearer token", async ({ page }) => {
+  // THE FIRST request, deliberately, and this test is why the assertion moved.
+  //
+  // It used to watch the second of Draft.jsx's two sequential calls, with a
+  // comment explaining that AuthProvider resolves the session asynchronously
+  // so "the token is not necessarily in place for request one". That was true
+  // and harmless while reads were public. Once GET /drafts/{id} was gated it
+  // meant every cold load opened with a 401 -- and this test, watching request
+  // two, stayed green through all of it.
+  //
+  // So it now asserts the thing that actually matters: the very first request
+  // a page makes carries the token. If it ever does not, this fails.
+  test("the FIRST request a page makes already carries the bearer token", async ({ page }) => {
     await signIn(page);
-    let headers = null;
-    // Same reasoning as the signed-out version of this test: /boards makes no
-    // GET of its own, so the draft page is where a real request is observed.
-    mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
+    const seen = [];
+    await page.route(`${API_BASE}/drafts/*`, (route) => {
+      seen.push(route.request().headers());
+      return route.fulfill({ json: makeDraftState({ currentIndex: 0 }) });
+    });
     await page.route(`${API_BASE}/players*`, (route) => {
-      headers = route.request().headers();
+      seen.push(route.request().headers());
       return route.fulfill({ json: { players: [] } });
     });
 
     await page.goto(`/draft/${DRAFT_ID}`);
-    await expect.poll(() => headers).not.toBeNull();
-    expect(headers["authorization"]).toBe(`Bearer ${ID_TOKEN}`);
+    await expect.poll(() => seen.length).toBeGreaterThan(0);
+    expect(seen[0]["authorization"]).toBe(`Bearer ${ID_TOKEN}`);
   });
 
   test("creating a board is offered again", async ({ page }) => {

@@ -40,10 +40,26 @@ export function AuthProvider({ children }) {
 
   // Published to the plain holder api.js reads, so requests can carry a token
   // without any of the request code importing React.
-  useEffect(() => {
-    setCurrentIdToken(idTokenOf(user));
-    return () => setCurrentIdToken(null);
-  }, [user]);
+  //
+  // DURING RENDER, not from an effect. React runs passive effects
+  // children-before-parents, so a page that fetches on mount ran its effect
+  // before this provider's -- and sent its first request with no
+  // Authorization header. That was harmless while reads were public. Once
+  // GET /drafts/{id} and the /me routes were gated it meant every cold load
+  // and every refresh began with a 401 the Lambda never saw: both dashboard
+  // error banners, or a draft that would not open until you navigated to it
+  // from inside the app.
+  //
+  // StrictMode's double-invoked effects hid it in development by firing a
+  // second, authenticated request, and route mocks in the e2e suite fulfil
+  // regardless of headers -- so nothing caught it.
+  //
+  // The call is idempotent, so a render React later discards costs nothing.
+  setCurrentIdToken(idTokenOf(user));
+
+  // Clearing still belongs in an effect: it must happen on unmount, not on
+  // every render.
+  useEffect(() => () => setCurrentIdToken(null), []);
 
   const value = useMemo(
     () => ({
