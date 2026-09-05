@@ -12,9 +12,10 @@ import { RosterPanel } from "../components/draft/RosterPanel";
 const PICK_SECONDS = 60;
 
 // A 401 means "sign in first"; a 404 from a mutation on a draft this page
-// just fetched (GET /drafts/{id} is public) means the caller is signed in
-// but does not own it -- not that the draft is gone. The client already
-// knows it exists, since the page is showing it.
+// just fetched means the caller is signed in but has no seat in it -- not
+// that the draft is gone. The client already knows it exists, since the page
+// is showing it, so repeating the API's deliberately vague "not found" would
+// be the one place that wording misleads rather than protects.
 function mutationErrorMessage(e, fallback) {
   if (e.status === 401) return "Sign in to make changes";
   if (e.status === 404) return "This draft isn't yours to edit";

@@ -270,6 +270,12 @@ exports.handler = async (event) => {
     }
 
     // POST /drafts/{draftId}/pick
+    //
+    // DEFERRED, and it must not stay deferred past invitations: this checks
+    // that you hold A seat, not that you hold the seat currently on the
+    // clock. With one human in a draft those are the same thing, and the
+    // ownership check this replaced was equally permissive. The moment a
+    // second person is seated, seat A can submit picks for seat B.
     if (method === "POST" && draftId && path.endsWith("/pick")) {
       if (!sub) return needsAuth();
       const body = event.body ? JSON.parse(event.body) : {};

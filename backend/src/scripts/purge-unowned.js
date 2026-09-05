@@ -80,6 +80,28 @@ async function main() {
     const doomed = all.filter(isPurgeable);
     console.log(`${name}: ${all.length} rows, ${doomed.length} unowned`);
 
+    // The state nothing else handles: a draft with a real owner but no seats.
+    // The currently deployed backend writes ownerId and not seats, so any
+    // draft created by a signed-in user before this release lands here. It
+    // survives the purge (it has an owner), it APPEARS in /me/drafts (that
+    // index keys on ownerId), and it 404s on open, pick, auto-pick and
+    // sim-to-end, because access is by seat. A draft in your list that
+    // cannot be opened, with no backfill and no detection.
+    //
+    // Reported rather than fixed: deleting somebody's real draft or guessing
+    // their seat is not a script's decision. If this prints anything, stop
+    // and deal with it before deploying the read gate.
+    const stranded = all.filter(
+      (item) => !isPurgeable(item) && !Array.isArray(item.seats)
+    );
+    if (stranded.length > 0) {
+      console.log(
+        `  !! ${stranded.length} owned rows have no seats and would be ` +
+          `unopenable by their owner:`
+      );
+      for (const item of stranded) console.log(`     ${item[key]}`);
+    }
+
     if (doomed.length === 0) continue;
 
     const dump = path.join(outDir, `${name}-${stamp}.json`);

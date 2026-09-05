@@ -273,6 +273,39 @@ birth, and it is worth knowing before you run the purge rather than after.
 
 ## Deploying
 
+### This release only: the order matters
+
+Drafts and boards became private in this release, and two new routes appeared.
+Deploying the halves in the wrong order breaks the live site, so once, in this
+order:
+
+```bash
+# 1. See what the purge would delete. Read the drafts line: if `rows` and
+#    `unowned` differ, stop -- owned rows without seats exist, and they would
+#    be unopenable by their own owner. The script names them.
+cd backend/src && node scripts/purge-unowned.js
+
+# 2. Delete them. Irreversible. Keep the dump it writes to
+#    ~/perfectpick-purge-backups somewhere durable.
+node scripts/purge-unowned.js --confirm
+
+# 3. Backend, which adds the two /me routes and one index per table.
+cd .. && sam build && sam deploy --parameter-overrides \
+  GoogleClientId=YOUR_CLIENT_ID \
+  GoogleClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text)
+
+# 4. Frontend, and not before step 3: the new bundle calls /me/drafts and
+#    /me/boards on nearly every page, and they do not exist until the backend
+#    update completes.
+cd ../frontend && npm run deploy
+```
+
+Anyone signed in across the deploy keeps a valid token, but may hold the old
+bundle until the CloudFront invalidation lands — their draft list will briefly
+point at rows the purge removed. A reload fixes it.
+
 ### Frontend
 
 ```bash

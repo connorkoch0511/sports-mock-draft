@@ -178,9 +178,10 @@ Resources:
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
-      # No DefaultAuthorizer on purpose. Reads stay public -- a shared link
-      # must still open -- so protection is opted into route by route, and
-      # template.test.js is what makes sure nobody forgets to opt in.
+      # No DefaultAuthorizer on purpose. Reads are no longer uniformly
+      # public -- a draft or board opens only for the people in it -- but
+      # /players still is, so protection stays opt-in per route and
+      # template.test.js asserts both lists rather than one rule.
       Auth:
         Authorizers:
           CognitoAuth:
