@@ -1,6 +1,9 @@
 # PerfectPick — Fantasy Football Mock Draft Simulator
 
-PerfectPick is a modern, serverless fantasy football mock draft simulator. Configure your league settings, pick your players from a live Big Board, and outsmart the competition with ADP-powered rankings and smart auto-picks.
+PerfectPick is built around the board, not the draft. Rank players your way,
+then run your league's mock draft off your own board instead of the
+consensus one — with the reasoning behind every recommended pick shown, not
+hidden. Sign in, and your boards and drafts follow you to any device.
 
 ---
 
@@ -8,6 +11,9 @@ PerfectPick is a modern, serverless fantasy football mock draft simulator. Confi
 
 ### Home
 ![Home](screenshots/home.png)
+
+The landing page a signed-out visitor sees: the pitch is the board, not the
+draft engine underneath it.
 
 ### New Draft
 ![New Draft](screenshots/newdraft.png)
@@ -47,13 +53,14 @@ a particular pick, and a standalone page has no pick to advise on.
 
 ## Features
 
+- **Sign-in Required** — Google sign-in via Cognito; drafts and boards are private to the people in them, not to anyone who merely has the link
+- **Custom Big Boards** — Rank players your way, save the board, and draft off it instead of the consensus order
 - **Snake Draft Engine** — Round-by-round snake ordering with full persistence to DynamoDB
 - **Big Board + Search** — Filter by position, search by name, and paginate through the full player pool
 - **Smart Auto Picks** — Roster-aware auto picks weighted by ADP rank, position needs, and tier
 - **60-Second Clock** — Countdown timer for Team 1; auto-picks on timeout
 - **Sim to End** — Instantly simulate all remaining picks to complete a draft
 - **Pause / Resume** — Freeze the draft clock at any time
-- **Shareable Drafts** — Every draft gets a unique ID you can share via link
 - **Export** — Download your completed draft as CSV or JSON
 - **ADP Formats** — Standard, Half PPR, and PPR scoring supported
 
@@ -188,9 +195,11 @@ suite and commit the updated image so this README keeps matching the app.
 
 ## Sign-in setup (one-time, manual)
 
-Signing in is **required to create** a draft or a board, and to change or
-delete one you own. Viewing stays open to anyone with the link: a shared draft
-opens for a signed-out visitor, who simply cannot change it.
+Signing in is **required for everything**, viewing included. `GET
+/drafts/{draftId}` answers 401 with no token, and 404 unless the caller holds
+a seat in that draft; `GET /boards/{boardId}` answers 404 unless the caller
+is the board's owner. A draft or board's ID is not enough on its own —
+knowing it only gets you in if you're already one of the people in it.
 
 Because the API's authorizer references the Cognito user pool, the four steps
 below are no longer optional — a deploy without `GoogleClientId` and
@@ -257,9 +266,10 @@ and board with no owner before this read gate ever ships, so there is nothing
 left to adopt: every draft and board a signed-in caller can reach was owned
 from the moment it was created.
 
-Somebody who is mid-draft and never signs in cannot finish that draft. That is
-the direct cost of requiring an owner from birth, and it is worth knowing
-before you deploy rather than after.
+Somebody who was mid-draft and never signed in does not come back to find it
+frozen — the purge deletes the row outright, dump file aside, so there is
+nothing left to resume. That is the direct cost of requiring an owner from
+birth, and it is worth knowing before you run the purge rather than after.
 
 ## Deploying
 
@@ -279,8 +289,20 @@ This builds the app, syncs to S3, and invalidates the CloudFront cache.
 both must be passed on every deploy, not just the first. A plain `sam deploy`
 fails at CloudFormation for want of them.
 
+**Run the purge first, before this deploy, the first time you ship the read
+gate.** `backend/src/scripts/purge-unowned.js` deletes every unowned draft
+and board (dry run by default; `--confirm` to actually delete). It has to run
+before `sam deploy` puts the Cognito authorizer in front of `GET
+/drafts/{draftId}` and `GET /boards/{boardId}` — once that gate is live,
+unowned rows are unreachable through the API, and the script's own dump file
+is the only way to get them back.
+
 ```bash
-cd backend
+cd backend/src
+node scripts/purge-unowned.js              # dry run — read the counts
+node scripts/purge-unowned.js --confirm    # dumps to disk, then deletes
+
+cd ..
 sam build
 sam deploy --parameter-overrides \
   GoogleClientId=YOUR_CLIENT_ID \
