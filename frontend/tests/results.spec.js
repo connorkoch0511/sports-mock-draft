@@ -53,11 +53,11 @@ test.describe("Results page", () => {
     await expect(team1Roster.getByText("Christian McCaffrey").first()).toBeVisible();
   });
 
-  test("Copy Share Link button triggers clipboard write", async ({ page, context }) => {
+  test("the copy-link button triggers a clipboard write", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto(`/draft/${DRAFT_ID}/results`);
 
-    await page.getByRole("button", { name: "Copy Share Link" }).click();
+    await page.getByRole("button", { name: "Copy link" }).click();
 
     await expect(page.getByRole("button", { name: /Copied/i })).toBeVisible();
   });
