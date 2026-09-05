@@ -12,6 +12,7 @@ export default function Boards() {
   const nav = useNavigate();
   const [boards, setBoards] = useState(null);
   const [format, setFormat] = useState("ppr");
+  const [name, setName] = useState("");
   const [err, setErr] = useState("");
 
   const { configured, signedIn, signIn } = useAuth();
@@ -30,9 +31,11 @@ export default function Boards() {
   const createBoard = async () => {
     setErr("");
     try {
-      const name = `My ${format.toUpperCase()} Board`;
+      // Typed name wins; the format-derived one is the fallback, which is what
+      // every board was called before you could name one.
+      const typed = name.trim();
       const { boardId } = await apiPost("/boards", {
-        name,
+        name: typed || `My ${format.toUpperCase()} Board`,
         format,
         season: BOARD_SEASON,
       });
@@ -94,6 +97,19 @@ export default function Boards() {
             <option value="half-ppr">Half PPR</option>
             <option value="ppr">PPR</option>
           </select>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !needsSignIn) createBoard();
+            }}
+            maxLength={80}
+            data-testid="board-name"
+            aria-label="Name for the new board"
+            placeholder={`My ${format.toUpperCase()} Board`}
+            className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
+          />
           <button
             type="button"
             onClick={needsSignIn ? signIn : createBoard}

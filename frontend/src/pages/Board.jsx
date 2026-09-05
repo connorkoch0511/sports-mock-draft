@@ -46,20 +46,30 @@ function Row({ row, onOpen, canDrag }) {
   return (
     <li
       ref={setNodeRef}
+      // Pointer listeners on the row, so the whole thing reorders -- rank,
+      // position, team, delta, the grip, the empty space between them. The
+      // grip alone used to be the only draggable target, and it is a dim
+      // six-dot glyph that is easy to miss entirely.
+      //
+      // The player's name is the deliberate exception: it stops propagation,
+      // so it stays a plain click target and opening a player never competes
+      // with a drag beginning on the same pixel. `attributes` stay on the
+      // grip, so keyboard reordering is untouched.
+      {...(canDrag ? listeners : {})}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid="board-row"
       data-player-id={row.playerId}
       className={`flex items-center gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-2 ${
-        isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""
-      }`}
+        canDrag ? "cursor-grab active:cursor-grabbing" : ""
+      } ${isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""}`}
     >
       <button
         {...attributes}
         {...listeners}
         disabled={!canDrag}
         aria-label={`Reorder ${row.name}`}
-        title={canDrag ? undefined : "Sign in to reorder this board"}
-        className="cursor-grab px-1 text-zinc-600 hover:text-zinc-300 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-zinc-600"
+        title={canDrag ? "Drag anywhere on the row to reorder" : "Sign in to reorder this board"}
+        className="cursor-grab px-1 text-zinc-500 hover:text-zinc-200 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-zinc-500"
       >
         ⠿
       </button>
@@ -74,8 +84,12 @@ function Row({ row, onOpen, canDrag }) {
         type="button"
         data-testid="open-player"
         onClick={() => onOpen(row)}
+        // The one part of the row that is NOT a drag handle. Everything else
+        // reorders; the name stays a plain click target, so opening a player
+        // never has to compete with a drag that started on the same pixel.
+        onPointerDown={(e) => e.stopPropagation()}
         title={`${row.name} — stats and trends`}
-        className="flex-1 truncate text-left text-sm text-zinc-100 hover:text-cyan-200"
+        className="flex-1 cursor-pointer truncate text-left text-sm text-zinc-100 hover:text-cyan-200"
       >
         {row.name}
         {row.isNew && (

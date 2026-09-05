@@ -6,6 +6,7 @@ import path from "path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
+const API = "http://localhost:9999";
 
 
 async function mockBoard(page, state, { onSave } = {}) {
@@ -26,6 +27,75 @@ async function mockBoard(page, state, { onSave } = {}) {
     });
   });
 }
+
+// Reported from the deployed app as "I can't drag the names around". The drag
+// worked -- but only from the dim six-dot grip, while the name beside it was a
+// button that opened the player. These three pin the fix and the thing the fix
+// could plausibly break.
+async function dragRow(page, locator, dy) {
+  const box = await locator.boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy, { steps: 12 });
+  await page.mouse.up();
+}
+
+test("dragging the row body reorders the board", async ({ page }) => {
+  let saved = null;
+  await mockBoard(page, makeBoardState(), { onSave: (body) => { saved = body; } });
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const rows = page.getByTestId("board-row");
+  const before = await rows.first().getAttribute("data-player-id");
+  // The rank number: not the grip, not the name -- ordinary row surface, which
+  // is the whole point of the change.
+  await dragRow(page, rows.first().locator("span").first(), 140);
+
+  await expect.poll(async () => rows.first().getAttribute("data-player-id")).not.toBe(before);
+  await expect.poll(() => saved).not.toBeNull();
+});
+
+// The deliberate exception. Everything else on the row drags; the name does
+// not, so opening a player never competes with a drag on the same pixel.
+test("the name is not a drag handle", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const rows = page.getByTestId("board-row");
+  const before = await rows.first().getAttribute("data-player-id");
+  await dragRow(page, rows.first().getByTestId("open-player"), 140);
+
+  expect(await rows.first().getAttribute("data-player-id")).toBe(before);
+});
+
+test("dragging by the grip still reorders", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const rows = page.getByTestId("board-row");
+  const before = await rows.first().getAttribute("data-player-id");
+  await dragRow(page, rows.first().getByRole("button", { name: /^Reorder/ }), 140);
+
+  await expect.poll(async () => rows.first().getAttribute("data-player-id")).not.toBe(before);
+});
+
+// The risk the row-wide drag introduces: a press on the name that does not
+// move must still be a click, not a swallowed drag.
+test("clicking the name still opens the player, and reorders nothing", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const rows = page.getByTestId("board-row");
+  const before = await rows.first().getAttribute("data-player-id");
+  await rows.first().getByTestId("open-player").click();
+
+  await expect(page.getByTestId("player-modal")).toBeVisible();
+  expect(await rows.first().getAttribute("data-player-id")).toBe(before);
+});
 
 test("renders the board in saved order", async ({ page }) => {
   await mockBoard(page, makeBoardState());
@@ -208,6 +278,41 @@ test("screenshot — board editor", async ({ page }) => {
   await expect(page.getByTestId("board-row").first()).toBeVisible();
 
   await page.screenshot({ path: `${SCREENSHOTS}/board.png`, fullPage: false });
+});
+
+// Boards were auto-named "My PPR Board" from the format dropdown, with no way
+// to say otherwise -- reported as "I can't name the big board I'm creating".
+test("the name you type is the name the board gets", async ({ page }) => {
+  let posted = null;
+  await page.route("**/me/boards", (r) => r.fulfill({ json: { boards: [] } }));
+  await page.route(`${API}/boards`, (r) => {
+    posted = r.request().postDataJSON();
+    return r.fulfill({ json: { boardId: "b-new" } });
+  });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("board-name").fill("Sleepers and busts");
+  await page.getByTestId("create-board").click();
+
+  await expect.poll(() => posted).not.toBeNull();
+  expect(posted.name).toBe("Sleepers and busts");
+});
+
+test("leaving the name blank keeps the old format-derived default", async ({ page }) => {
+  let posted = null;
+  await page.route("**/me/boards", (r) => r.fulfill({ json: { boards: [] } }));
+  await page.route(`${API}/boards`, (r) => {
+    posted = r.request().postDataJSON();
+    return r.fulfill({ json: { boardId: "b-new" } });
+  });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("create-board").click();
+
+  await expect.poll(() => posted).not.toBeNull();
+  expect(posted.name).toBe("My PPR Board");
 });
 
 test("screenshot — boards list", async ({ page }) => {
