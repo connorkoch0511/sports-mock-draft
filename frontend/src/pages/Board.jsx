@@ -37,9 +37,9 @@ function DeltaBadge({ delta }) {
   );
 }
 
-function Row({ row, onOpen, canDrag }) {
+function Row({ row, onOpen }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: row.playerId, disabled: !canDrag });
+    useSortable({ id: row.playerId });
 
   return (
     <li
@@ -53,21 +53,20 @@ function Row({ row, onOpen, canDrag }) {
       // so it stays a plain click target and opening a player never competes
       // with a drag beginning on the same pixel. `attributes` stay on the
       // grip, so keyboard reordering is untouched.
-      {...(canDrag ? listeners : {})}
+      {...listeners}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid="board-row"
       data-player-id={row.playerId}
-      className={`flex items-center gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-2 ${
-        canDrag ? "cursor-grab active:cursor-grabbing" : ""
-      } ${isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""}`}
+      className={`flex cursor-grab items-center gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-2 active:cursor-grabbing ${
+        isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""
+      }`}
     >
       <button
         {...attributes}
         {...listeners}
-        disabled={!canDrag}
         aria-label={`Reorder ${row.name}`}
-        title={canDrag ? "Drag anywhere on the row to reorder" : "Sign in to reorder this board"}
-        className="cursor-grab px-1 text-zinc-500 hover:text-zinc-200 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-zinc-500"
+        title="Drag anywhere on the row to reorder"
+        className="cursor-grab px-1 text-zinc-500 hover:text-zinc-200 active:cursor-grabbing"
       >
         ⠿
       </button>
@@ -285,7 +284,7 @@ export default function Board() {
         <SortableContext items={rows.map((r) => r.playerId)} strategy={verticalListSortingStrategy}>
           <ul className="space-y-1">
             {rows.map((row) => (
-              <Row key={row.playerId} row={row} onOpen={setOpenRow} canDrag />
+              <Row key={row.playerId} row={row} onOpen={setOpenRow} />
             ))}
           </ul>
         </SortableContext>
