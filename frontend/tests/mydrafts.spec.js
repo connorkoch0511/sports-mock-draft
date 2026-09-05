@@ -64,6 +64,11 @@ test("lists account drafts, in the order the server returns them", async ({ page
   const rows = page.getByTestId("draft-row");
   await expect(rows).toHaveCount(2);
   await expect(rows.first()).toContainText(/12 teams/i);
+  // The status badge is the only thing telling these two rows apart at a
+  // glance. Its assertions came out with the registry tests that happened to
+  // carry them, which left inverting the ternary a green change.
+  await expect(rows.nth(0)).toContainText(/in progress/i);
+  await expect(rows.nth(1)).toContainText(/completed/i);
 });
 
 test("an in-progress draft opens the draft page", async ({ page }) => {
