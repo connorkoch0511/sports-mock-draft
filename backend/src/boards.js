@@ -25,6 +25,9 @@ const MAX_SEASON = 2100;
 // overhead, which stays under DynamoDB's 400KB per-item limit.
 const MAX_ORDER_ENTRIES = 5000;
 const MAX_PLAYER_ID_LENGTH = 64;
+// Matches the slice() applied on create, so a board cannot be renamed to
+// something the create path would have refused.
+const MAX_NAME_LENGTH = 80;
 
 // Parses the request body as JSON, returning {} for an absent body and
 // `undefined` for anything that isn't a JSON object — malformed text, but also
@@ -167,11 +170,53 @@ exports.handler = async (event) => {
       const body = parseJsonBody(event);
       if (body === undefined) return json(400, { error: "Invalid JSON body" });
 
-      if (!Array.isArray(body.order)) {
-        return json(400, { error: "order must be an array" });
+      // Both fields are optional, but not both at once: a PUT that changes
+      // nothing is a caller bug worth naming rather than a silent version
+      // bump. Renaming does not require resending the whole order, which for
+      // a full board is several hundred ids.
+      const hasOrder = body.order !== undefined;
+      const hasName = body.name !== undefined;
+      if (!hasOrder && !hasName) {
+        return json(400, { error: "send order, name, or both" });
       }
-      if (body.order.length > MAX_ORDER_ENTRIES) {
-        return json(400, { error: `order exceeds ${MAX_ORDER_ENTRIES} entries` });
+
+      let order;
+      if (hasOrder) {
+        if (!Array.isArray(body.order)) {
+          return json(400, { error: "order must be an array" });
+        }
+        if (body.order.length > MAX_ORDER_ENTRIES) {
+          return json(400, { error: `order exceeds ${MAX_ORDER_ENTRIES} entries` });
+        }
+
+        order = body.order.map(String);
+
+        // Bound each entry as well as the count. Real player ids are Sleeper's,
+        // ~4 characters; without a per-entry cap, MAX_ORDER_ENTRIES long strings
+        // could push the item past DynamoDB's 400KB limit and fail as a 500.
+        if (order.some((id) => id.length > MAX_PLAYER_ID_LENGTH)) {
+          return json(400, {
+            error: `playerId exceeds ${MAX_PLAYER_ID_LENGTH} characters`,
+          });
+        }
+
+        if (new Set(order).size !== order.length) {
+          return json(400, { error: "order contains duplicate playerIds" });
+        }
+      }
+
+      let name;
+      if (hasName) {
+        if (typeof body.name !== "string") {
+          return json(400, { error: "name must be a string" });
+        }
+        name = body.name.trim();
+        if (!name) {
+          return json(400, { error: "name cannot be blank" });
+        }
+        if (name.length > MAX_NAME_LENGTH) {
+          return json(400, { error: `name exceeds ${MAX_NAME_LENGTH} characters` });
+        }
       }
 
       const expectedVersion = Number(body.version);
@@ -179,19 +224,26 @@ exports.handler = async (event) => {
         return json(400, { error: "version must be an integer" });
       }
 
-      const order = body.order.map(String);
-
-      // Bound each entry as well as the count. Real player ids are Sleeper's,
-      // ~4 characters; without a per-entry cap, MAX_ORDER_ENTRIES long strings
-      // could push the item past DynamoDB's 400KB limit and fail as a 500.
-      if (order.some((id) => id.length > MAX_PLAYER_ID_LENGTH)) {
-        return json(400, {
-          error: `playerId exceeds ${MAX_PLAYER_ID_LENGTH} characters`,
-        });
+      // Built rather than templated, because either field may be absent.
+      // `name` is a DynamoDB reserved word, hence the alias.
+      const sets = ["updatedAt = :now", "version = :next"];
+      const names = {};
+      const values = {
+        ":now": Date.now(),
+        ":next": expectedVersion + 1,
+        ":expected": expectedVersion,
+        ":me": sub,
+        ":anon": ANON,
+      };
+      if (hasOrder) {
+        sets.push("#o = :order");
+        names["#o"] = "order";
+        values[":order"] = order;
       }
-
-      if (new Set(order).size !== order.length) {
-        return json(400, { error: "order contains duplicate playerIds" });
+      if (hasName) {
+        sets.push("#n = :name");
+        names["#n"] = "name";
+        values[":name"] = name;
       }
 
       try {
@@ -199,23 +251,19 @@ exports.handler = async (event) => {
           new UpdateCommand({
             TableName: boardsTable,
             Key: { boardId },
-            UpdateExpression:
-              "SET #o = :order, updatedAt = :now, version = :next",
+            UpdateExpression: `SET ${sets.join(", ")}`,
             ConditionExpression:
               "attribute_exists(boardId) AND version = :expected AND ownerId = :me AND ownerId <> :anon",
-            ExpressionAttributeNames: { "#o": "order" },
-            ExpressionAttributeValues: {
-              ":order": order,
-              ":now": Date.now(),
-              ":next": expectedVersion + 1,
-              ":expected": expectedVersion,
-              ":me": sub,
-              ":anon": ANON,
-            },
+            ExpressionAttributeNames: names,
+            ExpressionAttributeValues: values,
             ReturnValues: "ALL_NEW",
           })
         );
-        return json(200, { ok: true, version: res.Attributes.version });
+        return json(200, {
+          ok: true,
+          version: res.Attributes.version,
+          name: res.Attributes.name,
+        });
       } catch (e) {
         if (e.name === "ConditionalCheckFailedException") {
           const current = await ddb.send(

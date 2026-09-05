@@ -97,6 +97,51 @@ test("clicking the name still opens the player, and reorders nothing", async ({ 
   expect(await rows.first().getAttribute("data-player-id")).toBe(before);
 });
 
+test("renaming the board saves the new name", async ({ page }) => {
+  let saved = null;
+  await mockBoard(page, makeBoardState(), { onSave: (body) => { saved = body; } });
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  await page.getByTestId("board-title").fill("Sleepers and busts");
+  await page.getByTestId("board-title").press("Enter");
+
+  await expect.poll(() => saved).not.toBeNull();
+  expect(saved.name).toBe("Sleepers and busts");
+  // A rename must not resend the order -- the whole point of making it
+  // optional on the API is that renaming cannot disturb the ranking.
+  expect(saved.order).toBeUndefined();
+});
+
+test("escape abandons a rename in progress", async ({ page }) => {
+  let saved = null;
+  await mockBoard(page, makeBoardState(), { onSave: (body) => { saved = body; } });
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const title = page.getByTestId("board-title");
+  const original = await title.inputValue();
+  await title.fill("half-typed thing");
+  await title.press("Escape");
+
+  await expect(title).toHaveValue(original);
+  expect(saved).toBeNull();
+});
+
+test("renaming to the same name saves nothing", async ({ page }) => {
+  let saved = null;
+  await mockBoard(page, makeBoardState(), { onSave: (body) => { saved = body; } });
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const title = page.getByTestId("board-title");
+  await title.click();
+  await title.press("Enter");
+
+  await page.waitForTimeout(300);
+  expect(saved).toBeNull();
+});
+
 test("renders the board in saved order", async ({ page }) => {
   await mockBoard(page, makeBoardState());
   await signIn(page);

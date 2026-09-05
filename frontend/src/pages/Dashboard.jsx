@@ -50,7 +50,7 @@ export default function Dashboard() {
         <div data-testid="dashboard-error" className="mb-4 text-sm text-rose-300">{draftsErr}</div>
       )}
 
-      {drafts === null && !draftsErr ? (
+      {draftsErr ? null : drafts === null ? (
         <div className="text-sm text-zinc-500">Loading…</div>
       ) : inProgress.length === 0 ? (
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-8 text-center text-sm text-zinc-500">

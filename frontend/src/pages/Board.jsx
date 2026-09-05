@@ -17,8 +17,6 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { apiGet, apiPut } from "../lib/api";
-import { useAuth } from "../lib/authContext.js";
-import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
 import { PlayerModal } from "../components/draft/PlayerModal";
 
@@ -110,6 +108,8 @@ function Row({ row, onOpen, canDrag }) {
 export default function Board() {
   const { boardId } = useParams();
   const [board, setBoard] = useState(null);
+  // The title field's own value, so typing does not fight the loaded board.
+  const [nameDraft, setNameDraft] = useState("");
   const [rows, setRows] = useState([]);
   const [openRow, setOpenRow] = useState(null);
   const [status, setStatus] = useState("loading");
@@ -123,8 +123,6 @@ export default function Board() {
   // save to finish, instead of racing it with an out-of-date version.
   const saveChainRef = useRef(Promise.resolve());
 
-  const { configured, signedIn, signIn } = useAuth();
-  const needsSignIn = mustSignIn({ configured, signedIn });
 
   usePageTitle(board ? board.name : "Board");
 
@@ -140,6 +138,7 @@ export default function Board() {
     try {
       const data = await apiGet(`/boards/${boardId}`);
       setBoard(data);
+      setNameDraft(data.name);
       setRows(data.rows);
       versionRef.current = data.version;
       setStatus("idle");
@@ -162,11 +161,14 @@ export default function Board() {
   // flush from this cleanup isn't worth the complexity for this feature.
   useEffect(() => () => clearTimeout(saveTimer.current), []);
 
-  const save = useCallback(async (nextRows) => {
+  // One writer for both fields. A rename and a reorder hit the same
+  // version-checked PUT, so they share the conflict, 401 and 404 handling
+  // rather than growing a second copy that drifts from this one.
+  const put = useCallback(async (payload) => {
     setStatus("saving");
     try {
       const res = await apiPut(`/boards/${boardId}`, {
-        order: nextRows.map((r) => r.playerId),
+        ...payload,
         version: versionRef.current,
       });
       versionRef.current = res.version;
@@ -193,12 +195,22 @@ export default function Board() {
     }
   }, [boardId, load]);
 
-  function onDragEnd(event) {
-    // Defense in depth: `disabled` on useSortable already keeps a drag from
-    // starting when signed out, but a stale drag already in flight when
-    // sign-in state flips mid-drag should not reach the API either.
-    if (needsSignIn) return;
+  const save = useCallback((nextRows) => put({ order: nextRows.map((r) => r.playerId) }), [put]);
 
+  // Queued behind any in-flight reorder for the same reason reorders queue
+  // behind each other: both bump the version, and racing them is a 409 the
+  // user did nothing to deserve.
+  const rename = useCallback(
+    (nextName) => {
+      const trimmed = nextName.trim();
+      if (!trimmed || trimmed === board?.name) return;
+      setBoard((b) => (b ? { ...b, name: trimmed } : b));
+      saveChainRef.current = saveChainRef.current.then(() => put({ name: trimmed }));
+    },
+    [put, board?.name]
+  );
+
+  function onDragEnd(event) {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -233,7 +245,25 @@ export default function Board() {
     <div className="py-8">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{board.name}</h1>
+          {/*
+            The title is the control. A separate "rename" button for a single
+            text field is a click and a mode for something you can just type
+            into, and the field carries its own label for anyone not seeing
+            the heading styling.
+          */}
+          <input
+            value={nameDraft}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={() => rename(nameDraft)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+              if (e.key === "Escape") setNameDraft(board.name);
+            }}
+            maxLength={80}
+            aria-label="Board name"
+            data-testid="board-title"
+            className="w-full max-w-md rounded-lg border border-transparent bg-transparent text-2xl font-semibold tracking-tight text-white hover:border-zinc-800 focus:border-zinc-600 focus:outline-none"
+          />
           <p className="text-sm text-zinc-400">
             {board.format.toUpperCase()} · {board.season} · {rows.length} players
           </p>
@@ -249,30 +279,13 @@ export default function Board() {
         </div>
       )}
 
-      {needsSignIn && (
-        <div
-          data-testid="signin-required"
-          className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-cyan-800/40 bg-cyan-950/20 px-4 py-3 text-sm text-cyan-200"
-        >
-          <span>Sign in to reorder this board. Reordering is disabled until you do.</span>
-          <button
-            type="button"
-            onClick={signIn}
-            data-testid="signin-required-button"
-            className="rounded-2xl border border-cyan-800/60 bg-cyan-950/40 px-3 py-1.5 text-xs text-cyan-200 hover:border-cyan-600"
-          >
-            Sign in
-          </button>
-        </div>
-      )}
-
       {err && <div className="mb-4 text-sm text-rose-300">{err}</div>}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={rows.map((r) => r.playerId)} strategy={verticalListSortingStrategy}>
           <ul className="space-y-1">
             {rows.map((row) => (
-              <Row key={row.playerId} row={row} onOpen={setOpenRow} canDrag={!needsSignIn} />
+              <Row key={row.playerId} row={row} onOpen={setOpenRow} canDrag />
             ))}
           </ul>
         </SortableContext>

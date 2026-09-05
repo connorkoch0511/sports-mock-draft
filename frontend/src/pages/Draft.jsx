@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/api";
-import { useAuth } from "../lib/authContext.js";
-import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
 import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
@@ -37,8 +35,6 @@ export default function Draft() {
   const [secondsLeft, setSecondsLeft] = useState(PICK_SECONDS);
   const tickRef = useRef(null);
 
-  const { configured, signedIn, signIn } = useAuth();
-  const needsSignIn = mustSignIn({ configured, signedIn });
 
   const myTeam = draft?.userTeam || 1;
   const isMyTurn = draft?.currentTeam === myTeam;
@@ -234,7 +230,7 @@ export default function Draft() {
   if (err) return <div className="p-6 text-red-200">{err}</div>;
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
 
-  const canManualPick = !paused && !busy && !draft.completed && isMyTurn && !needsSignIn;
+  const canManualPick = !paused && !busy && !draft.completed && isMyTurn;
 
   return (
     <div className="relative min-h-full xl:h-full w-full overflow-x-hidden">
@@ -307,23 +303,6 @@ export default function Draft() {
           </div>
         </div>
 
-        {needsSignIn && (
-          <div
-            data-testid="signin-required"
-            className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-cyan-800/40 bg-cyan-950/20 px-4 py-3 text-sm text-cyan-200"
-          >
-            <span>Sign in to make picks. Nothing you draft will save until you do.</span>
-            <button
-              type="button"
-              onClick={signIn}
-              data-testid="signin-required-button"
-              className="rounded-2xl border border-cyan-800/60 bg-cyan-950/40 px-3 py-1.5 text-xs text-cyan-200 hover:border-cyan-600"
-            >
-              Sign in
-            </button>
-          </div>
-        )}
-
         {/* 3-column app layout */}
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
             <BigBoardPanel
@@ -335,7 +314,6 @@ export default function Draft() {
               myTeam={myTeam}
               isMyTurn={isMyTurn}
               paused={paused}
-              needsSignIn={needsSignIn}
               canManualPick={canManualPick}
               makePick={makePick}
             />

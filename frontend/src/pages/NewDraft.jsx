@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost } from "../lib/api";
-import { useAuth } from "../lib/authContext.js";
-import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
 import { fetchMyBoards } from "../lib/me";
@@ -42,8 +40,6 @@ export default function NewDraft() {
   const [finding, setFinding] = useState(false);
   const [importedFrom, setImportedFrom] = useState("");
 
-  const { configured, signedIn, signIn } = useAuth();
-  const needsSignIn = mustSignIn({ configured, signedIn });
 
   usePageTitle("New Draft");
 
@@ -327,27 +323,17 @@ export default function NewDraft() {
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <button
-            onClick={needsSignIn ? signIn : createDraft}
+            onClick={createDraft}
             disabled={loading}
             data-testid="start-draft"
             className="inline-flex items-center justify-center rounded-2xl bg-gradient-to-r from-cyan-300 to-sky-300 px-5 py-3 font-semibold text-black shadow-[0_10px_40px_rgba(34,211,238,0.20)] disabled:opacity-50"
           >
-            {loading
-              ? "Creating…"
-              : needsSignIn
-              ? "Sign in to draft"
-              : "Start Mock Draft"}
+            {loading ? "Creating…" : "Start Mock Draft"}
           </button>
 
           <div className="text-xs text-zinc-400">
-            {needsSignIn
-              ? "Drafts are saved to your account, so they follow you to any device."
-              : (
-                <>
-                  Tip: Once inside the draft, use{" "}
-                  <span className="text-zinc-200">Auto Pick</span> to simulate quickly.
-                </>
-              )}
+            Tip: Once inside the draft, use{" "}
+            <span className="text-zinc-200">Auto Pick</span> to simulate quickly.
           </div>
         </div>
       </div>

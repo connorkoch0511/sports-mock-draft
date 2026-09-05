@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { usePageTitle } from "../lib/usePageTitle";
 import { fetchMyDrafts, fetchMyBoards } from "../lib/me";
@@ -42,12 +42,25 @@ export default function MyDrafts() {
   // resolve a name onto a draft row, so a failed boards fetch should not
   // block the drafts list (or, worse, leave drafts stuck at null forever
   // while an error banner is shown for something the boards fetch caused).
+  // A ref rather than an effect-local flag, because load() is also called
+  // after a delete -- a response landing on a page the user has left should be
+  // dropped no matter which call started it.
+  const alive = useRef(true);
+  useEffect(() => {
+    // Set on mount as well as cleared on unmount. StrictMode runs effects
+    // mount -> cleanup -> remount, so a cleanup-only version latches false on
+    // the second pass and every later response is dropped -- the list simply
+    // never renders.
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+
   const load = useCallback(() => {
     fetchMyDrafts()
-      .then(setDrafts)
-      .catch((e) => setErr(e.message || "Could not load your drafts"));
+      .then((d) => { if (alive.current) setDrafts(d); })
+      .catch((e) => { if (alive.current) setErr(e.message || "Could not load your drafts"); });
     fetchMyBoards()
-      .then(setBoards)
+      .then((b) => { if (alive.current) setBoards(b); })
       .catch(() => {});
   }, []);
 

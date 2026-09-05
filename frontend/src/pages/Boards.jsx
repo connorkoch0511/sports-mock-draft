@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiPost, apiDelete } from "../lib/api";
-import { useAuth } from "../lib/authContext.js";
-import { mustSignIn } from "../lib/authGate.js";
 import { usePageTitle } from "../lib/usePageTitle";
 import { fetchMyBoards } from "../lib/me";
 
@@ -15,15 +13,26 @@ export default function Boards() {
   const [name, setName] = useState("");
   const [err, setErr] = useState("");
 
-  const { configured, signedIn, signIn } = useAuth();
-  const needsSignIn = mustSignIn({ configured, signedIn });
 
   usePageTitle("Boards");
 
+  // A ref rather than an effect-local flag, because load() is also called
+  // after a delete -- a response landing on a page the user has left should be
+  // dropped no matter which call started it.
+  const alive = useRef(true);
+  useEffect(() => {
+    // Set on mount as well as cleared on unmount. StrictMode runs effects
+    // mount -> cleanup -> remount, so a cleanup-only version latches false on
+    // the second pass and every later response is dropped -- the list simply
+    // never renders.
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+
   const load = useCallback(() => {
     fetchMyBoards()
-      .then(setBoards)
-      .catch((e) => setErr(e.message || "Could not load your boards"));
+      .then((bs) => { if (alive.current) setBoards(bs); })
+      .catch((e) => { if (alive.current) setErr(e.message || "Could not load your boards"); });
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -102,7 +111,7 @@ export default function Boards() {
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !needsSignIn) createBoard();
+              if (e.key === "Enter") createBoard();
             }}
             maxLength={80}
             data-testid="board-name"
@@ -112,11 +121,11 @@ export default function Boards() {
           />
           <button
             type="button"
-            onClick={needsSignIn ? signIn : createBoard}
+            onClick={createBoard}
             data-testid="create-board"
             className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-600"
           >
-            {needsSignIn ? "Sign in to create" : "+ New board"}
+            + New board
           </button>
         </div>
       </div>

@@ -137,6 +137,73 @@ test("PUT still rejects a non-integer version", async () => {
   assert.match(body.error, /version/i);
 });
 
+test("PUT can rename without resending the order", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return { Attributes: { version: 2, name: "Sleepers" } };
+  });
+  const res = await handler(event("PUT", { name: "Sleepers", version: 1 }, "b1", ME));
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).name, "Sleepers");
+  // The order is untouched, not blanked: a rename that wiped a hand-ranked
+  // board would be the worst possible way to fail.
+  assert.ok(!/#o/.test(input.UpdateExpression), input.UpdateExpression);
+  assert.strictEqual(input.ExpressionAttributeValues[":name"], "Sleepers");
+  mock.restoreAll();
+});
+
+test("PUT can still reorder without sending a name", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return { Attributes: { version: 2 } };
+  });
+  const res = await handler(event("PUT", { order: ["p1"], version: 1 }, "b1", ME));
+  assert.strictEqual(res.statusCode, 200);
+  assert.ok(!/#n/.test(input.UpdateExpression), input.UpdateExpression);
+  mock.restoreAll();
+});
+
+test("PUT can do both at once", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return { Attributes: { version: 2, name: "Both" } };
+  });
+  await handler(event("PUT", { order: ["p1"], name: "Both", version: 1 }, "b1", ME));
+  assert.match(input.UpdateExpression, /#o = :order/);
+  assert.match(input.UpdateExpression, /#n = :name/);
+  mock.restoreAll();
+});
+
+test("PUT that changes nothing is a 400, not a silent version bump", async () => {
+  const { code } = await status(event("PUT", { version: 1 }, "b1", ME));
+  assert.strictEqual(code, 400);
+});
+
+test("a blank or whitespace-only name is refused", async () => {
+  assert.strictEqual((await status(event("PUT", { name: "   ", version: 1 }, "b1", ME))).code, 400);
+  assert.strictEqual((await status(event("PUT", { name: "", version: 1 }, "b1", ME))).code, 400);
+});
+
+test("a non-string name is refused rather than stringified", async () => {
+  const { code } = await status(event("PUT", { name: 42, version: 1 }, "b1", ME));
+  assert.strictEqual(code, 400);
+});
+
+test("a name longer than the create path would accept is refused", async () => {
+  const { code } = await status(
+    event("PUT", { name: "x".repeat(81), version: 1 }, "b1", ME)
+  );
+  assert.strictEqual(code, 400);
+});
+
+test("a renamed board still needs the right version", async () => {
+  const { code } = await status(event("PUT", { name: "Sleepers" }, "b1", ME));
+  assert.strictEqual(code, 400);
+});
+
 test("PUT without claims is 401", async () => {
   const { code } = await status(
     event("PUT", { order: ["p1"], version: 1 }, "b1")
