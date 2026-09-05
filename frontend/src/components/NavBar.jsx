@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "../lib/authContext.js";
+import { mustSignIn } from "../lib/authGate.js";
 import { Link, useLocation } from "react-router-dom";
 
 const LINKS = [
@@ -12,9 +13,16 @@ const LINKS = [
 export default function NavBar() {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
-  const { name, loading, configured, signIn, signOut } = useAuth();
+  const { name, loading, configured, signIn, signOut, signedIn } = useAuth();
   const toggleRef = useRef(null);
   const menuRef = useRef(null);
+
+  // Signed out, every app link leads to the same sign-in prompt, so the nav
+  // is a row of identical doors. Asked through mustSignIn rather than
+  // re-derived as `!configured || signedIn`: the algebra is the same, but
+  // that helper exists precisely so this rule cannot drift between the pages
+  // that ask it, and its own comment says so.
+  const showAppLinks = !mustSignIn({ configured, signedIn });
 
   // Close on route change. Driven off pathname rather than the links' onClick
   // so that programmatic navigation closes the menu too.
@@ -56,45 +64,49 @@ export default function NavBar() {
 
   return (
     <header className="relative flex items-center gap-3 py-4">
-      <button
-        ref={toggleRef}
-        type="button"
-        data-testid="nav-toggle"
-        aria-label="Menu"
-        aria-expanded={open}
-        aria-controls="nav-menu"
-        onClick={() => setOpen((v) => !v)}
-        className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-lg leading-none text-zinc-200 hover:border-zinc-600"
-      >
-        ☰
-      </button>
+      {showAppLinks && (
+        <>
+          <button
+            ref={toggleRef}
+            type="button"
+            data-testid="nav-toggle"
+            aria-label="Menu"
+            aria-expanded={open}
+            aria-controls="nav-menu"
+            onClick={() => setOpen((v) => !v)}
+            className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-lg leading-none text-zinc-200 hover:border-zinc-600"
+          >
+            ☰
+          </button>
 
-      {open && (
-        <nav
-          id="nav-menu"
-          ref={menuRef}
-          data-testid="nav-menu"
-          className="absolute left-0 top-full z-50 w-48 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur"
-        >
-          {LINKS.map((link) => {
-            const active = pathname === link.to;
-            return (
-              <Link
-                key={link.to}
-                to={link.to}
-                aria-current={active ? "page" : undefined}
-                // The pathname effect misses a click on the route you are
-                // already on, since pathname does not change. Close here too.
-                onClick={() => setOpen(false)}
-                className={`block px-4 py-3 text-sm hover:bg-zinc-900 ${
-                  active ? "text-cyan-300" : "text-zinc-200"
-                }`}
-              >
-                {link.label}
-              </Link>
-            );
-          })}
-        </nav>
+          {open && (
+            <nav
+              id="nav-menu"
+              ref={menuRef}
+              data-testid="nav-menu"
+              className="absolute left-0 top-full z-50 w-48 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur"
+            >
+              {LINKS.map((link) => {
+                const active = pathname === link.to;
+                return (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    aria-current={active ? "page" : undefined}
+                    // The pathname effect misses a click on the route you are
+                    // already on, since pathname does not change. Close here too.
+                    onClick={() => setOpen(false)}
+                    className={`block px-4 py-3 text-sm hover:bg-zinc-900 ${
+                      active ? "text-cyan-300" : "text-zinc-200"
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          )}
+        </>
       )}
 
       {/*

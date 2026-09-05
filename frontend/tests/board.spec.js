@@ -29,6 +29,7 @@ async function mockBoard(page, state, { onSave } = {}) {
 
 test("renders the board in saved order", async ({ page }) => {
   await mockBoard(page, makeBoardState());
+  await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
 
   const rows = page.getByTestId("board-row");
@@ -38,6 +39,7 @@ test("renders the board in saved order", async ({ page }) => {
 
 test("shows the changelog when the pool has changed", async ({ page }) => {
   await mockBoard(page, makeBoardState({ added: 3, removed: 1 }));
+  await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
 
   await expect(page.getByTestId("changelog")).toContainText("3 added, 1 removed");
@@ -45,6 +47,7 @@ test("shows the changelog when the pool has changed", async ({ page }) => {
 
 test("hides the changelog when nothing changed", async ({ page }) => {
   await mockBoard(page, makeBoardState());
+  await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
 
   await expect(page.getByTestId("changelog")).toHaveCount(0);
@@ -73,8 +76,18 @@ test("keyboard reorder saves the new order", async ({ page }) => {
   expect(saved.order[1]).toBe("p1");
 });
 
+// Boards.jsx used to read this list from localStorage, seeded here directly
+// and reloaded. It now reads GET /me/boards from the server, and reloads
+// that same endpoint after a delete -- so the mock below tracks `deleted`
+// and answers accordingly, the way the real API would.
 test("deleting a board removes it from the list", async ({ page }) => {
   let deleted = false;
+  await signIn(page);
+  await page.route("**/me/boards", (route) =>
+    route.fulfill({
+      json: { boards: deleted ? [] : [{ id: BOARD_ID, name: "My PPR Board", format: "ppr", season: 2026, updatedAt: Date.now() }] },
+    })
+  );
   await page.route(`**/boards/${BOARD_ID}`, async (route) => {
     if (route.request().method() === "DELETE") {
       deleted = true;
@@ -86,14 +99,6 @@ test("deleting a board removes it from the list", async ({ page }) => {
   });
 
   await page.goto("/boards");
-  await page.evaluate((id) => {
-    localStorage.setItem(
-      "perfectpick.myBoards",
-      JSON.stringify([{ id, name: "My PPR Board", updatedAt: Date.now() }])
-    );
-  }, BOARD_ID);
-  await page.reload();
-
   await expect(page.getByTestId("board-list")).toContainText("My PPR Board");
   page.on("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Delete My PPR Board" }).click();
@@ -210,17 +215,16 @@ test("screenshot — boards list", async ({ page }) => {
   // scroller, so the document is always exactly viewport height. Size the
   // viewport to the page's own content instead, or the image is clipped.
   await page.setViewportSize({ width: 1280, height: 760 });
-  await page.goto("/");
-  await page.evaluate(
-    (id) =>
-      localStorage.setItem(
-        "perfectpick.myBoards",
-        JSON.stringify([
-          { id, name: "My PPR Board", format: "ppr", updatedAt: Date.now() },
-          { id: "b2", name: "Standard Sleepers", format: "standard", updatedAt: Date.now() - 90000 },
-        ])
-      ),
-    BOARD_ID
+  await signIn(page);
+  await page.route("**/me/boards", (route) =>
+    route.fulfill({
+      json: {
+        boards: [
+          { id: BOARD_ID, name: "My PPR Board", format: "ppr", season: 2026, updatedAt: Date.now() },
+          { id: "b2", name: "Standard Sleepers", format: "standard", season: 2026, updatedAt: Date.now() - 90000 },
+        ],
+      },
+    })
   );
 
   await page.goto("/boards");
@@ -235,19 +239,17 @@ test("screenshot — boards list", async ({ page }) => {
 // that actually hold the gate in place.
 test("dismissing the delete confirmation deletes nothing", async ({ page }) => {
   let called = false;
+  await signIn(page);
+  await page.route("**/me/boards", (route) =>
+    route.fulfill({ json: { boards: [{ id: BOARD_ID, name: "My PPR Board", format: "ppr", season: 2026, updatedAt: Date.now() }] } })
+  );
   await page.route(`**/boards/${BOARD_ID}`, (route) => {
     if (route.request().method() === "DELETE") called = true;
     return route.fulfill({ json: { ok: true } });
   });
 
   await page.goto("/boards");
-  await page.evaluate((id) => {
-    localStorage.setItem(
-      "perfectpick.myBoards",
-      JSON.stringify([{ id, name: "My PPR Board", updatedAt: Date.now() }])
-    );
-  }, BOARD_ID);
-  await page.reload();
+  await expect(page.getByTestId("board-list")).toContainText("My PPR Board");
 
   page.on("dialog", (d) => d.dismiss());
   await page.getByRole("button", { name: "Delete My PPR Board" }).click();
@@ -257,16 +259,14 @@ test("dismissing the delete confirmation deletes nothing", async ({ page }) => {
 });
 
 test("the delete confirmation names the board", async ({ page }) => {
+  await signIn(page);
+  await page.route("**/me/boards", (route) =>
+    route.fulfill({ json: { boards: [{ id: BOARD_ID, name: "My PPR Board", format: "ppr", season: 2026, updatedAt: Date.now() }] } })
+  );
   await page.route(`**/boards/${BOARD_ID}`, (route) => route.fulfill({ json: { ok: true } }));
 
   await page.goto("/boards");
-  await page.evaluate((id) => {
-    localStorage.setItem(
-      "perfectpick.myBoards",
-      JSON.stringify([{ id, name: "My PPR Board", updatedAt: Date.now() }])
-    );
-  }, BOARD_ID);
-  await page.reload();
+  await expect(page.getByTestId("board-list")).toContainText("My PPR Board");
 
   let message = "";
   page.on("dialog", (d) => {

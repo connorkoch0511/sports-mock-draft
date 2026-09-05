@@ -1,88 +1,33 @@
 // backend/src/me.js
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const {
-  DynamoDBDocumentClient,
-  UpdateCommand,
-} = require("@aws-sdk/lib-dynamodb");
+const { DynamoDBDocumentClient, QueryCommand } = require("@aws-sdk/lib-dynamodb");
 const { responder } = require("./lib/http");
-const { subOf, ANON } = require("./lib/owner");
+const { subOf } = require("./lib/owner");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-// Matches the 50-entry cap on both browser registries, so a legitimate claim
-// always fits and anything larger is not one of ours.
-const MAX_IDS = 50;
-const MAX_ID_LENGTH = 64;
-
-function parseBody(event) {
-  if (!event.body) return {};
-  try {
-    const parsed = JSON.parse(event.body);
-    const isObject =
-      parsed !== null && typeof parsed === "object" && !Array.isArray(parsed);
-    return isObject ? parsed : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function validIds(value) {
-  if (value === undefined || value === null) return [];
-  if (!Array.isArray(value)) return undefined;
-  if (value.length > MAX_IDS) return undefined;
-  const ids = value.filter(
-    (v) => typeof v === "string" && v.length > 0 && v.length <= MAX_ID_LENGTH
-  );
-  // De-duplicated: the same id twice would be one claim and one "skipped",
-  // which reads as a failure that did not happen.
-  return [...new Set(ids)];
-}
-
-/**
- * Take ownership of one item, if and only if nobody else has it.
- *
- * The condition is the whole security property: the write is what decides,
- * not a read before it, so two people claiming the same id at the same moment
- * cannot both win. `ANON` is here because boards.js wrote that literal as a
- * placeholder owner before this phase.
- *
- * `ownerId = :me` makes the claim idempotent, and steals nothing -- you
- * cannot take from yourself what you already hold. Without it a retry lies:
- * one failed write rejects the whole batch and 500s even though its siblings
- * committed, and the client's second attempt reports its own freshly-claimed
- * ids under `skipped`, the same bucket that means "somebody else owns this".
- */
-async function claimOne(table, key, sub) {
-  try {
-    await ddb.send(
-      new UpdateCommand({
-        TableName: table,
-        Key: key,
-        UpdateExpression: "SET ownerId = :me",
-        ConditionExpression:
-          "attribute_exists(#pk) AND (attribute_not_exists(ownerId) OR ownerId = :anon OR ownerId = :me)",
-        ExpressionAttributeNames: { "#pk": Object.keys(key)[0] },
-        ExpressionAttributeValues: { ":me": sub, ":anon": ANON },
+// A page of the index is 1MB; nobody has that many drafts, but paging costs
+// four lines and a surprise here would silently truncate somebody's list.
+async function queryByOwner(TableName, sub) {
+  const items = [];
+  let ExclusiveStartKey;
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName,
+        IndexName: "byOwner",
+        KeyConditionExpression: "ownerId = :me",
+        ExpressionAttributeValues: { ":me": sub },
+        ExclusiveStartKey,
       })
     );
-    return true;
-  } catch (e) {
-    // Already owned, or gone. Either way this claim took nothing, and the
-    // caller is told exactly that.
-    if (e.name === "ConditionalCheckFailedException") return false;
-    throw e;
-  }
+    items.push(...(res.Items || []));
+    ExclusiveStartKey = res.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return items;
 }
 
-async function claimAll(table, ids, keyFor, sub) {
-  const results = await Promise.all(
-    ids.map((id) => claimOne(table, keyFor(id), sub))
-  );
-  return {
-    claimed: ids.filter((_, i) => results[i]),
-    skipped: ids.filter((_, i) => !results[i]),
-  };
-}
+const byNewest = (a, b) => (b.createdAt || 0) - (a.createdAt || 0);
 
 exports.handler = async (event) => {
   const json = responder(event);
@@ -95,34 +40,36 @@ exports.handler = async (event) => {
   if (!sub) return json(401, { error: "Sign in required" });
 
   try {
-    if (method === "POST" && path.endsWith("/claim")) {
-      const body = parseBody(event);
-      if (body === undefined) return json(400, { error: "Invalid JSON body" });
-
-      const draftIds = validIds(body.draftIds);
-      const boardIds = validIds(body.boardIds);
-      if (draftIds === undefined || boardIds === undefined) {
-        return json(400, {
-          error: `draftIds and boardIds must be arrays of at most ${MAX_IDS} ids`,
-        });
-      }
-
-      const drafts = await claimAll(
-        process.env.DRAFTS_TABLE,
-        draftIds,
-        (draftId) => ({ draftId }),
-        sub
-      );
-      const boards = await claimAll(
-        process.env.BOARDS_TABLE,
-        boardIds,
-        (boardId) => ({ boardId }),
-        sub
-      );
-
+    if (method === "GET" && path.endsWith("/me/drafts")) {
+      const items = await queryByOwner(process.env.DRAFTS_TABLE, sub);
       return json(200, {
-        claimed: { drafts: drafts.claimed, boards: boards.claimed },
-        skipped: { drafts: drafts.skipped, boards: boards.skipped },
+        drafts: items.sort(byNewest).map((d) => ({
+          id: d.draftId,
+          teams: d.teams,
+          rounds: d.rounds,
+          format: d.format,
+          userTeam: d.userTeam,
+          boardId: d.boardId ?? null,
+          // Derived rather than stored: picks is deliberately not projected
+          // onto the index, and teams x rounds is the same number.
+          completed: (d.currentIndex ?? 0) >= (d.teams || 0) * (d.rounds || 0),
+          createdAt: d.createdAt ?? null,
+        })),
+      });
+    }
+
+    if (method === "GET" && path.endsWith("/me/boards")) {
+      const items = await queryByOwner(process.env.BOARDS_TABLE, sub);
+      return json(200, {
+        boards: items
+          .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+          .map((b) => ({
+            id: b.boardId,
+            name: b.name,
+            format: b.format,
+            season: b.season,
+            updatedAt: b.updatedAt ?? null,
+          })),
       });
     }
 

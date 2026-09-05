@@ -259,6 +259,21 @@ test("OPTIONS preflight still returns 200", async () => {
   assert.strictEqual(code, 200);
 });
 
+test("GET of a board now requires claims", async () => {
+  const { code } = await status(event("GET", undefined, "b1"));
+  assert.strictEqual(code, 401);
+});
+
+test("GET of somebody else's board is 404", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Item: { boardId: "b1", ownerId: "user-them", sport: "nfl", format: "ppr" },
+  }));
+  const res = await handler(event("GET", undefined, "b1", ME));
+  assert.strictEqual(res.statusCode, 404);
+  assert.deepStrictEqual(JSON.parse(res.body), { error: "Board not found" });
+  mock.restoreAll();
+});
+
 process.env.BOARDS_TABLE = "boards-test";
 process.env.PLAYERS_TABLE = "players-test";
 
@@ -285,14 +300,14 @@ test("GET pages the player pool until the cursor is exhausted", async () => {
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     // The board fetch is a Get (carries Key); the pool fetch is a Query.
     if (cmd?.input?.Key) {
-      return { Item: { boardId: "b1", name: "B", sport: "nfl", format: "standard", version: 1, order: [] } };
+      return { Item: { boardId: "b1", ownerId: "user-me", name: "B", sport: "nfl", format: "standard", version: 1, order: [] } };
     }
     const page = pages[query] || { Items: [] };
     query += 1;
     return page;
   });
 
-  const res = await handler(event("GET", undefined, "b1"));
+  const res = await handler(event("GET", undefined, "b1", ME));
   const body = JSON.parse(res.body);
 
   assert.strictEqual(res.statusCode, 200);
@@ -309,7 +324,7 @@ test("the second pool query carries the first page's cursor", async () => {
 
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     if (cmd?.input?.Key) {
-      return { Item: { boardId: "b1", name: "B", sport: "nfl", format: "standard", version: 1, order: [] } };
+      return { Item: { boardId: "b1", ownerId: "user-me", name: "B", sport: "nfl", format: "standard", version: 1, order: [] } };
     }
     seen.push(cmd.input.ExclusiveStartKey);
     return seen.length === 1
@@ -317,7 +332,7 @@ test("the second pool query carries the first page's cursor", async () => {
       : { Items: [poolPlayer("b", 2)] };
   });
 
-  await handler(event("GET", undefined, "b1"));
+  await handler(event("GET", undefined, "b1", ME));
 
   assert.strictEqual(seen.length, 2);
   assert.strictEqual(seen[0], undefined, "first query starts with no cursor");

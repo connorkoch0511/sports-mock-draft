@@ -77,11 +77,32 @@ test("every mutating route carries the Cognito authorizer", () => {
   assert.deepStrictEqual(unprotected, []);
 });
 
-test("no read route carries an authorizer", () => {
-  const protectedReads = httpRoutes(loadTemplate())
-    .filter((r) => !MUTATING.has(r.method) && r.authorizer !== null)
-    .map((r) => `${r.method} ${r.path}`);
-  assert.deepStrictEqual(protectedReads, []);
+// Reads are no longer uniformly public, so the guard becomes two explicit
+// lists. A route moving between them fails this test in both directions --
+// which is the point: gating a read by accident locks users out silently,
+// and un-gating one exposes other people's drafts just as silently.
+const GATED_READS = [
+  "GET /boards/{boardId}",
+  "GET /drafts/{draftId}",
+  "GET /me/boards",
+  "GET /me/drafts",
+];
+const PUBLIC_READS = ["GET /players", "GET /players/{playerId}"];
+
+test("exactly the intended reads are gated", () => {
+  const gated = httpRoutes(loadTemplate())
+    .filter((r) => !MUTATING.has(r.method) && r.authorizer === "CognitoAuth")
+    .map((r) => `${r.method} ${r.path}`)
+    .sort();
+  assert.deepStrictEqual(gated, GATED_READS);
+});
+
+test("exactly the intended reads are public", () => {
+  const open = httpRoutes(loadTemplate())
+    .filter((r) => !MUTATING.has(r.method) && r.authorizer === null)
+    .map((r) => `${r.method} ${r.path}`)
+    .sort();
+  assert.deepStrictEqual(open, PUBLIC_READS);
 });
 
 // Named explicitly rather than only by rule, so that deleting a route's Auth
@@ -99,7 +120,6 @@ test("the expected mutating routes are all present", () => {
     "POST /drafts/{draftId}/auto-pick",
     "POST /drafts/{draftId}/pick",
     "POST /drafts/{draftId}/sim-to-end",
-    "POST /me/claim",
     "PUT /boards/{boardId}",
   ]);
 });

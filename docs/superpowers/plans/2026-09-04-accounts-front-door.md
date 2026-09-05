@@ -50,7 +50,7 @@ Cognito, DynamoDB (+ GSI), Node 24 (`node --test`), React + Vite, Playwright.
 | `backend/src/me.js` | Claim route deleted; `GET /me/drafts` and `GET /me/boards` added. |
 | `backend/src/template.test.js` | Read routes split into an explicit gated list and public list. |
 | `backend/template.yaml` | Authorizer on the two reads; `byOwner` GSI on both tables; two new routes. |
-| `backend/scripts/purge-unowned.js` (new) | One-off: dump every unowned row to JSON, then delete it. |
+| `backend/src/scripts/purge-unowned.js` (new) | One-off: dump every unowned row to JSON, then delete it. |
 | `frontend/src/components/RequireAuth.jsx` (new) | Gates a route; renders a sign-in prompt in place. |
 | `frontend/src/pages/Landing.jsx` (new) | The signed-out front door. |
 | `frontend/src/pages/Dashboard.jsx` (new) | The signed-in home. |
@@ -529,8 +529,8 @@ git commit -m "feat: reading a draft or board requires being in it"
 ### Task 4: The purge script
 
 **Files:**
-- Create: `backend/scripts/purge-unowned.js`
-- Test: `backend/scripts/purge-unowned.test.js`
+- Create: `backend/src/scripts/purge-unowned.js`
+- Test: `backend/src/scripts/purge-unowned.test.js`
 
 **Interfaces:**
 - Consumes: `ANON` from `backend/src/lib/owner.js`.
@@ -542,7 +542,7 @@ unreachable and the dump is the only way back.
 - [ ] **Step 1: Write the failing test for the pure part**
 
 ```js
-// backend/scripts/purge-unowned.test.js
+// backend/src/scripts/purge-unowned.test.js
 const test = require("node:test");
 const assert = require("node:assert");
 const { isPurgeable } = require("./purge-unowned");
@@ -568,13 +568,13 @@ test("a row with a real owner is never purgeable", () => {
 
 - [ ] **Step 2: Run it to see it fail**
 
-Run: `cd backend && node --test scripts/purge-unowned.test.js`
+Run: `cd backend/src && node --test scripts/purge-unowned.test.js`
 Expected: FAIL — cannot find module
 
 - [ ] **Step 3: Write the script**
 
 ```js
-// backend/scripts/purge-unowned.js
+// backend/src/scripts/purge-unowned.js
 //
 // One-off: delete every draft and board that nobody owns, after dumping them
 // to a file. Run once, against production, BEFORE the read gate ships --
@@ -589,7 +589,7 @@ const {
   ScanCommand,
   DeleteCommand,
 } = require("@aws-sdk/lib-dynamodb");
-const { ANON } = require("../src/lib/owner");
+const { ANON } = require("../lib/owner");
 
 const TABLES = [
   { name: "perfectpick-drafts", key: "draftId" },
@@ -663,12 +663,12 @@ module.exports = { isPurgeable };
 
 - [ ] **Step 4: Run the tests**
 
-Run: `cd backend && node --test scripts/purge-unowned.test.js`
+Run: `cd backend/src && node --test scripts/purge-unowned.test.js`
 Expected: PASS — 4 tests
 
 - [ ] **Step 5: Dry-run it against production**
 
-Run: `cd backend && node scripts/purge-unowned.js`
+Run: `cd backend/src && node scripts/purge-unowned.js`
 Expected: reports `perfectpick-drafts: 66 rows, 66 unowned` and
 `perfectpick-boards: 3 rows, 3 unowned`, writes two dump files, and says
 `dry run -- pass --confirm to delete`. **Do not pass `--confirm` yet** — that is
@@ -677,7 +677,7 @@ a deploy-time step, listed in Final Verification.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/scripts/purge-unowned.js backend/scripts/purge-unowned.test.js
+git add backend/src/scripts/purge-unowned.js backend/src/scripts/purge-unowned.test.js
 git commit -m "feat: a one-off purge of rows nobody owns, dump first"
 ```
 
@@ -1786,7 +1786,7 @@ pre-account drafts (the whole "What happens to drafts and boards made before
 accounts existed" section goes — those rows are deleted by Task 4's script);
 and the screenshot captions if the images changed.
 
-Add a line to the deploy section noting that `backend/scripts/purge-unowned.js`
+Add a line to the deploy section noting that `backend/src/scripts/purge-unowned.js`
 runs once, before the read gate is deployed.
 
 - [ ] **Step 3: Commit**
@@ -1808,7 +1808,7 @@ git commit -m "docs: the board is the pitch, and drafts are private"
 
 **Deploy order, and it matters:**
 
-1. `cd backend && node scripts/purge-unowned.js` — dry run, read the counts.
+1. `cd backend/src && node scripts/purge-unowned.js` — dry run, read the counts.
 2. `node scripts/purge-unowned.js --confirm` — dump and delete. **Before** the
    read gate ships; afterwards those rows are unreachable.
 3. `sam deploy --parameter-overrides GoogleClientId=... GoogleClientSecret=$(aws ssm get-parameter --name /perfectpick/google-client-secret --with-decryption --query Parameter.Value --output text)`

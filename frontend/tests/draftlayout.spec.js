@@ -1,10 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 // Pausing stops the auto-pick timer so the layout is measured against a
 // stable DOM rather than one mutating between the two boundingBox() calls.
 async function openPausedDraft(page) {
   mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByTestId("panel-rosters")).toBeVisible();
@@ -99,17 +101,19 @@ test.describe("Draft layout", () => {
     expect(m.body, "body height").toBe(m.inner);
   });
 
+  // Boards.jsx used to read this list from localStorage, seeded here
+  // directly. It now reads GET /me/boards from the server, so the mock
+  // below stands in for it.
   test("a long page still scrolls after the shell gains a fixed height", async ({ page }) => {
-    await page.goto("/");
-    await page.evaluate(() => {
-      const boards = Array.from({ length: 50 }, (_, i) => ({
-        id: `layout-b${i}`,
-        name: `Board ${i}`,
-        format: "ppr",
-        updatedAt: Date.now() - i,
-      }));
-      localStorage.setItem("perfectpick.myBoards", JSON.stringify(boards));
-    });
+    await signIn(page);
+    const boards = Array.from({ length: 50 }, (_, i) => ({
+      id: `layout-b${i}`,
+      name: `Board ${i}`,
+      format: "ppr",
+      season: 2026,
+      updatedAt: Date.now() - i,
+    }));
+    await page.route("**/me/boards", (route) => route.fulfill({ json: { boards } }));
 
     await page.goto("/boards");
     await expect(page.getByTestId("board-list")).toBeVisible();

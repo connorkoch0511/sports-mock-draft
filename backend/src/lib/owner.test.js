@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { ANON, subOf, isUnowned, canMutate } = require("./owner");
+const { ANON, subOf, isUnowned, canMutate, buildSeats, isSeated } = require("./owner");
 
 function evt(claims) {
   return claims === undefined
@@ -69,4 +69,66 @@ test("nobody may mutate an unowned item -- it is frozen until claimed", () => {
 
 test("a null sub may not mutate an item whose ownerId is somehow null", () => {
   assert.strictEqual(canMutate({ ownerId: null }, null), false);
+});
+
+test("buildSeats gives one seat per team", () => {
+  assert.strictEqual(buildSeats(12, 1, "me").length, 12);
+});
+
+test("buildSeats seats the creator at their own team", () => {
+  const seats = buildSeats(4, 3, "me");
+  assert.deepStrictEqual(seats[2], { team: 3, sub: "me", kind: "human" });
+});
+
+test("buildSeats fills every other team with a bot", () => {
+  const seats = buildSeats(4, 3, "me");
+  const bots = seats.filter((s) => s.kind === "bot");
+  assert.strictEqual(bots.length, 3);
+  assert.ok(bots.every((s) => s.sub === null));
+});
+
+test("buildSeats numbers teams from one, in order", () => {
+  assert.deepStrictEqual(
+    buildSeats(3, 1, "me").map((s) => s.team),
+    [1, 2, 3]
+  );
+});
+
+test("the person in a seat can see the draft", () => {
+  assert.strictEqual(isSeated({ seats: buildSeats(4, 1, "me") }, "me"), true);
+});
+
+test("somebody in no seat cannot", () => {
+  assert.strictEqual(isSeated({ seats: buildSeats(4, 1, "me") }, "them"), false);
+});
+
+// A bot seat carries sub: null. Without the kind check, a caller whose sub
+// somehow read as null would match every bot seat in the table.
+test("a null sub does not match the bot seats", () => {
+  assert.strictEqual(isSeated({ seats: buildSeats(4, 1, "me") }, null), false);
+});
+
+// The case the `kind` check actually earns its place for. Without it this
+// returns true, and -- verified -- no other test in this file notices, because
+// the null-sub test it was written to justify is already satisfied by the
+// typeof guard before any seat is read.
+test("a non-human seat carrying a sub does not admit that person", () => {
+  assert.strictEqual(
+    isSeated({ seats: [{ team: 1, sub: "me", kind: "bot" }] }, "me"),
+    false
+  );
+});
+
+test("a draft with no seats admits nobody", () => {
+  assert.strictEqual(isSeated({}, "me"), false);
+  assert.strictEqual(isSeated({ seats: [] }, "me"), false);
+});
+
+test("isSeated tolerates junk in the seats list", () => {
+  const draft = { seats: [null, "nope", { kind: "human" }, { team: 2, sub: "me", kind: "human" }] };
+  assert.strictEqual(isSeated(draft, "me"), true);
+});
+
+test("isSeated tolerates a missing draft", () => {
+  assert.strictEqual(isSeated(undefined, "me"), false);
 });

@@ -3,6 +3,7 @@ import { DRAFT_ID, MOCK_PLAYERS, makeDraftState } from "./fixtures.js";
 import { signIn } from "./auth.js";
 
 test("pick schedule updates with the selected slot", async ({ page }) => {
+  await signIn(page);
   await page.goto("/draft/new");
 
   await page.getByTestId("slot-select").selectOption("3");
@@ -44,6 +45,7 @@ test("selected slot is sent when creating a draft", async ({ page }) => {
 });
 
 test("random slot disables the selector", async ({ page }) => {
+  await signIn(page);
   await page.goto("/draft/new");
 
   await page.getByTestId("random-slot").click();
@@ -64,6 +66,7 @@ test("the clock belongs to the user's slot, not Team 1", async ({ page }) => {
     })
   );
 
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await expect(page.getByText("You are on the clock (Team 7)")).toBeVisible();
 });

@@ -86,12 +86,17 @@ test("missingAuthVars treats a blank or whitespace-only value as missing", () =>
   );
 });
 
-test("this repo's real .env.production, as committed, fails the check", () => {
-  // Pins the exact bug in Finding 1: a clean checkout's tracked
-  // .env.production has only VITE_API_BASE_URL. If someone later adds the
-  // Cognito variables to git, this test should be updated deliberately,
-  // not silently start failing for an unrelated reason.
+test("this repo's real .env.production, as committed, passes the check", () => {
+  // The inverse of what this test asserted when it was written, and the
+  // update its own comment asked for: back then the tracked .env.production
+  // carried only VITE_API_BASE_URL, which was the bug. The pool details were
+  // committed once the stack existed, and they are public identifiers -- the
+  // app client is created with GenerateSecret: false -- so belonging in git
+  // is the point, not an accident.
+  //
+  // Now it guards the other direction: removing either variable breaks every
+  // mutation on the deployed site, and this fails before the deploy does.
   const repoFrontendDir = path.resolve(import.meta.dirname, "..");
   const env = loadProductionEnv(repoFrontendDir);
-  assert.deepStrictEqual(missingAuthVars(env), REQUIRED_VARS);
+  assert.deepStrictEqual(missingAuthVars(env), []);
 });

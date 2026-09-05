@@ -16,6 +16,7 @@ const rowFor = (page, name) =>
 
 async function openDraft(page, state = makeDraftState({ currentIndex: 0 })) {
   mockDraftApis(page, state);
+  await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
 }
@@ -152,6 +153,7 @@ test.describe("player drill-down", () => {
     await page.route(`${API}/players/*`, (r) =>
       r.fulfill({ json: { player: { id: "p1", name: MCCAFFREY, position: "RB", team: "SF" } } })
     );
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -170,6 +172,7 @@ test.describe("player drill-down", () => {
         json: { player: { id: "p1", name: MCCAFFREY, position: "RB", team: "SF", yearsExp: 0 } },
       })
     );
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
@@ -185,6 +188,7 @@ test.describe("player drill-down", () => {
         json: { player: { id: "p1", name: MCCAFFREY, position: "RB", team: "SF", yearsExp: 8 } },
       })
     );
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
@@ -196,6 +200,7 @@ test.describe("player drill-down", () => {
   test("a failed fetch says the log is missing, keeping what the row knew", async ({ page }) => {
     mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
     await page.route(`${API}/players/*`, (r) => r.fulfill({ status: 500, json: { error: "nope" } }));
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
@@ -278,6 +283,7 @@ test.describe("player drill-down", () => {
         },
       })
     );
+    await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();

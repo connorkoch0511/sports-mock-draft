@@ -31,11 +31,12 @@ export async function signIn(page, { sub = "user-me", email = "you@example.com" 
     [key, value]
   );
 
-  // Signing in triggers a claim of whatever this browser made. Every spec that
-  // signs in would otherwise see an unmocked request to a dead API base.
-  await page.route("**/me/claim", (route) =>
-    route.fulfill({
-      json: { claimed: { drafts: [], boards: [] }, skipped: { drafts: [], boards: [] } },
-    })
-  );
+  // Any signed-in load of "/" renders Dashboard, which fetches both lists
+  // unconditionally. Defaulted to empty here so a spec that does not care
+  // about list contents (most of them -- they are testing a draft or a
+  // board page) never has to mock these itself. A spec that does care
+  // registers its own handler after calling signIn; Playwright matches the
+  // most-recently-added handler first, so the later one wins.
+  await page.route("**/me/drafts", (route) => route.fulfill({ json: { drafts: [] } }));
+  await page.route("**/me/boards", (route) => route.fulfill({ json: { boards: [] } }));
 }

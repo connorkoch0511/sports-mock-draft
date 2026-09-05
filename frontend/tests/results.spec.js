@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
 import { DRAFT_ID, makeCompletedDraft } from "./fixtures.js";
+import { signIn } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
@@ -14,6 +15,7 @@ test.describe("Results page", () => {
     await page.route(`${API}/drafts/${DRAFT_ID}`, async (route) => {
       await route.fulfill({ json: draft });
     });
+    await signIn(page);
   });
 
   test("renders Draft Results heading and draft metadata", async ({ page }) => {
@@ -51,11 +53,11 @@ test.describe("Results page", () => {
     await expect(team1Roster.getByText("Christian McCaffrey").first()).toBeVisible();
   });
 
-  test("Copy Share Link button triggers clipboard write", async ({ page, context }) => {
+  test("the copy-link button triggers a clipboard write", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto(`/draft/${DRAFT_ID}/results`);
 
-    await page.getByRole("button", { name: "Copy Share Link" }).click();
+    await page.getByRole("button", { name: "Copy link" }).click();
 
     await expect(page.getByRole("button", { name: /Copied/i })).toBeVisible();
   });

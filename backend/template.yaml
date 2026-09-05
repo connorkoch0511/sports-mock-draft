@@ -111,9 +111,29 @@ Resources:
       AttributeDefinitions:
         - AttributeName: draftId
           AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
       KeySchema:
         - AttributeName: draftId
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        # "My drafts" is a query, not a scan. The projection deliberately
+        # excludes `picks`, which is the whole draft board and would make every
+        # list read as expensive as loading the draft itself.
+        - IndexName: byOwner
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - teams
+              - rounds
+              - format
+              - userTeam
+              - boardId
+              - currentIndex
+              - createdAt
   PlayersTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -137,16 +157,31 @@ Resources:
       AttributeDefinitions:
         - AttributeName: boardId
           AttributeType: S
+        - AttributeName: ownerId
+          AttributeType: S
       KeySchema:
         - AttributeName: boardId
           KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: byOwner
+          KeySchema:
+            - AttributeName: ownerId
+              KeyType: HASH
+          Projection:
+            ProjectionType: INCLUDE
+            NonKeyAttributes:
+              - name
+              - format
+              - season
+              - updatedAt
 
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
-      # No DefaultAuthorizer on purpose. Reads stay public -- a shared link
-      # must still open -- so protection is opted into route by route, and
-      # template.test.js is what makes sure nobody forgets to opt in.
+      # No DefaultAuthorizer on purpose. Reads are no longer uniformly
+      # public -- a draft or board opens only for the people in it -- but
+      # /players still is, so protection stays opt-in per route and
+      # template.test.js asserts both lists rather than one rule.
       Auth:
         Authorizers:
           CognitoAuth:
@@ -219,6 +254,8 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}
             Method: GET
+            Auth:
+              Authorizer: CognitoAuth
         Pick:
           Type: HttpApi
           Properties:
@@ -306,6 +343,8 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /boards/{boardId}
             Method: GET
+            Auth:
+              Authorizer: CognitoAuth
         SaveBoard:
           Type: HttpApi
           Properties:
@@ -339,12 +378,20 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref BoardsTable
       Events:
-        Claim:
+        MyDrafts:
           Type: HttpApi
           Properties:
             ApiId: !Ref HttpApi
-            Path: /me/claim
-            Method: POST
+            Path: /me/drafts
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuth
+        MyBoards:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /me/boards
+            Method: GET
             Auth:
               Authorizer: CognitoAuth
 

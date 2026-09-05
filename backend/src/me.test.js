@@ -16,120 +16,113 @@ function event(body, claims) {
       http: { method: "POST" },
       ...(claims ? { authorizer: { jwt: { claims } } } : {}),
     },
-    rawPath: "/me/claim",
+    // Any path under /me: these two tests are about the 401 gate and the
+    // catch-all, both of which fire before routing.
+    rawPath: "/me/anything",
     body: body === undefined ? undefined : JSON.stringify(body),
   };
 }
 
-function conditionalFailure() {
-  const e = new Error("The conditional request failed");
-  e.name = "ConditionalCheckFailedException";
-  return e;
-}
-
 test.afterEach(() => mock.restoreAll());
 
-test("claiming without claims is 401", async () => {
-  const res = await handler(event({ draftIds: ["d1"] }));
+test("a request without claims is 401", async () => {
+  const res = await handler(event(undefined, undefined));
   assert.strictEqual(res.statusCode, 401);
-});
-
-test("a successful claim reports the ids it took", async () => {
-  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
-  const res = await handler(
-    event({ draftIds: ["d1", "d2"], boardIds: ["b1"] }, ME)
-  );
-  assert.strictEqual(res.statusCode, 200);
-  assert.deepStrictEqual(JSON.parse(res.body), {
-    claimed: { drafts: ["d1", "d2"], boards: ["b1"] },
-    skipped: { drafts: [], boards: [] },
-  });
-});
-
-test("the claim sets ownerId to the caller only when nobody owns it", async () => {
-  let input = null;
-  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    input = cmd.input;
-    return {};
-  });
-  await handler(event({ draftIds: ["d1"] }, ME));
-  assert.strictEqual(input.ExpressionAttributeValues[":me"], "user-me");
-  assert.match(input.ConditionExpression, /attribute_not_exists\(ownerId\)/);
-  // The legacy boards literal has to be claimable too, or every board created
-  // before accounts existed stays frozen forever.
-  assert.strictEqual(input.ExpressionAttributeValues[":anon"], "anon");
-});
-
-// The case the spec calls out by name: an id somebody else already owns must
-// change nothing and say so.
-test("claiming an already-owned resource steals nothing and reports it skipped", async () => {
-  mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
-    throw conditionalFailure();
-  });
-  const res = await handler(event({ draftIds: ["d1"], boardIds: ["b1"] }, ME));
-  assert.strictEqual(res.statusCode, 200);
-  assert.deepStrictEqual(JSON.parse(res.body), {
-    claimed: { drafts: [], boards: [] },
-    skipped: { drafts: ["d1"], boards: ["b1"] },
-  });
-});
-
-// A retry after a partial failure must report the truth. Claiming what you
-// already own is not theft, so it counts as claimed rather than landing in the
-// bucket that means "somebody else has this".
-test("re-claiming what you already own is claimed, not skipped", async () => {
-  let input = null;
-  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    input = cmd.input;
-    return {};
-  });
-  const res = await handler(event({ draftIds: ["d1"] }, ME));
-  assert.strictEqual(res.statusCode, 200);
-  assert.deepStrictEqual(JSON.parse(res.body).claimed.drafts, ["d1"]);
-  assert.match(input.ConditionExpression, /ownerId = :me/);
-});
-
-test("an empty claim is a 200 that did nothing", async () => {
-  const res = await handler(event({}, ME));
-  assert.strictEqual(res.statusCode, 200);
-  assert.deepStrictEqual(JSON.parse(res.body), {
-    claimed: { drafts: [], boards: [] },
-    skipped: { drafts: [], boards: [] },
-  });
-});
-
-test("a non-array draftIds is a 400, not a 500", async () => {
-  const res = await handler(event({ draftIds: "d1" }, ME));
-  assert.strictEqual(res.statusCode, 400);
-});
-
-test("more ids than the registries can hold is a 400", async () => {
-  const res = await handler(
-    event({ draftIds: Array.from({ length: 51 }, (_, i) => `d${i}`) }, ME)
-  );
-  assert.strictEqual(res.statusCode, 400);
-});
-
-test("a malformed body is a 400", async () => {
-  const res = await handler({
-    requestContext: {
-      http: { method: "POST" },
-      authorizer: { jwt: { claims: ME } },
-    },
-    rawPath: "/me/claim",
-    body: "not json",
-  });
-  assert.strictEqual(res.statusCode, 400);
 });
 
 test("an unknown path under /me is 404", async () => {
   const res = await handler({
-    requestContext: {
-      http: { method: "POST" },
-      authorizer: { jwt: { claims: ME } },
-    },
+    requestContext: { http: { method: "POST" }, authorizer: { jwt: { claims: ME } } },
     rawPath: "/me/nope",
-    body: "{}",
   });
   assert.strictEqual(res.statusCode, 404);
+});
+
+const { QueryCommand } = require("@aws-sdk/lib-dynamodb");
+
+function getEvent(rawPath, claims) {
+  return {
+    requestContext: {
+      http: { method: "GET" },
+      ...(claims ? { authorizer: { jwt: { claims } } } : {}),
+    },
+    rawPath,
+  };
+}
+
+test("GET /me/drafts without claims is 401", async () => {
+  const res = await handler(getEvent("/me/drafts"));
+  assert.strictEqual(res.statusCode, 401);
+});
+
+test("GET /me/drafts queries the byOwner index for the caller", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return { Items: [] };
+  });
+  await handler(getEvent("/me/drafts", ME));
+  assert.strictEqual(input.IndexName, "byOwner");
+  assert.strictEqual(input.ExpressionAttributeValues[":me"], "user-me");
+});
+
+test("GET /me/drafts shapes each row for the list", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [
+      { draftId: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 4,
+        boardId: null, currentIndex: 3, createdAt: 1000 },
+    ],
+  }));
+  const res = await handler(getEvent("/me/drafts", ME));
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body), {
+    drafts: [
+      { id: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 4,
+        boardId: null, completed: false, createdAt: 1000 },
+    ],
+  });
+});
+
+test("a draft whose picks are all made reports completed", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ draftId: "d1", teams: 2, rounds: 2, format: "ppr", userTeam: 1,
+              currentIndex: 4, createdAt: 1 }],
+  }));
+  const res = await handler(getEvent("/me/drafts", ME));
+  assert.strictEqual(JSON.parse(res.body).drafts[0].completed, true);
+});
+
+test("GET /me/boards shapes each row for the list", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ boardId: "b1", name: "My PPR Board", format: "ppr", season: 2026, updatedAt: 5 }],
+  }));
+  const res = await handler(getEvent("/me/boards", ME));
+  assert.deepStrictEqual(JSON.parse(res.body), {
+    boards: [{ id: "b1", name: "My PPR Board", format: "ppr", season: 2026, updatedAt: 5 }],
+  });
+});
+
+// "Newest first" was specified for both lists, but boards sort on updatedAt
+// where drafts sort on createdAt -- two comparators, so one passing test does
+// not cover the other.
+test("the most recently touched board comes first", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [
+      { boardId: "stale", name: "Stale", format: "ppr", season: 2026, updatedAt: 100 },
+      { boardId: "fresh", name: "Fresh", format: "ppr", season: 2026, updatedAt: 900 },
+    ],
+  }));
+  const res = await handler(getEvent("/me/boards", ME));
+  assert.deepStrictEqual(JSON.parse(res.body).boards.map((b) => b.id), ["fresh", "stale"]);
+});
+
+test("the newest draft comes first", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [
+      { draftId: "old", teams: 2, rounds: 1, format: "ppr", userTeam: 1, currentIndex: 0, createdAt: 100 },
+      { draftId: "new", teams: 2, rounds: 1, format: "ppr", userTeam: 1, currentIndex: 0, createdAt: 900 },
+    ],
+  }));
+  const res = await handler(getEvent("/me/drafts", ME));
+  assert.deepStrictEqual(JSON.parse(res.body).drafts.map((d) => d.id), ["new", "old"]);
 });

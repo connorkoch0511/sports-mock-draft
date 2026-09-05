@@ -1,6 +1,9 @@
 # PerfectPick — Fantasy Football Mock Draft Simulator
 
-PerfectPick is a modern, serverless fantasy football mock draft simulator. Configure your league settings, pick your players from a live Big Board, and outsmart the competition with ADP-powered rankings and smart auto-picks.
+PerfectPick is built around the board, not the draft. Rank players your way,
+then run your league's mock draft off your own board instead of the
+consensus one — with the reasoning behind every recommended pick shown, not
+hidden. Sign in, and your boards and drafts follow you to any device.
 
 ---
 
@@ -8,6 +11,9 @@ PerfectPick is a modern, serverless fantasy football mock draft simulator. Confi
 
 ### Home
 ![Home](screenshots/home.png)
+
+The landing page a signed-out visitor sees: the pitch is the board, not the
+draft engine underneath it.
 
 ### New Draft
 ![New Draft](screenshots/newdraft.png)
@@ -47,13 +53,14 @@ a particular pick, and a standalone page has no pick to advise on.
 
 ## Features
 
+- **Sign-in Required** — Google sign-in via Cognito; drafts and boards are private to the people in them, not to anyone who merely has the link
+- **Custom Big Boards** — Rank players your way, save the board, and draft off it instead of the consensus order
 - **Snake Draft Engine** — Round-by-round snake ordering with full persistence to DynamoDB
 - **Big Board + Search** — Filter by position, search by name, and paginate through the full player pool
 - **Smart Auto Picks** — Roster-aware auto picks weighted by ADP rank, position needs, and tier
 - **60-Second Clock** — Countdown timer for Team 1; auto-picks on timeout
 - **Sim to End** — Instantly simulate all remaining picks to complete a draft
 - **Pause / Resume** — Freeze the draft clock at any time
-- **Shareable Drafts** — Every draft gets a unique ID you can share via link
 - **Export** — Download your completed draft as CSV or JSON
 - **ADP Formats** — Standard, Half PPR, and PPR scoring supported
 
@@ -188,9 +195,11 @@ suite and commit the updated image so this README keeps matching the app.
 
 ## Sign-in setup (one-time, manual)
 
-Signing in is **required to create** a draft or a board, and to change or
-delete one you own. Viewing stays open to anyone with the link: a shared draft
-opens for a signed-out visitor, who simply cannot change it.
+Signing in is **required for everything**, viewing included. `GET
+/drafts/{draftId}` answers 401 with no token, and 404 unless the caller holds
+a seat in that draft; `GET /boards/{boardId}` answers 404 unless the caller
+is the board's owner. A draft or board's ID is not enough on its own —
+knowing it only gets you in if you're already one of the people in it.
 
 Because the API's authorizer references the Cognito user pool, the four steps
 below are no longer optional — a deploy without `GoogleClientId` and
@@ -252,17 +261,50 @@ both variables set, for exactly this reason.
 
 **What happens to drafts and boards made before accounts existed**
 
-They have no owner, so they are readable but frozen: the links still open, and
-nothing is deleted, but picks and edits are refused until somebody claims them.
-Signing in claims them automatically — the browser sends the ids it recorded as
-its own creations to `POST /me/claim`, and each is adopted only if nobody owns
-it yet. A draft you opened from somebody else's link is never sent.
+A one-off script (`backend/src/scripts/purge-unowned.js`) deletes every draft
+and board with no owner before this read gate ever ships, so there is nothing
+left to adopt: every draft and board a signed-in caller can reach was owned
+from the moment it was created.
 
-Somebody who is mid-draft and never signs in cannot finish that draft. That is
-the direct cost of requiring an owner from birth, and it is worth knowing
-before you deploy rather than after.
+Somebody who was mid-draft and never signed in does not come back to find it
+frozen — the purge deletes the row outright, dump file aside, so there is
+nothing left to resume. That is the direct cost of requiring an owner from
+birth, and it is worth knowing before you run the purge rather than after.
 
 ## Deploying
+
+### This release only: the order matters
+
+Drafts and boards became private in this release, and two new routes appeared.
+Deploying the halves in the wrong order breaks the live site, so once, in this
+order:
+
+```bash
+# 1. See what the purge would delete. Read the drafts line: if `rows` and
+#    `unowned` differ, stop -- owned rows without seats exist, and they would
+#    be unopenable by their own owner. The script names them.
+cd backend/src && node scripts/purge-unowned.js
+
+# 2. Delete them. Irreversible. Keep the dump it writes to
+#    ~/perfectpick-purge-backups somewhere durable.
+node scripts/purge-unowned.js --confirm
+
+# 3. Backend, which adds the two /me routes and one index per table.
+cd .. && sam build && sam deploy --parameter-overrides \
+  GoogleClientId=YOUR_CLIENT_ID \
+  GoogleClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text)
+
+# 4. Frontend, and not before step 3: the new bundle calls /me/drafts and
+#    /me/boards on nearly every page, and they do not exist until the backend
+#    update completes.
+cd ../frontend && npm run deploy
+```
+
+Anyone signed in across the deploy keeps a valid token, but may hold the old
+bundle until the CloudFront invalidation lands — their draft list will briefly
+point at rows the purge removed. A reload fixes it.
 
 ### Frontend
 
@@ -280,8 +322,20 @@ This builds the app, syncs to S3, and invalidates the CloudFront cache.
 both must be passed on every deploy, not just the first. A plain `sam deploy`
 fails at CloudFormation for want of them.
 
+**Run the purge first, before this deploy, the first time you ship the read
+gate.** `backend/src/scripts/purge-unowned.js` deletes every unowned draft
+and board (dry run by default; `--confirm` to actually delete). It has to run
+before `sam deploy` puts the Cognito authorizer in front of `GET
+/drafts/{draftId}` and `GET /boards/{boardId}` — once that gate is live,
+unowned rows are unreachable through the API, and the script's own dump file
+is the only way to get them back.
+
 ```bash
-cd backend
+cd backend/src
+node scripts/purge-unowned.js              # dry run — read the counts
+node scripts/purge-unowned.js --confirm    # dumps to disk, then deletes
+
+cd ..
 sam build
 sam deploy --parameter-overrides \
   GoogleClientId=YOUR_CLIENT_ID \
@@ -299,54 +353,55 @@ sports-mock-draft/
 ├── frontend/
 │   ├── src/
 │   │   ├── pages/
-│   │   │   ├── Home.jsx             # Landing screen
-│   │   │   ├── NewDraft.jsx         # Draft setup screen (manual + Sleeper import)
+│   │   │   ├── Home.jsx             # Chooses: Landing signed out, Dashboard signed in
+│   │   │   ├── Landing.jsx          # The signed-out front door
+│   │   │   ├── Dashboard.jsx        # Your drafts and boards, from your account
+│   │   │   ├── NewDraft.jsx         # Draft setup (manual + Sleeper import)
 │   │   │   ├── Draft.jsx            # Live draft board
-│   │   │   ├── Results.jsx          # Post-draft results
-│   │   │   ├── Boards.jsx           # Saved draft boards listing
-│   │   │   ├── Board.jsx            # Single draft board editor
-│   │   │   └── MyDrafts.jsx         # Resumable/in-progress drafts listing
+│   │   │   ├── Results.jsx          # Post-draft results and analysis
+│   │   │   ├── Boards.jsx           # Your boards
+│   │   │   ├── Board.jsx            # Single board editor (drag to reorder)
+│   │   │   ├── MyDrafts.jsx         # Your drafts
+│   │   │   ├── Player.jsx           # Player drill-down; the one public app page
+│   │   │   └── AuthCallback.jsx     # Completes the Google redirect
 │   │   ├── components/
-│   │   │   └── NavBar.jsx
+│   │   │   ├── NavBar.jsx
+│   │   │   ├── RequireAuth.jsx      # Gates a route, prompting in place
+│   │   │   └── draft/               # Draft board panels, player modal
 │   │   └── lib/
-│   │       ├── api.js               # Fetch wrapper
+│   │       ├── api.js               # Fetch wrapper; attaches the id token
+│   │       ├── auth.js              # oidc-client-ts setup, session helpers
+│   │       ├── AuthProvider.jsx     # Publishes user, signedIn, sub, loading
+│   │       ├── authContext.js       # The context and its hook, kept apart
+│   │       ├── authGate.js          # mustSignIn: one rule, one place
+│   │       ├── gatedRoutes.js       # gateState: allow / wait / prompt
+│   │       ├── idToken.js           # Token holder, so api.js needs no React
+│   │       ├── me.js                # GET /me/drafts, GET /me/boards
 │   │       ├── sleeper.js           # Sleeper API client + mapping
 │   │       ├── snake.js             # Snake draft order helpers
-│   │       ├── boardOrder.js        # Draft board ordering helpers
-│   │       ├── boardRegistry.js     # Board persistence registry
-│   │       ├── draftRegistry.js     # Draft persistence registry
-│   │       ├── useRememberDraft.js  # Hook to persist/resume an in-progress draft
-│   │       └── usePageTitle.js      # Hook for per-page document titles
+│   │       ├── boardOrder.js        # Board ordering helpers
+│   │       ├── draftAnalysis.js     # Post-draft grading
+│   │       ├── pickAdvice.js        # Pick-time advice engine
+│   │       └── usePageTitle.js      # Per-page document titles
+│   ├── scripts/
+│   │   └── check-auth-env.js        # Refuses a deploy with no Cognito config
 │   ├── tests/                       # Playwright end-to-end specs
-│   │   ├── fixtures.js              # Mock data + helpers
-│   │   ├── home.spec.js
-│   │   ├── newdraft.spec.js
-│   │   ├── draft.spec.js
-│   │   ├── draftlayout.spec.js
-│   │   ├── results.spec.js
-│   │   ├── board.spec.js
-│   │   ├── boarddraft.spec.js
-│   │   ├── mydrafts.spec.js
-│   │   ├── nav.spec.js
-│   │   ├── sleeper.spec.js
-│   │   └── slot.spec.js
 │   └── playwright.config.js
 ├── backend/
 │   ├── src/
 │   │   ├── drafts.js          # Draft CRUD + snake engine + auto-pick logic
-│   │   ├── drafts.test.js
+│   │   ├── boards.js          # Board CRUD
 │   │   ├── players.js         # Player query handler
-│   │   ├── players.test.js
-│   │   ├── boards.js          # Draft board CRUD
-│   │   ├── boards.test.js
-│   │   ├── syncPlayers.js     # Nightly ADP sync
-│   │   └── lib/                # Shared backend helpers (HTTP responses, roster/reconcile logic)
-│   │       ├── http.js
-│   │       ├── http.test.js
-│   │       ├── reconcile.js
-│   │       ├── reconcile.test.js
-│   │       ├── roster.js
-│   │       └── roster.test.js
+│   │   ├── me.js              # Your drafts and boards, by owner
+│   │   ├── syncPlayers.js     # Nightly ADP, stats and game-log sync
+│   │   ├── template.test.js   # Asserts every mutating route carries the authorizer
+│   │   ├── lib/
+│   │   │   ├── owner.js       # Who owns this, and who may act in it
+│   │   │   ├── http.js        # Responses, CORS, gzip
+│   │   │   ├── roster.js      # Roster slot logic
+│   │   │   └── reconcile.js   # Board-vs-pool reconciliation
+│   │   └── scripts/
+│   │       └── purge-unowned.js   # One-off: delete rows nobody owns, dump first
 │   └── template.yaml          # SAM infrastructure definition
-└── screenshots/               # Auto-generated by test suite
+└── screenshots/               # Auto-generated by the test suite
 ```

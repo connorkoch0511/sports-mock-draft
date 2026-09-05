@@ -1,7 +1,16 @@
 import { test, expect } from "@playwright/test";
 import { BOARD_ID, makeBoardState } from "./fixtures.js";
+import { signIn } from "./auth.js";
+
+// The nav (the ☰ toggle and everything it opens) only renders when
+// showAppLinks is true, and NavBar.jsx computes that as !mustSignIn(...) --
+// signed out, every app link would lead to the same sign-in prompt, so it
+// renders nothing at all rather than a row of identical doors. Every test
+// below is about that nav, so every one of them needs an account first, even
+// the ones opening "/" itself (which is not gated).
 
 test("the menu is closed until the toggle is clicked", async ({ page }) => {
+  await signIn(page);
   await page.goto("/");
 
   await expect(page.getByTestId("nav-menu")).toHaveCount(0);
@@ -10,6 +19,7 @@ test("the menu is closed until the toggle is clicked", async ({ page }) => {
 });
 
 test("the toggle closes an open menu", async ({ page }) => {
+  await signIn(page);
   await page.goto("/");
 
   await page.getByTestId("nav-toggle").click();
@@ -19,6 +29,7 @@ test("the toggle closes an open menu", async ({ page }) => {
 });
 
 test("the toggle reports its state to assistive tech", async ({ page }) => {
+  await signIn(page);
   await page.goto("/");
 
   const toggle = page.getByTestId("nav-toggle");
@@ -28,6 +39,7 @@ test("the toggle reports its state to assistive tech", async ({ page }) => {
 });
 
 test("Boards navigates to the boards page", async ({ page }) => {
+  await signIn(page);
   await page.goto("/");
 
   await page.getByTestId("nav-toggle").click();
@@ -37,6 +49,7 @@ test("Boards navigates to the boards page", async ({ page }) => {
 });
 
 test("the menu closes after navigating", async ({ page }) => {
+  await signIn(page);
   await page.goto("/");
 
   await page.getByTestId("nav-toggle").click();
@@ -47,6 +60,7 @@ test("the menu closes after navigating", async ({ page }) => {
 });
 
 test("Escape closes the menu and returns focus to the toggle", async ({ page }) => {
+  await signIn(page);
   await page.goto("/");
 
   await page.getByTestId("nav-toggle").click();
@@ -64,6 +78,7 @@ test("Escape closes the menu and returns focus to the toggle", async ({ page }) 
 });
 
 test("clicking outside closes the menu", async ({ page }) => {
+  await signIn(page);
   await page.goto("/");
 
   await page.getByTestId("nav-toggle").click();
@@ -75,6 +90,7 @@ test("clicking outside closes the menu", async ({ page }) => {
 });
 
 test("the current route is marked for assistive tech", async ({ page }) => {
+  await signIn(page);
   await page.goto("/boards");
 
   await page.getByTestId("nav-toggle").click();
@@ -92,6 +108,7 @@ test("navigation is reachable from a board — the dead-end regression", async (
       body: JSON.stringify(makeBoardState()),
     })
   );
+  await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
   await expect(page.getByTestId("board-row").first()).toBeVisible();
 
@@ -102,6 +119,7 @@ test("navigation is reachable from a board — the dead-end regression", async (
 });
 
 test("New Draft navigates to the draft setup page", async ({ page }) => {
+  await signIn(page);
   await page.goto("/");
 
   await page.getByTestId("nav-toggle").click();

@@ -25,9 +25,10 @@ function isUnowned(item) {
 
 /**
  * Deliberately not "the owner OR anybody if it is unowned": an unowned draft
- * is readable but frozen, and the way to thaw it is POST /me/claim, which is
- * a conditional write. Letting a mutation adopt it as a side effect would make
- * the first person to send a pick its owner.
+ * is readable but frozen, and nothing can adopt it any more -- the purge
+ * script removes unowned rows before this gate ever ships. Letting a mutation
+ * adopt one as a side effect would make the first person to send a pick its
+ * owner.
  */
 function canMutate(item, sub) {
   if (typeof sub !== "string" || sub.length === 0) return false;
@@ -35,4 +36,37 @@ function canMutate(item, sub) {
   return item.ownerId === sub;
 }
 
-module.exports = { ANON, subOf, isUnowned, canMutate };
+/**
+ * One seat per team: the creator in theirs, a bot in every other.
+ *
+ * A list rather than a scalar owner because invitations fill empty seats
+ * later, and the access check below never has to change to accommodate them.
+ */
+function buildSeats(teams, userTeam, sub) {
+  return Array.from({ length: teams }, (_, i) => {
+    const team = i + 1;
+    return team === userTeam
+      ? { team, sub, kind: "human" }
+      : { team, sub: null, kind: "bot" };
+  });
+}
+
+/**
+ * May this person see and act in this draft?
+ *
+ * The `kind` check is not redundant with the sub comparison, but not for the
+ * reason it first appears. A null caller sub is already refused by the guard
+ * below, before any seat is examined. What `kind` actually stops is a seat
+ * that is NOT human yet carries a populated sub equal to the caller's -- a
+ * corrupted row today, and a "pending invitation" seat the moment invitations
+ * exist, where the sub is known before the person has accepted. Remove the
+ * check and that seat grants access.
+ */
+function isSeated(draft, sub) {
+  if (typeof sub !== "string" || sub.length === 0) return false;
+  const seats = draft?.seats;
+  if (!Array.isArray(seats)) return false;
+  return seats.some((s) => s && s.kind === "human" && s.sub === sub);
+}
+
+module.exports = { ANON, subOf, isUnowned, canMutate, buildSeats, isSeated };

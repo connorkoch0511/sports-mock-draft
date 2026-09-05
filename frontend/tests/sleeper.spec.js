@@ -38,6 +38,7 @@ async function mockSleeper(page, { user = true, leagues = [LEAGUE] } = {}) {
 
 test("importing a league fills the form from its real settings", async ({ page }) => {
   await mockSleeper(page);
+  await signIn(page);
   await page.goto("/draft/new");
 
   await page.getByTestId("sleeper-username").fill("ck15");
@@ -55,6 +56,7 @@ test("importing a league fills the form from its real settings", async ({ page }
 
 test("imported values remain editable", async ({ page }) => {
   await mockSleeper(page);
+  await signIn(page);
   await page.goto("/draft/new");
 
   await page.getByTestId("sleeper-username").fill("ck15");
@@ -106,6 +108,7 @@ test("a draft created without importing sends no rosterSlots", async ({ page }) 
 
 test("an unknown username shows an error and leaves the form alone", async ({ page }) => {
   await mockSleeper(page, { user: false });
+  await signIn(page);
   await page.goto("/draft/new");
 
   await page.getByTestId("sleeper-username").fill("nobody");
@@ -118,6 +121,7 @@ test("an unknown username shows an error and leaves the form alone", async ({ pa
 
 test("a user with no leagues shows an error", async ({ page }) => {
   await mockSleeper(page, { leagues: [] });
+  await signIn(page);
   await page.goto("/draft/new");
 
   await page.getByTestId("sleeper-username").fill("ck15");
@@ -144,6 +148,7 @@ test("a rookie draft explains why rounds and roster slots differ", async ({ page
     })
   );
 
+  await signIn(page);
   await page.goto("/draft/new");
   await importFirstLeague(page);
 
@@ -160,6 +165,7 @@ test("no explanation when rounds and roster slots agree", async ({ page }) => {
   // The default fixture is 16 rounds against 16 roster slots.
   await mockSleeper(page);
 
+  await signIn(page);
   await page.goto("/draft/new");
   await importFirstLeague(page);
 
@@ -178,6 +184,7 @@ test("explains when a draft runs more rounds than the roster has slots", async (
     })
   );
 
+  await signIn(page);
   await page.goto("/draft/new");
   await importFirstLeague(page);
 
@@ -190,6 +197,7 @@ test("explains when a draft runs more rounds than the roster has slots", async (
 
 test("editing Rounds after import updates the note live", async ({ page }) => {
   await mockSleeper(page);
+  await signIn(page);
   await page.goto("/draft/new");
   await importFirstLeague(page);
 

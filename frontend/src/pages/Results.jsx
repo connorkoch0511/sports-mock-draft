@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiGet } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
-import { useRememberDraft } from "../lib/useRememberDraft";
 import { analyzeDraft } from "../lib/draftAnalysis";
 
 export default function Results() {
@@ -22,7 +21,6 @@ export default function Results() {
   }, [draftId]);
 
   usePageTitle(draftId ? `Results ${draftId}` : "Results");
-  useRememberDraft(draft);
 
   if (err) return <div className="p-6 text-red-300">{err}</div>;
   if (!draft) return <div className="p-6 text-zinc-300">Loading results…</div>;
@@ -79,11 +77,19 @@ export default function Results() {
             {draft.teams} teams • {draft.rounds} rounds • {draft.format.toUpperCase()}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
+            {/*
+              "Share" is no longer what this does. The link opens for people
+              seated in the draft, which today means you -- on any device you
+              sign in from. Send it to anybody else and they get a sign-in
+              prompt and then a 404. Invitations will widen that; the label
+              should not promise it early.
+            */}
             <button
               onClick={copyLink}
+              title="Opens for anyone seated in this draft"
               className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
               >
-              {copied ? "Copied ✅" : "Copy Share Link"}
+              {copied ? "Copied ✅" : "Copy link"}
             </button>
             <button
               onClick={() => download(`perfectpick_${draftId}.csv`, picksToCsv(draft), "text/csv")}
