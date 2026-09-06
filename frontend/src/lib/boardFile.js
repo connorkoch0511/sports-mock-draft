@@ -68,3 +68,120 @@ export function boardFilename(board, ext) {
     .replace(/^-+|-+$/g, "");
   return `${slug || "board"}.${ext}`;
 }
+
+const DEFAULT_META = { name: "Imported board", format: "ppr", season: 2026 };
+
+/**
+ * One CSV line into fields, honouring RFC 4180 quoting.
+ *
+ * Written out rather than split(",") because a quoted field may contain a
+ * comma, and a quoted field may contain a doubled quote meaning one quote.
+ * Both occur in real player names.
+ */
+function csvLineToFields(line) {
+  const fields = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"' && line[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else field += c;
+    } else if (c === '"') inQuotes = true;
+    else if (c === ",") { fields.push(field); field = ""; }
+    else field += c;
+  }
+  fields.push(field);
+  return fields.map((f) => f.trim());
+}
+
+// Header names accepted for each column we care about. A hand-made file is
+// likelier to say "name" than "player", and being strict about that would
+// reject a file for no reason a user could see.
+const NAME_HEADERS = ["player", "name", "playername"];
+const ID_HEADERS = ["playerid", "id"];
+
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+
+  let meta = { ...DEFAULT_META };
+  const comment = lines.find((l) => l.startsWith("#"));
+  if (comment) {
+    // "# PerfectPick board · <name> · <format> · <season>"
+    const parts = comment.replace(/^#\s*/, "").split(" · ");
+    if (parts.length >= 4) {
+      meta = {
+        name: parts.slice(1, -2).join(" · ") || DEFAULT_META.name,
+        format: parts[parts.length - 2] || DEFAULT_META.format,
+        season: Number(parts[parts.length - 1]) || DEFAULT_META.season,
+      };
+    }
+  }
+
+  const body = lines.filter((l) => !l.startsWith("#"));
+  if (body.length === 0) throw new Error("That file has no players in it.");
+
+  const headers = csvLineToFields(body[0]).map((h) => h.toLowerCase().replace(/[^a-z]/g, ""));
+  const nameAt = headers.findIndex((h) => NAME_HEADERS.includes(h));
+  const idAt = headers.findIndex((h) => ID_HEADERS.includes(h));
+  if (nameAt === -1 && idAt === -1) {
+    throw new Error("That CSV has no player column. Expected a column named player or playerId.");
+  }
+
+  const players = [];
+  for (const line of body.slice(1)) {
+    const fields = csvLineToFields(line);
+    const name = nameAt === -1 ? "" : (fields[nameAt] || "");
+    const playerId = idAt === -1 ? null : (fields[idAt] || null);
+    // A row naming nobody is a blank line with commas in it.
+    if (!name && !playerId) continue;
+    players.push({ playerId: playerId ? String(playerId) : null, name });
+  }
+  if (players.length === 0) throw new Error("That file has no players in it.");
+  return { meta, players };
+}
+
+function parseJson(text) {
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("That file could not be read as JSON.");
+  }
+  if (!data || typeof data !== "object" || !Array.isArray(data.players)) {
+    throw new Error("That file is not a PerfectPick board export.");
+  }
+  if (data.perfectpickBoard != null && data.perfectpickBoard > JSON_VERSION) {
+    throw new Error("That board was exported by a newer version of PerfectPick.");
+  }
+
+  const players = data.players
+    .filter((p) => p && (p.name || p.playerId))
+    .map((p) => ({
+      playerId: p.playerId != null ? String(p.playerId) : null,
+      name: String(p.name ?? ""),
+    }));
+  if (players.length === 0) throw new Error("That file has no players in it.");
+
+  return {
+    meta: {
+      name: data.name || DEFAULT_META.name,
+      format: data.format || DEFAULT_META.format,
+      season: Number(data.season) || DEFAULT_META.season,
+    },
+    players,
+  };
+}
+
+/**
+ * A file's text into a board, or a thrown Error a person can act on.
+ *
+ * The format is sniffed from the content rather than the filename, because a
+ * file that has been renamed, pasted or re-saved should still import.
+ */
+export function parseBoardFile(text) {
+  const trimmed = String(text ?? "").trim();
+  if (!trimmed) throw new Error("That file is empty.");
+  return trimmed.startsWith("{") ? parseJson(trimmed) : parseCsv(trimmed);
+}

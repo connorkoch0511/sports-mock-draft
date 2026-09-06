@@ -96,3 +96,109 @@ test("a newline in the board name cannot split the comment line", () => {
   // The header must still be line 1, or every row index below shifts.
   assert.strictEqual(lines[1], "rank,player,position,team,playerId");
 });
+
+import { parseBoardFile } from "./boardFile.js";
+
+test("a round trip preserves the order exactly", () => {
+  const { meta, players } = parseBoardFile(boardToCsv(BOARD, ROWS));
+  assert.strictEqual(meta.name, "Sleepers and busts");
+  assert.strictEqual(meta.format, "ppr");
+  assert.strictEqual(meta.season, 2026);
+  assert.deepStrictEqual(players.map((p) => p.playerId), ["4034", "6794"]);
+});
+
+test("a json round trip preserves the order exactly", () => {
+  const { meta, players } = parseBoardFile(boardToJson(BOARD, ROWS));
+  assert.strictEqual(meta.name, "Sleepers and busts");
+  assert.deepStrictEqual(players.map((p) => p.name), [
+    "Christian McCaffrey",
+    "Justin Jefferson",
+  ]);
+});
+
+// The format is sniffed, so a file renamed .txt still works.
+test("json is recognised by its content, not its extension", () => {
+  const { players } = parseBoardFile('  \n {"perfectpickBoard":1,"players":[{"name":"A","playerId":"1"}]}');
+  assert.strictEqual(players.length, 1);
+});
+
+test("a quoted field containing a comma survives the round trip", () => {
+  const rows = [{ playerId: "1", name: "Smith, Steve Sr.", position: "WR", team: "BAL" }];
+  const { players } = parseBoardFile(boardToCsv(BOARD, rows));
+  assert.strictEqual(players[0].name, "Smith, Steve Sr.");
+});
+
+test("a doubled quote unescapes to one", () => {
+  const rows = [{ playerId: "1", name: 'Dale "Ace" Jones', position: "WR", team: "BAL" }];
+  const { players } = parseBoardFile(boardToCsv(BOARD, rows));
+  assert.strictEqual(players[0].name, 'Dale "Ace" Jones');
+});
+
+// Hand-edited files are an intended input, so these are not exotic.
+test("CRLF line endings parse", () => {
+  const text = "rank,player,playerId\r\n1,Christian McCaffrey,4034\r\n";
+  assert.strictEqual(parseBoardFile(text).players[0].name, "Christian McCaffrey");
+});
+
+test("columns in a different order still parse, by header name", () => {
+  const text = "playerId,player\n4034,Christian McCaffrey\n";
+  const { players } = parseBoardFile(text);
+  assert.deepStrictEqual(players[0], { playerId: "4034", name: "Christian McCaffrey" });
+});
+
+test("an extra column is ignored rather than fatal", () => {
+  const text = "rank,player,playerId,notes\n1,Christian McCaffrey,4034,my guy\n";
+  assert.strictEqual(parseBoardFile(text).players[0].playerId, "4034");
+});
+
+test("a file of names only parses, with no ids", () => {
+  const text = "player\nChristian McCaffrey\nJustin Jefferson\n";
+  const { players } = parseBoardFile(text);
+  assert.deepStrictEqual(players, [
+    { playerId: null, name: "Christian McCaffrey" },
+    { playerId: null, name: "Justin Jefferson" },
+  ]);
+});
+
+test("a file with no metadata takes the app's defaults, not a guess", () => {
+  const { meta } = parseBoardFile("player\nChristian McCaffrey\n");
+  assert.deepStrictEqual(meta, { name: "Imported board", format: "ppr", season: 2026 });
+});
+
+test("blank lines and trailing newlines are skipped", () => {
+  const text = "rank,player,playerId\n\n1,Christian McCaffrey,4034\n\n\n";
+  assert.strictEqual(parseBoardFile(text).players.length, 1);
+});
+
+test("a row with neither a name nor an id is skipped, not imported blank", () => {
+  const text = "rank,player,playerId\n1,,\n2,Justin Jefferson,6794\n";
+  const { players } = parseBoardFile(text);
+  assert.deepStrictEqual(players.map((p) => p.name), ["Justin Jefferson"]);
+});
+
+test("unparseable json says so", () => {
+  assert.throws(() => parseBoardFile("{ not json"), /could not be read/i);
+});
+
+test("a json file that is not a board says so", () => {
+  assert.throws(() => parseBoardFile('{"hello":"world"}'), /not a PerfectPick board/i);
+});
+
+test("a future format version is refused rather than half-read", () => {
+  assert.throws(
+    () => parseBoardFile('{"perfectpickBoard":99,"players":[]}'),
+    /newer version/i
+  );
+});
+
+test("a CSV with no recognisable columns says so", () => {
+  assert.throws(() => parseBoardFile("alpha,beta\n1,2\n"), /no player column/i);
+});
+
+test("a file with no usable rows says so", () => {
+  assert.throws(() => parseBoardFile("rank,player,playerId\n"), /no players/i);
+});
+
+test("an empty file says so", () => {
+  assert.throws(() => parseBoardFile("   "), /empty/i);
+});
