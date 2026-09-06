@@ -108,3 +108,34 @@ test.describe("the dashboard's own states", () => {
     await expect(page.getByText(/nothing in progress/i)).toBeVisible();
   });
 });
+
+// Google follows these two from the consent screen, and a signed-out visitor
+// has to be able to read them before deciding to sign in. If either ever
+// falls behind the auth gate, publishing breaks and nobody finds out until
+// somebody tries to sign in.
+test.describe("the legal pages", () => {
+  for (const [path, heading] of [
+    ["/privacy", /^Privacy$/],
+    ["/terms", /^Terms of Service$/],
+  ]) {
+    test(`${path} is readable signed out`, async ({ page }) => {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: heading })).toBeVisible();
+      await expect(page.getByTestId("auth-gate")).toHaveCount(0);
+    });
+  }
+
+  test("the privacy policy says what is actually collected", async ({ page }) => {
+    await page.goto("/privacy");
+    // The claims Google is checking for, and the ones that must stay true.
+    await expect(page.getByText(/email address/i).first()).toBeVisible();
+    await expect(page.getByText(/nothing is sold/i)).toBeVisible();
+    await expect(page.getByText(/deleted/i).first()).toBeVisible();
+  });
+
+  test("the landing page links to both", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: "Privacy" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Terms" })).toBeVisible();
+  });
+});

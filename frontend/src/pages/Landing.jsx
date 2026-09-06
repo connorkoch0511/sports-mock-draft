@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useAuth } from "../lib/authContext.js";
 import { usePageTitle } from "../lib/usePageTitle";
 
@@ -60,6 +61,12 @@ export default function Landing() {
             season's finish, the reach against ADP.
           </Step>
         </div>
+
+        <footer className="mt-16 border-t border-zinc-800/70 pt-6 text-sm text-zinc-500">
+          <Link to="/privacy" className="hover:text-zinc-300">Privacy</Link>
+          <span className="px-2">·</span>
+          <Link to="/terms" className="hover:text-zinc-300">Terms</Link>
+        </footer>
       </div>
     </div>
   );

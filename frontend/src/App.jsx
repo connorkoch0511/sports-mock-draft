@@ -8,6 +8,7 @@ import Boards from "./pages/Boards.jsx";
 import MyDrafts from "./pages/MyDrafts.jsx";
 import Player from "./pages/Player.jsx";
 import AuthCallback from "./pages/AuthCallback.jsx";
+import { Privacy, Terms } from "./pages/Legal.jsx";
 import { AuthProvider } from "./lib/AuthProvider.jsx";
 import NavBar from "./components/NavBar.jsx";
 import RequireAuth from "./components/RequireAuth.jsx";
@@ -30,6 +31,13 @@ export default function App() {
               <Route path="/board/:boardId" element={<RequireAuth><Board /></RequireAuth>} />
               <Route path="/boards" element={<RequireAuth><Boards /></RequireAuth>} />
               <Route path="/player/:playerId" element={<Player />} />
+              {/*
+                Public, and they have to be: Google follows these links from
+                the consent screen, and someone deciding whether to sign in
+                must be able to read what happens to their data first.
+              */}
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/terms" element={<Terms />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
             </Routes>
           </div>
