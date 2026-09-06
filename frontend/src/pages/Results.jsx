@@ -3,6 +3,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { apiGet } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { analyzeDraft } from "../lib/draftAnalysis";
+import { download } from "../lib/download";
 
 export default function Results() {
   const { draftId } = useParams();
@@ -42,16 +43,6 @@ export default function Results() {
         prompt("Copy this link:", window.location.href);
     }
   };
-
-  function download(filename, text, mime = "text/plain") {
-    const blob = new Blob([text], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
 
   function picksToCsv(draft) {
     const rows = [
