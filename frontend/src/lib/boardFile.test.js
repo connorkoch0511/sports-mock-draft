@@ -72,3 +72,27 @@ test("the filename is the board name, made safe for a filesystem", () => {
 test("a board named only in punctuation still gets a filename", () => {
   assert.strictEqual(boardFilename({ name: "!!!" }, "csv"), "board.csv");
 });
+
+// The two cases the brief's tests missed, both of which the next task's parser
+// would have had to work around.
+test("a row missing position or team keeps the key, as null", () => {
+  const rows = [{ playerId: "1", name: "Nameless Team Guy" }];
+  const player = JSON.parse(boardToJson(BOARD, rows)).players[0];
+  assert.ok("position" in player, "position key was dropped entirely");
+  assert.ok("team" in player, "team key was dropped entirely");
+  assert.strictEqual(player.position, null);
+});
+
+test("a missing field is an empty CSV column, not a missing one", () => {
+  const rows = [{ playerId: "1", name: "Nameless Team Guy" }];
+  const line = boardToCsv(BOARD, rows).trim().split("\n")[2];
+  assert.strictEqual(line, "1,Nameless Team Guy,,,1");
+});
+
+test("a newline in the board name cannot split the comment line", () => {
+  const board = { name: "Line one\nLine two", format: "ppr", season: 2026 };
+  const lines = boardToCsv(board, ROWS).split("\n");
+  assert.strictEqual(lines[0], "# PerfectPick board · Line one Line two · ppr · 2026");
+  // The header must still be line 1, or every row index below shifts.
+  assert.strictEqual(lines[1], "rank,player,position,team,playerId");
+});

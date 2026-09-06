@@ -19,8 +19,14 @@ function csvField(value) {
 export function boardToCsv(board, rows) {
   // The comment line is the only place a CSV can carry the board's identity.
   // It is not a CSV field, so a comma in the name is harmless here.
+  // Flattened before interpolating. Every per-row field is quoted against
+  // newlines, but the comment line cannot be quoted -- it is not a CSV field --
+  // so a newline in the name would split it in two and shift the header, and
+  // every row after it, down by a line. Nothing in the UI can produce one
+  // today; this module is a pure string function with no say in who calls it.
+  const oneLineName = String(board.name ?? "").replace(/[\r\n]+/g, " ");
   const lines = [
-    `# PerfectPick board · ${board.name} · ${board.format} · ${board.season}`,
+    `# PerfectPick board · ${oneLineName} · ${board.format} · ${board.season}`,
     CSV_HEADER,
     ...rows.map((r, i) =>
       [i + 1, csvField(r.name), csvField(r.position), csvField(r.team), csvField(r.playerId)].join(",")
@@ -36,12 +42,18 @@ export function boardToJson(board, rows) {
       name: board.name,
       format: board.format,
       season: board.season,
+      // ?? null, not bare: JSON.stringify omits keys whose value is
+      // undefined, so a row missing a team would produce a player object with
+      // no team key at all while its neighbours kept theirs. The parser would
+      // then have to tell "key absent" from "key present but empty" for no
+      // reason. null keeps the shape uniform, and matches the CSV, where a
+      // missing field is an empty column rather than a missing one.
       players: rows.map((r, i) => ({
         rank: i + 1,
         playerId: String(r.playerId),
-        name: r.name,
-        position: r.position,
-        team: r.team,
+        name: r.name ?? null,
+        position: r.position ?? null,
+        team: r.team ?? null,
       })),
     },
     null,
