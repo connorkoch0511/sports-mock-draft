@@ -202,3 +202,39 @@ test("a file with no usable rows says so", () => {
 test("an empty file says so", () => {
   assert.throws(() => parseBoardFile("   "), /empty/i);
 });
+
+// The case the reviewer found by probing rather than reading: the writer
+// quotes a field containing a newline, and the reader used to split on
+// newlines first -- tearing the field in half, dropping its id, and
+// corrupting the row after it. Silently, as wrong data.
+test("a quoted field containing a newline round-trips intact", () => {
+  const rows = [
+    { playerId: "1", name: "Line one\nLine two", position: "WR", team: "BAL" },
+    { playerId: "2", name: "Justin Jefferson", position: "WR", team: "MIN" },
+  ];
+  const { players } = parseBoardFile(boardToCsv(BOARD, rows));
+  assert.strictEqual(players.length, 2, "the following row was swallowed");
+  assert.strictEqual(players[0].name, "Line one\nLine two");
+  assert.strictEqual(players[0].playerId, "1", "the id of the split row was lost");
+  assert.strictEqual(players[1].name, "Justin Jefferson");
+});
+
+test("a board name containing the metadata separator survives", () => {
+  const board = { name: "Sleepers · Busts", format: "ppr", season: 2026 };
+  const { meta } = parseBoardFile(boardToCsv(board, ROWS));
+  assert.strictEqual(meta.name, "Sleepers · Busts");
+  assert.strictEqual(meta.format, "ppr");
+  assert.strictEqual(meta.season, 2026);
+});
+
+test("a board name containing a comma survives, unquoted though it is", () => {
+  const board = { name: "Sleepers, busts, dart throws", format: "ppr", season: 2026 };
+  const { meta, players } = parseBoardFile(boardToCsv(board, ROWS));
+  assert.strictEqual(meta.name, "Sleepers, busts, dart throws");
+  assert.strictEqual(players.length, 2);
+});
+
+test("a header with odd casing and padding still matches", () => {
+  const { players } = parseBoardFile('Rank, Player , PlayerID \n1,Christian McCaffrey,4034\n');
+  assert.deepStrictEqual(players[0], { playerId: "4034", name: "Christian McCaffrey" });
+});

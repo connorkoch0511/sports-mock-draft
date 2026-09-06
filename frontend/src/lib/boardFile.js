@@ -102,27 +102,91 @@ function csvLineToFields(line) {
 const NAME_HEADERS = ["player", "name", "playername"];
 const ID_HEADERS = ["playerid", "id"];
 
-function parseCsv(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
+/**
+ * The whole file into rows of fields, quote-aware.
+ *
+ * Splitting on newlines first and parsing quotes per line is the obvious
+ * approach and it is wrong: a quoted field may legally CONTAIN a newline, and
+ * this module's own writer emits exactly that. Splitting first tore such a
+ * field in half, dropped the id that belonged to its row, and corrupted the
+ * following row as the stray quote leaked across the boundary -- silently, as
+ * wrong data rather than an error, which is the worse failure.
+ *
+ * So a newline ends a row only when it is not inside an open quote.
+ */
+function csvRows(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let inQuotes = false;
 
-  let meta = { ...DEFAULT_META };
-  const comment = lines.find((l) => l.startsWith("#"));
-  if (comment) {
-    // "# PerfectPick board · <name> · <format> · <season>"
-    const parts = comment.replace(/^#\s*/, "").split(" · ");
-    if (parts.length >= 4) {
-      meta = {
-        name: parts.slice(1, -2).join(" · ") || DEFAULT_META.name,
-        format: parts[parts.length - 2] || DEFAULT_META.format,
-        season: Number(parts[parts.length - 1]) || DEFAULT_META.season,
-      };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') inQuotes = false;
+      else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field); field = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      rows.push(row); row = [];
+    } else {
+      field += c;
     }
   }
+  row.push(field);
+  rows.push(row);
 
-  const body = lines.filter((l) => !l.startsWith("#"));
+  // A row of one empty field is a blank line.
+  return rows.filter((r) => !(r.length === 1 && r[0].trim() === ""));
+}
+
+/**
+ * Comment lines come off the front by physical line, before tokenising.
+ *
+ * They are not CSV rows: the board name is interpolated unquoted, so it may
+ * contain commas that would tokenise into fields. It cannot contain a newline
+ * -- the writer flattens it for exactly this reason -- so reading them a line
+ * at a time is safe in a way that reading the body that way is not.
+ */
+function peelComments(text) {
+  const comments = [];
+  let rest = text;
+  while (rest.startsWith("#")) {
+    const end = rest.search(/\r?\n/);
+    if (end === -1) { comments.push(rest); rest = ""; break; }
+    comments.push(rest.slice(0, end));
+    rest = rest.slice(end).replace(/^\r?\n/, "");
+  }
+  return { comments, rest };
+}
+
+function metaFromComment(comment) {
+  // "# PerfectPick board · <name> · <format> · <season>"
+  const parts = comment.replace(/^#\s*/, "").split(" · ");
+  if (parts.length < 4) return { ...DEFAULT_META };
+  return {
+    // Rejoined, so a name that itself contains the separator survives.
+    name: parts.slice(1, -2).join(" · ") || DEFAULT_META.name,
+    format: parts[parts.length - 2] || DEFAULT_META.format,
+    season: Number(parts[parts.length - 1]) || DEFAULT_META.season,
+  };
+}
+
+function parseCsv(text) {
+  const { comments, rest } = peelComments(text);
+  const meta = comments.length > 0 ? metaFromComment(comments[0]) : { ...DEFAULT_META };
+
+  // A comment further down is tolerated and skipped. Its commas may have
+  // tokenised into several fields; skipping the row discards all of them.
+  const body = csvRows(rest).filter((r) => !String(r[0] ?? "").startsWith("#"));
   if (body.length === 0) throw new Error("That file has no players in it.");
 
-  const headers = csvLineToFields(body[0]).map((h) => h.toLowerCase().replace(/[^a-z]/g, ""));
+  const headers = body[0].map((h) => h.toLowerCase().replace(/[^a-z]/g, ""));
   const nameAt = headers.findIndex((h) => NAME_HEADERS.includes(h));
   const idAt = headers.findIndex((h) => ID_HEADERS.includes(h));
   if (nameAt === -1 && idAt === -1) {
@@ -130,10 +194,9 @@ function parseCsv(text) {
   }
 
   const players = [];
-  for (const line of body.slice(1)) {
-    const fields = csvLineToFields(line);
-    const name = nameAt === -1 ? "" : (fields[nameAt] || "");
-    const playerId = idAt === -1 ? null : (fields[idAt] || null);
+  for (const fields of body.slice(1)) {
+    const name = nameAt === -1 ? "" : (fields[nameAt] ?? "").trim();
+    const playerId = idAt === -1 ? null : ((fields[idAt] ?? "").trim() || null);
     // A row naming nobody is a blank line with commas in it.
     if (!name && !playerId) continue;
     players.push({ playerId: playerId ? String(playerId) : null, name });
