@@ -33,6 +33,7 @@ export function BigBoardPanel({
   const [pos, setPos] = useState("");
   const [page, setPage] = useState(0);
   const [openPlayerId, setOpenPlayerId] = useState(null);
+  const [adpSort, setAdpSort] = useState("ours");
 
   const filtered = useMemo(() => {
     if (!draft) return [];
@@ -45,6 +46,8 @@ export function BigBoardPanel({
 
   // Filtering puts you back on the first page: page 4 of the old result set
   // means nothing against the new one, and staying there shows an empty list.
+  // Changing the sort has the same problem -- the player on page 4 moves
+  // somewhere else entirely -- so it resets the page the same way.
   //
   // Adjusted during render rather than in an effect. React re-runs the
   // component before committing, so the stale page never reaches the screen,
@@ -52,9 +55,9 @@ export function BigBoardPanel({
   // flags the effect form -- and only started once this panel was small
   // enough for the rule to analyze; in the 743-line page it was silently
   // skipped.
-  const [lastFilter, setLastFilter] = useState({ query, pos });
-  if (lastFilter.query !== query || lastFilter.pos !== pos) {
-    setLastFilter({ query, pos });
+  const [lastFilter, setLastFilter] = useState({ query, pos, adpSort });
+  if (lastFilter.query !== query || lastFilter.pos !== pos || lastFilter.adpSort !== adpSort) {
+    setLastFilter({ query, pos, adpSort });
     setPage(0);
   }
 
@@ -64,8 +67,24 @@ export function BigBoardPanel({
     ? players.find((x) => x.id === openPlayerId) ?? null
     : null;
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pagedPlayers = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  // Between filtering and paging, deliberately. `pagedPlayers` is one page of
+  // 50, so sorting that would only shuffle the page you happen to be on and
+  // look broken the moment you turned it. `advice` below keeps reading
+  // `filtered`, because scarcity is about which players remain, not the order
+  // they are listed in.
+  const sorted = useMemo(() => {
+    if (adpSort === "ours") return filtered;
+    return [...filtered].sort(
+      (a, b) =>
+        // A player the chosen source has no number for sorts last, the same
+        // way the existing rank sort pushes nulls to the bottom.
+        (a.adpBySource?.[adpSort] ?? Number.POSITIVE_INFINITY) -
+        (b.adpBySource?.[adpSort] ?? Number.POSITIVE_INFINITY)
+    );
+  }, [filtered, adpSort]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
+  const pagedPlayers = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   // Advice is computed once per pick, never per keystroke. `filtered` re-runs
   // on every character typed into the search box; the engine walks the whole
@@ -191,6 +210,24 @@ export function BigBoardPanel({
             <option value="TE">TE</option>
             <option value="K">K</option>
             <option value="DEF">DEF</option>
+          </select>
+          {/*
+            Beside the other filters, in the same row, rather than a row of
+            its own -- this panel's height is fixed by the three-column page
+            layout, and one more full-width row above a flex-1 list pushed
+            the list's height to zero instead of shrinking the fixed rows
+            around it.
+          */}
+          <select
+            data-testid="adp-sort"
+            value={adpSort}
+            onChange={(e) => setAdpSort(e.target.value)}
+            title="Sort by"
+            className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-sky-300/60 focus:shadow-[0_0_0_4px_rgba(59,130,246,0.10)]"
+          >
+            <option value="ours">our rank</option>
+            <option value="espn">ESPN ADP</option>
+            <option value="yahoo">Yahoo ADP</option>
           </select>
         </div>
 
