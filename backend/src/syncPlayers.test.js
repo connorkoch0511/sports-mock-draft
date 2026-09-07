@@ -665,3 +665,62 @@ test("the espn adapter reads a real captured payload", () => {
     assert.ok(adp > 0 && adp < 400, `implausible adp ${adp}`);
   }
 });
+
+const { buildYahooMap, flattenYahooPlayer } = require("./sync/adpYahoo");
+
+// Yahoo nests a player as an array of mixed objects, so the flattener -- not a
+// fixed path -- is what makes this readable.
+test("a yahoo player flattens out of its nested shape", () => {
+  const raw = [
+    [
+      { player_key: "470.p.40059" },
+      { player_id: "40059" },
+      { name: { full: "Jahmyr Gibbs", first: "Jahmyr" } },
+      { editorial_team_abbr: "Det" },
+      { display_position: "RB" },
+    ],
+    { draft_analysis: { average_pick: "1.3" } },
+  ];
+  const flat = flattenYahooPlayer(raw);
+  assert.strictEqual(flat.full, "Jahmyr Gibbs");
+  assert.strictEqual(flat.display_position, "RB");
+  assert.strictEqual(flat.editorial_team_abbr, "Det");
+  assert.strictEqual(flat.average_pick, "1.3");
+});
+
+// "Det" must become "DET" or nothing joins.
+test("yahoo mixed-case teams are normalised", () => {
+  const { byStrict } = buildYahooMap([
+    { full: "Jahmyr Gibbs", display_position: "RB", editorial_team_abbr: "Det", average_pick: "1.3" },
+  ]);
+  assert.strictEqual(byStrict.get("RB|DET|jahmyr gibbs"), 1.3);
+});
+
+test("yahoo defences land in defByTeam", () => {
+  const { defByTeam } = buildYahooMap([
+    { full: "Houston", display_position: "DEF", editorial_team_abbr: "Hou", average_pick: "92.6" },
+  ]);
+  assert.strictEqual(defByTeam.get("HOU"), 92.6);
+});
+
+test("a yahoo row with no average_pick is skipped", () => {
+  const { byStrict } = buildYahooMap([
+    { full: "Nobody", display_position: "RB", editorial_team_abbr: "Det" },
+    { full: "Ghost", display_position: "RB", editorial_team_abbr: "Det", average_pick: "-" },
+  ]);
+  assert.strictEqual(byStrict.size, 0);
+});
+
+const yahooFixture = require("./sync/__fixtures__/yahoo-adp.json");
+
+test("the yahoo adapter reads a real captured payload", () => {
+  const game = yahooFixture.fantasy_content.game;
+  const block = game.find((part) => part && typeof part === "object" && part.players);
+  const n = Number(block.players.count);
+  const flat = [];
+  for (let i = 0; i < n; i++) flat.push(flattenYahooPlayer(block.players[String(i)].player));
+
+  assert.ok(flat.every((f) => f.full), "every captured player should have a name");
+  const { byStrict, defByTeam } = buildYahooMap(flat);
+  assert.ok(byStrict.size + defByTeam.size >= 1);
+});
