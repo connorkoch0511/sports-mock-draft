@@ -693,8 +693,20 @@ const FLOOR = 0.8; // of the top 200 Sleeper players carrying an FFC rank
 
 async function main() {
   const dump = await (await fetch("https://api.sleeper.app/v1/players/nfl")).json();
+
+  // Ordered by Sleeper's own search_rank, NOT by Object.values order. Object
+  // keys that look like integers come back in ascending numeric order, so
+  // slicing the raw values hands you the 200 lowest player ids -- long-tenured
+  // veterans nobody drafts -- and every source then scores about 30%, which
+  // reads as a broken join when nothing is broken at all. search_rank is
+  // Sleeper's fantasy relevance, so this is genuinely the top of the pool.
   const pool = Object.values(dump)
-    .filter((p) => p.active && p.team && ["QB", "RB", "WR", "TE", "K", "DEF"].includes(p.position))
+    .filter(
+      (p) =>
+        p.active && p.team && p.search_rank != null &&
+        ["QB", "RB", "WR", "TE", "K", "DEF"].includes(p.position)
+    )
+    .sort((a, b) => a.search_rank - b.search_rank)
     .slice(0, 200);
 
   const maps = {
@@ -730,10 +742,16 @@ main().catch((e) => { console.error(e); process.exit(1); });
 
 Run: `cd backend/src && node scripts/checkAdpCoverage.js`
 
-Expected: both sources print a rate and the process exits 0. **If either is
-below the floor, stop and report it rather than lowering the floor** — a low
-rate means the join is wrong, and lowering the number would hide exactly the
-defect this exists to catch. Record both percentages in your report.
+Expected: both sources print a rate and the process exits 0. Measured against
+this pool on 7 Sep 2026: **ESPN 96.0%, Yahoo 90.0%**, with the shipped FFC
+adapter at 92.0% as a control. Anything near those numbers is healthy.
+
+**If either is below the floor, stop and report it rather than lowering the
+floor** — a low rate means the join is wrong, and lowering the number would
+hide exactly the defect this exists to catch. Run the shipped FFC adapter over
+the same pool as a control before concluding anything: if FFC scores badly too,
+the pool is wrong rather than the adapter. Record both percentages in your
+report.
 
 - [ ] **Step 6: Commit**
 
