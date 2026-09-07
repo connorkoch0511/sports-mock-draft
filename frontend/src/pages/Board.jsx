@@ -19,6 +19,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { apiGet, apiPut } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { PlayerModal } from "../components/draft/PlayerModal";
+import { download } from "../lib/download";
+import { boardToCsv, boardToJson, boardFilename } from "../lib/boardFile";
 
 const POS_COLORS = {
   QB: "text-rose-300", RB: "text-emerald-300", WR: "text-cyan-300",
@@ -267,9 +269,32 @@ export default function Board() {
             {board.format.toUpperCase()} · {board.season} · {rows.length} players
           </p>
         </div>
-        <span data-testid="save-status" className="text-xs text-zinc-400">
-          {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : status === "dirty" ? "Unsaved" : status === "error" ? "Save failed" : ""}
-        </span>
+        <div className="flex items-center gap-2">
+          <span data-testid="save-status" className="text-xs text-zinc-400">
+            {status === "saving" ? "Saving…" : status === "saved" ? "Saved ✓" : status === "dirty" ? "Unsaved" : status === "error" ? "Save failed" : ""}
+          </span>
+          {/*
+            Exports the order on screen, which is the reconciled one -- what
+            you see is what leaves, including any players added since you last
+            touched the board.
+          */}
+          <button
+            type="button"
+            data-testid="export-csv"
+            onClick={() => download(boardFilename(board, "csv"), boardToCsv(board, rows), "text/csv")}
+            className="rounded-xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600"
+          >
+            Export CSV
+          </button>
+          <button
+            type="button"
+            data-testid="export-json"
+            onClick={() => download(boardFilename(board, "json"), boardToJson(board, rows), "application/json")}
+            className="rounded-xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600"
+          >
+            Export JSON
+          </button>
+        </div>
       </div>
 
       {(board.changelog.added > 0 || board.changelog.removed > 0) && (

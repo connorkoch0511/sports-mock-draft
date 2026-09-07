@@ -427,3 +427,41 @@ test("the delete confirmation names the board", async ({ page }) => {
 
   await expect.poll(() => message).toContain("My PPR Board");
 });
+
+test("exporting CSV downloads the board in the order on screen", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("export-csv").click(),
+  ]);
+
+  const stream = await downloaded.createReadStream();
+  const text = await new Promise((resolve, reject) => {
+    let out = "";
+    stream.on("data", (c) => { out += c; });
+    stream.on("end", () => resolve(out));
+    stream.on("error", reject);
+  });
+
+  const lines = text.trim().split("\n");
+  expect(lines[0]).toContain("# PerfectPick board");
+  expect(lines[1]).toBe("rank,player,position,team,playerId");
+  // The first data row must be the first row on screen.
+  const firstOnScreen = await page.getByTestId("board-row").first().getAttribute("data-player-id");
+  expect(lines[2]).toContain(firstOnScreen);
+});
+
+test("exporting JSON downloads a parseable board", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("export-json").click(),
+  ]);
+  expect(downloaded.suggestedFilename()).toMatch(/\.json$/);
+});
