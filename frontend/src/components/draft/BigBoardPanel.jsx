@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { orderByBoard } from "../../lib/boardOrder";
+import { adpTrio, PLATFORM_WIDE_NOTE } from "../../lib/adpSources";
 import { adviseOnPick, NO_ADVICE } from "../../lib/pickAdvice";
 import { ReasonList, ADVICE_BASIS } from "./ReasonList";
 import { PlayerModal } from "./PlayerModal";
@@ -277,7 +278,21 @@ export function BigBoardPanel({
                     {p.name}
                   </div>
                   <div className="text-xs text-zinc-400">
-                    {p.adp != null ? `ADP ${p.adp}` : "ADP —"}
+                    {/*
+                      All three inline rather than one number: the point of the
+                      feature is seeing where the sources disagree, and a
+                      player one service likes a round earlier than another is
+                      only visible if both are on screen at once.
+                    */}
+                    <span data-testid="adp-trio" title={PLATFORM_WIDE_NOTE}>
+                      {adpTrio(p.adp, p.adpBySource).map((s, i) => (
+                        <span key={s.key}>
+                          {i > 0 ? <span className="mx-1 text-zinc-600">·</span> : null}
+                          <span className="text-zinc-500">{s.label} </span>
+                          <span className="tabular-nums">{s.text}</span>
+                        </span>
+                      ))}
+                    </span>
                     {p.delta != null && p.delta !== 0 ? (
                       <span className={p.delta > 0 ? "ml-1 text-emerald-400" : "ml-1 text-rose-400"}>
                         {p.delta > 0 ? `+${p.delta}` : p.delta}

@@ -265,6 +265,26 @@ test.describe("Draft page", () => {
     await page.screenshot({ path: `${SCREENSHOTS}/draft.png`, fullPage: false });
   });
 
+  test("the pool shows every source's ADP, and a dash where a source has none", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+    // Registered last, so it wins over the fixture's own /players* route.
+    await page.route("**/players*", (r) =>
+      r.fulfill({ json: { players: [
+        { id: "p1", name: "Ja'Marr Chase", position: "WR", team: "CIN", rank: 1, adp: 4.2, tier: 1, adpBySource: { espn: 4.2, yahoo: 3.5 } },
+        { id: "p2", name: "Jaylen Waddle", position: "WR", team: "MIA", rank: 40, adp: 40.1, tier: 4, adpBySource: { espn: 28.4 } },
+      ] } })
+    );
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    const rows = page.getByTestId("adp-trio");
+    await expect(rows.first()).toHaveText(/ours\s*4\.2.*esp\s*4\.2.*yah\s*3\.5/s);
+    await expect(rows.nth(1)).toHaveText(/ours\s*40\.1.*esp\s*28\.4.*yah\s*—/s);
+  });
+
 });
 
 // --- Pinning the Big Board row before it is restructured -------------------
