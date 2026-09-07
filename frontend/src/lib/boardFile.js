@@ -77,6 +77,14 @@ const DEFAULT_META = { name: "Imported board", format: "ppr", season: 2026 };
 const NAME_HEADERS = ["player", "name", "playername"];
 const ID_HEADERS = ["playerid", "id"];
 
+// A bare rank, and a rank used to number a hand-typed line ("3. ", "3) ").
+const RANK_FIELD = /^\d+\.?$/;
+const RANK_PREFIX = /^\d+\s*[.)]?\s+/;
+
+function everyRow(rows, col, re) {
+  return rows.every((r) => re.test(String(r[col] ?? "").trim()));
+}
+
 /**
  * The whole file into rows of fields, quote-aware.
  *
@@ -94,6 +102,7 @@ function csvRows(text) {
   let row = [];
   let field = "";
   let inQuotes = false;
+  let openedAt = -1;
 
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
@@ -103,6 +112,7 @@ function csvRows(text) {
       else field += c;
     } else if (c === '"') {
       inQuotes = true;
+      openedAt = i;
     } else if (c === ",") {
       row.push(field); field = "";
     } else if (c === "\n" || c === "\r") {
@@ -113,6 +123,18 @@ function csvRows(text) {
       field += c;
     }
   }
+  // Reaching the end still inside a quote means every row after the stray one
+  // was swallowed into a single field. Left alone this is the worst kind of
+  // failure: the file parses, the swallowed players are silently gone, and the
+  // report cheerfully counts what survived. Better to refuse the file and say
+  // where to look.
+  if (inQuotes) {
+    const line = text.slice(0, openedAt).split(/\r\n|\r|\n/).length;
+    throw new Error(
+      `That CSV has a quotation mark on line ${line} that is never closed, so everything after it ran together. Look for a stray " and try again.`
+    );
+  }
+
   row.push(field);
   rows.push(row);
 
@@ -162,15 +184,42 @@ function parseCsv(text) {
   if (body.length === 0) throw new Error("That file has no players in it.");
 
   const headers = body[0].map((h) => h.toLowerCase().replace(/[^a-z]/g, ""));
-  const nameAt = headers.findIndex((h) => NAME_HEADERS.includes(h));
-  const idAt = headers.findIndex((h) => ID_HEADERS.includes(h));
-  if (nameAt === -1 && idAt === -1) {
+  let nameAt = headers.findIndex((h) => NAME_HEADERS.includes(h));
+  let idAt = headers.findIndex((h) => ID_HEADERS.includes(h));
+
+  // The file someone typed by hand is the one likeliest to carry no header at
+  // all, and it is the file this feature exists to accept, so infer the shape
+  // rather than refuse it. Two rows is the floor: with a single row there is
+  // nothing to tell a header-only file, a stray line of prose and a one-player
+  // list apart, and guessing wrong on prose would create a board out of
+  // somebody's shopping list.
+  const numberedRows = everyRow(body, 0, RANK_FIELD);
+  const headerless =
+    nameAt === -1 && idAt === -1 && body.length >= 2 &&
+    // One column is a list of names. More than one is only recognisable when
+    // the first is a rank in every row -- otherwise "alpha,beta" would import
+    // two players called alpha and 1. Inferring names out of arbitrary columns
+    // is worse than refusing the file, because the refusal says what to fix
+    // and the guess quietly produces a board of nonsense.
+    (body[0].length === 1 || numberedRows);
+  if (headerless) {
+    // Ids are never inferred: unlike a rank they have no shape to recognise,
+    // and a wrong guess puts the wrong player on the board.
+    nameAt = numberedRows && body[0].length > 1 ? 1 : 0;
+    idAt = -1;
+  } else if (nameAt === -1 && idAt === -1) {
     throw new Error("That CSV has no player column. Expected a column named player or playerId.");
   }
 
+  // "1. Christian McCaffrey" is how a person numbers a list they are typing.
+  // Only stripped when every row carries the prefix, so a name is never eaten
+  // on the strength of one odd-looking row.
+  const numbered = headerless && everyRow(body, nameAt, RANK_PREFIX);
+
   const players = [];
-  for (const fields of body.slice(1)) {
-    const name = nameAt === -1 ? "" : (fields[nameAt] ?? "").trim();
+  for (const fields of headerless ? body : body.slice(1)) {
+    let name = nameAt === -1 ? "" : (fields[nameAt] ?? "").trim();
+    if (numbered) name = name.replace(RANK_PREFIX, "");
     const playerId = idAt === -1 ? null : ((fields[idAt] ?? "").trim() || null);
     // A row naming nobody is a blank line with commas in it.
     if (!name && !playerId) continue;

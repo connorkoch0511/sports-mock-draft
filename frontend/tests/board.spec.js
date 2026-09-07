@@ -634,6 +634,24 @@ test("a file matching only an ambiguous name says so, rather than blaming the po
   await expect.poll(() => deleted).toBe(true);
 });
 
+// The file a friend types by hand has no header and no ids -- just names. It
+// is the plainest thing anyone would send, and it used to be rejected outright.
+test("a hand-typed list of names imports, in the order it was written", async ({ page }) => {
+  let sent = null;
+  await mockImport(page, { rows: POOL_ROWS, onOrder: (o) => { sent = o; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "my-guys.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("1. Justin Jefferson\n2. Christian McCaffrey\n"),
+  });
+
+  await expect(page).toHaveURL(/\/board\/b-imported$/);
+  expect(sent).toEqual(["p2", "p1"]);
+});
+
 // The zero-match path was not the only way to strand a board. Every step after
 // the POST can fail, and each one used to leave an empty "(imported)" board in
 // the list with nothing to explain it.
