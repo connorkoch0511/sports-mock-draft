@@ -8,9 +8,9 @@
  * rank you did not choose, and nothing says so.
  */
 
-// Stripped only as whole trailing words, so a surname that merely ends in
+// Stripped only as whole trailing words, so a surname that merely contains
 // these letters survives. A regex over the raw string would turn "Bryce Ivy"
-// into "Bryce".
+// into "Bryce", the "iv" having been read as a suffix.
 const SUFFIXES = new Set(["jr", "sr", "ii", "iii", "iv", "v"]);
 
 export function normaliseName(name) {

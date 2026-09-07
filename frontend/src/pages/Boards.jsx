@@ -65,17 +65,13 @@ export default function Boards() {
   const importBoard = async (file) => {
     // A second file chosen before the first finishes would create a second
     // board and race it to the navigation, leaving the loser behind unexplained.
-    // A ref rather than the state, because this has to read true from the
-    // instant the first call starts, not after the next render.
+    // A ref rather than the state, because it has to read true from the instant
+    // the first call starts -- state would not, and reading the file is itself
+    // a wait during which a second call could get past this.
     if (importingRef.current) return;
+    importingRef.current = true;
+    setImporting(true);
     setErr("");
-    let parsed;
-    try {
-      parsed = parseBoardFile(await file.text());
-    } catch (e) {
-      setErr(e.message);
-      return;
-    }
 
     // Every way out of the block below that has not saved an order leaves the
     // board it created sitting in the person's list, so cleanup belongs in one
@@ -84,9 +80,17 @@ export default function Boards() {
     // createdId is cleared only once the order is saved and the board is
     // genuinely theirs.
     let createdId = null;
-    importingRef.current = true;
-    setImporting(true);
     try {
+      let parsed;
+      try {
+        parsed = parseBoardFile(await file.text());
+      } catch (e) {
+        // Its own catch because the parser's message names what is wrong with
+        // the file, which is far more use than the generic one below.
+        setErr(e.message);
+        return;
+      }
+
       const { boardId } = await apiPost("/boards", {
         name: `${parsed.meta.name} (imported)`,
         format: parsed.meta.format,
@@ -100,7 +104,15 @@ export default function Boards() {
       const result = matchPlayers(parsed.players, created.rows);
 
       if (result.order.length === 0) {
-        setErr("None of those players are in this season's pool, so there was nothing to import.");
+        // Which reason it was matters. Telling someone their players are not in
+        // the pool when the pool holds two of each is both wrong and impossible
+        // to act on, and the report that would have explained it never renders
+        // -- there is no board to navigate to.
+        setErr(
+          result.ambiguous.length > 0
+            ? `More than one player shares each of these names, so nothing could be imported: ${result.ambiguous.join(", ")}.`
+            : "None of those players are in this season's pool, so there was nothing to import."
+        );
         return;
       }
 

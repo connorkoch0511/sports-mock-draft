@@ -50,7 +50,7 @@ export function boardToJson(board, rows) {
       // missing field is an empty column rather than a missing one.
       players: rows.map((r, i) => ({
         rank: i + 1,
-        playerId: String(r.playerId),
+        playerId: r.playerId == null ? null : String(r.playerId),
         name: r.name ?? null,
         position: r.position ?? null,
         team: r.team ?? null,

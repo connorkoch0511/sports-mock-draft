@@ -464,8 +464,8 @@ test("exporting CSV downloads the board in the order on screen", async ({ page }
   expect(lines[1]).toBe("rank,player,position,team,playerId");
 
   // Every row in order, not just the first: a swap further down is exactly the
-  // kind of regression a first-row check waves through. playerId is the last
-  // field, and no name in this slice of the fixture contains a comma.
+  // kind of regression a first-row check waves through. Taking the LAST field
+  // is what makes this safe against a name containing commas.
   const exported = lines.slice(2).map((l) => l.split(",").pop());
   const onScreen = await page
     .getByTestId("board-row")
@@ -513,7 +513,7 @@ async function mockImport(page, { rows, onOrder, onDelete, failGet, failPut }) {
     }
     if (failGet) return r.fulfill({ status: 500, json: { message: "Could not load that board" } });
     return r.fulfill({
-      json: { boardId: "b-imported", name: "Imported", sport: "nfl", format: "ppr", season: 2026, version: 1, rows, changelog: [] },
+      json: { boardId: "b-imported", name: "Imported", sport: "nfl", format: "ppr", season: 2026, version: 1, rows, changelog: { added: 0, removed: 0 } },
     });
   });
 }
@@ -566,6 +566,11 @@ test("a clean import shows no report at all", async ({ page }) => {
   });
 
   await expect(page).toHaveURL(/\/board\/b-imported$/);
+  // Wait for the board itself. toHaveCount(0) is satisfied the instant the page
+  // is still showing "Loading...", because the report sits below that early
+  // return -- so without this the assertion resolves before anything could have
+  // rendered, and passes just as happily against a report shown unconditionally.
+  await expect(page.getByTestId("board-row").first()).toBeVisible();
   await expect(page.getByTestId("import-report")).toHaveCount(0);
 });
 
@@ -603,6 +608,29 @@ test("an import matching nobody deletes the board it created", async ({ page }) 
   });
 
   await expect(page.getByText(/nothing to import/i)).toBeVisible();
+  await expect.poll(() => deleted).toBe(true);
+});
+
+// "Not in this season's pool" would be a lie here -- the player is in the pool
+// twice, which is why nothing could be imported. The report that would explain
+// it never renders, because there is no board to navigate to.
+test("a file matching only an ambiguous name says so, rather than blaming the pool", async ({ page }) => {
+  const twins = [
+    { playerId: "t1", name: "Michael Thomas", position: "WR", team: "NO", myRank: 1, consensusRank: 1, delta: 0 },
+    { playerId: "t2", name: "Michael Thomas", position: "S", team: "HOU", myRank: 2, consensusRank: 2, delta: 0 },
+  ];
+  let deleted = false;
+  await mockImport(page, { rows: twins, onDelete: () => { deleted = true; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv", mimeType: "text/csv",
+    buffer: Buffer.from("rank,player\n1,Michael Thomas\n"),
+  });
+
+  await expect(page.getByText(/more than one player shares/i)).toBeVisible();
+  await expect(page.getByText(/not in this season|nothing to import/i)).toHaveCount(0);
   await expect.poll(() => deleted).toBe(true);
 });
 

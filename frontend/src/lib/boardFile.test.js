@@ -151,7 +151,7 @@ test("an extra column is ignored rather than fatal", () => {
   assert.strictEqual(parseBoardFile(text).players[0].playerId, "4034");
 });
 
-test("a file of names only parses, with no ids", () => {
+test("a file with a player column but no id column parses", () => {
   const text = "player\nChristian McCaffrey\nJustin Jefferson\n";
   const { players } = parseBoardFile(text);
   assert.deepStrictEqual(players, [
