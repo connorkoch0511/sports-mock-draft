@@ -165,6 +165,18 @@ test("a board row with no per-source ADP shows dashes, not zeros", async ({ page
   await expect(page.getByTestId("adp-trio").first()).toContainText("—");
 });
 
+// The per-row "adp-trio" title= is mouse-only -- unreachable by keyboard or
+// screen reader. Deleting PLATFORM_WIDE_NOTE from Board.jsx must fail this.
+test("the platform-wide ADP caveat is visible small print, not just a title attribute", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const note = page.getByTestId("adp-source-note");
+  await expect(note).toBeVisible();
+  await expect(note).toContainText("whole platform");
+});
+
 test("renders the board in saved order", async ({ page }) => {
   await mockBoard(page, makeBoardState());
   await signIn(page);

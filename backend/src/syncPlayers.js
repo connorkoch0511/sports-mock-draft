@@ -52,8 +52,19 @@ const YAHOO_PAGE = 100; // verified: Yahoo honours count=100, so 3 pages
  * A miss leaves the key ABSENT rather than null or 0: both of those would
  * reach the UI as a genuine ADP, and a player nobody has ranked would appear
  * to be the first pick of the draft.
+ *
+ * Returns how many players got a number from each source. A source that
+ * fetches successfully but joins onto nobody -- a wholesale ID/name-scheme
+ * change upstream, or a season rollover where ADP_YEAR was bumped before
+ * ESPN published that year's rankings -- looks, from `sourceMaps.espn` alone,
+ * exactly like a healthy run: no error is thrown, no line is logged. The
+ * count is the only thing that tells the two apart, the same reason
+ * `statsMatched` exists below for season stats.
  */
 function attachAdpBySource(players, maps) {
+  const matched = {};
+  for (const source of Object.keys(maps)) matched[source] = 0;
+
   for (const pl of players) {
     const bySource = {};
     for (const [source, m] of Object.entries(maps)) {
@@ -63,10 +74,15 @@ function attachAdpBySource(players, maps) {
       let adp = m.byStrict.get(`${pl.position}|${team}|${pl.nameKey}`);
       if (adp == null && pl.position === "DEF") adp = m.defByTeam.get(team);
       if (adp == null && pl.position === "K") adp = m.kByName.get(pl.nameKey);
-      if (adp != null) bySource[source] = adp;
+      if (adp != null) {
+        bySource[source] = adp;
+        matched[source] += 1;
+      }
     }
     if (Object.keys(bySource).length > 0) pl.adpBySource = bySource;
   }
+
+  return matched;
 }
 
 exports.handler = async () => {
@@ -139,7 +155,7 @@ exports.handler = async () => {
     console.error("Yahoo ADP unavailable:", e.message);
     sourceMaps.yahoo = null;
   }
-  attachAdpBySource(basePlayers, sourceMaps);
+  const sourceMatched = attachAdpBySource(basePlayers, sourceMaps);
 
   // 4) Season stats. Deliberately wrapped: this job rewrites the entire
   // players table unattended every day, so a Sleeper outage or a shape change
@@ -245,6 +261,13 @@ exports.handler = async () => {
       adpYear: ADP_YEAR,
       withAdp: countsByFormat,
       formats: FORMATS,
+      // A source that fetches fine but matches nobody -- e.g. ADP_YEAR bumped
+      // at season rollover before ESPN publishes that year's rankings -- logs
+      // nothing and throws nothing, so it is otherwise indistinguishable from
+      // a healthy run. These counts are the tell, the same role statsMatched
+      // plays for season stats below.
+      espnMatched: sourceMatched.espn,
+      yahooMatched: sourceMatched.yahoo,
       statsSeason,
       statsMatched,
       gameLogWeeks,

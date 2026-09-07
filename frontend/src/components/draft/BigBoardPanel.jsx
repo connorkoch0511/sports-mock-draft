@@ -69,9 +69,11 @@ export function BigBoardPanel({
 
   // Between filtering and paging, deliberately. `pagedPlayers` is one page of
   // 50, so sorting that would only shuffle the page you happen to be on and
-  // look broken the moment you turned it. `advice` below keeps reading
-  // `filtered`, because scarcity is about which players remain, not the order
-  // they are listed in.
+  // look broken the moment you turned it. `advice` below does NOT read
+  // `filtered` -- it is handed the full `players` pool, because scarcity is
+  // about the whole draft's remaining players, not this panel's search/filter
+  // state. The only thing below that still reads `filtered` is the player
+  // counter (`filtered.length`).
   const sorted = useMemo(() => {
     if (adpSort === "ours") return filtered;
     return [...filtered].sort(
@@ -269,6 +271,26 @@ export function BigBoardPanel({
         </div>
 
         <div data-testid="scroll-big-board" className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
+          {/*
+            Visible small print, not just the per-row `title` on "adp-trio"
+            below -- a title is mouse-only (unreachable by keyboard or screen
+            reader) and here it sits on a span nested inside an already-titled
+            row button, which makes it doubly unreachable. This is the one
+            place a person can actually find the caveat.
+
+            Inside the scrollable list, not a sibling of it -- a sibling row
+            here is exactly the mistake the adp-sort comment above already
+            warns about: this panel's height is fixed by the three-column
+            page layout, so a new full-width row above `flex-1` shrinks the
+            list's own height instead of shrinking around it, and at this
+            panel's actual size that squeezed the row list down to a sliver,
+            making every row underneath unclickable. As the first scrollable
+            item it costs nothing from the fixed layout budget.
+          */}
+          <p data-testid="adp-source-note" className="text-xs text-zinc-500">
+            {PLATFORM_WIDE_NOTE}
+          </p>
+
           {pagedPlayers.map((p) => (
             // The row opens the player; the Draft button drafts him. Reading
             // is the safe default and committing is deliberate -- a whole-row

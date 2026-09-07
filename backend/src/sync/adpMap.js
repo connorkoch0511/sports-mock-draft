@@ -23,7 +23,14 @@ function keepLowest(map, key, adp) {
 }
 
 function putAdp(maps, { pos, team, nameKey, adp }) {
-  if (!pos || !team || !adp || Number.isNaN(adp)) return;
+  // Finite and above zero, not merely truthy. A bare `!adp || isNaN` lets two
+  // values through that have no business in a draft position. Infinity is the
+  // dangerous one: JSON.parse turns 1e999 into it, DynamoDB's marshall throws
+  // on it, and the batch write that follows has no try/catch -- so one absurd
+  // number from a third party leaves the players table half rewritten. A
+  // negative is quieter but still wrong: it renders as a dash and then sorts
+  // ABOVE players with real numbers.
+  if (!pos || !team || !Number.isFinite(adp) || adp <= 0) return;
 
   if (pos === "DEF") {
     keepLowest(maps.defByTeam, team, adp);

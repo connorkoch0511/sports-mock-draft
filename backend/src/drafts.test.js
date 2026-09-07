@@ -693,7 +693,12 @@ test("a picked player's per-source ADP survives into GET /drafts/{draftId}", asy
   assert.deepStrictEqual(body.picks[0].player.adpBySource, { espn: 5.1, yahoo: 6.0 });
 });
 
-test("auto-pick's picked player carries per-source ADP", async () => {
+// This checks the response envelope only -- `body.picked` is the pool entry
+// (`best`), which already carried adpBySource before this fix and is a
+// different object from what gets written onto d.picks[i].player. See the
+// two "stored pick" tests below for the site that actually matters: the one
+// the reviewer found had zero test coverage of any kind.
+test("auto-pick's response body carries the pool entry's per-source ADP", async () => {
   const draftItem = {
     draftId: "d1",
     ownerId: "user-me",
@@ -727,6 +732,96 @@ test("auto-pick's picked player carries per-source ADP", async () => {
   );
   const body = JSON.parse(res.body);
   assert.deepStrictEqual(body.picked.adpBySource, { espn: 12.1, yahoo: 12.5 });
+});
+
+// The two tests above (the manual "survives into GET" test up above, and the
+// one right above this) never actually cover auto-pick's or sim-to-end's
+// stored literal at drafts.js:363/407 -- deleting `...withAdpBySource(best.
+// adpBySource)` from either site left the suite at 298/298 green. Drive the
+// real handler and re-read the draft the way the client would, so the stored
+// `d.picks[i].player` snapshot is what gets asserted.
+test("auto-pick's stored pick carries per-source ADP into GET /drafts/{draftId}", async () => {
+  const draftItem = {
+    draftId: "d1",
+    ownerId: "user-me",
+    seats: [{ team: 1, sub: "user-me", kind: "human" }],
+    sport: "nfl",
+    format: "standard",
+    picked: [],
+    picks: [{ overall: 1, round: 1, team: 1, playerId: null, player: null }],
+    currentIndex: 0,
+  };
+  const poolItems = [
+    {
+      sport: "nfl",
+      id: "p1",
+      playerId: "p1",
+      name: "Player One",
+      position: "RB",
+      team: "SF",
+      rank: { standard: 10 },
+      adp: { standard: 12.3 },
+      tier: { standard: 2 },
+      adpBySource: { espn: 12.1, yahoo: 12.5 },
+    },
+  ];
+  // Both handler calls read/write the same `draftItem`, so auto-pick's
+  // in-place mutation of d.picks is what the later GET reads back.
+  stubByTable({
+    "drafts-test": { Item: draftItem },
+    "players-test": { Items: poolItems },
+  });
+
+  const pickRes = await handler(
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME })
+  );
+  assert.strictEqual(pickRes.statusCode, 200);
+
+  const getRes = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.strictEqual(getRes.statusCode, 200);
+  const body = JSON.parse(getRes.body);
+  assert.deepStrictEqual(body.picks[0].player.adpBySource, { espn: 12.1, yahoo: 12.5 });
+});
+
+test("sim-to-end's stored pick carries per-source ADP into GET /drafts/{draftId}", async () => {
+  const draftItem = {
+    draftId: "d1",
+    ownerId: "user-me",
+    seats: [{ team: 1, sub: "user-me", kind: "human" }],
+    sport: "nfl",
+    format: "standard",
+    picked: [],
+    picks: [{ overall: 1, round: 1, team: 1, playerId: null, player: null }],
+    currentIndex: 0,
+  };
+  const poolItems = [
+    {
+      sport: "nfl",
+      id: "p1",
+      playerId: "p1",
+      name: "Player One",
+      position: "RB",
+      team: "SF",
+      rank: { standard: 10 },
+      adp: { standard: 12.3 },
+      tier: { standard: 2 },
+      adpBySource: { espn: 8.4, yahoo: 9.9 },
+    },
+  ];
+  stubByTable({
+    "drafts-test": { Item: draftItem },
+    "players-test": { Items: poolItems },
+  });
+
+  const simRes = await handler(
+    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", body: {}, claims: ME })
+  );
+  assert.strictEqual(simRes.statusCode, 200);
+
+  const getRes = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.strictEqual(getRes.statusCode, 200);
+  const body = JSON.parse(getRes.body);
+  assert.deepStrictEqual(body.picks[0].player.adpBySource, { espn: 8.4, yahoo: 9.9 });
 });
 
 test("sim-to-end success returns { ok: true, completed }", async () => {

@@ -364,6 +364,16 @@ export default function Board() {
         </div>
       )}
 
+      {/*
+        Visible small print, not just the per-row `title` on each row's
+        "adp-trio" -- a title is mouse-only (unreachable by keyboard or
+        screen reader), so this is the one place a person can actually find
+        the caveat.
+      */}
+      <p data-testid="adp-source-note" className="mb-2 text-xs text-zinc-500">
+        {PLATFORM_WIDE_NOTE}
+      </p>
+
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={rows.map((r) => r.playerId)} strategy={verticalListSortingStrategy}>
           <ul className="space-y-1">

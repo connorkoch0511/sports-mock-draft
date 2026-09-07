@@ -330,6 +330,22 @@ test.describe("Draft page", () => {
     await expect(page.getByTestId("adp-trio").last()).toHaveText(/ours\s*4\.2.*esp\s*—/s);
   });
 
+  // The per-row "adp-trio" title= is mouse-only and, in the Big Board, sits
+  // nested inside an already-titled row button -- unreachable either way.
+  // Deleting PLATFORM_WIDE_NOTE from BigBoardPanel.jsx must fail this test.
+  test("the platform-wide ADP caveat is visible small print, not just a title attribute", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    const note = page.getByTestId("adp-source-note");
+    await expect(note).toBeVisible();
+    await expect(note).toContainText("whole platform");
+  });
+
 });
 
 // --- Pinning the Big Board row before it is restructured -------------------

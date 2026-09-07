@@ -745,9 +745,25 @@ test("a matched player gets the source number, an unmatched one gets no key", ()
   const maps = {
     espn: { byStrict: new Map([["RB|DET|jahmyr gibbs", 1.32]]), defByTeam: new Map(), kByName: new Map() },
   };
-  attachAdpBySource(players, maps);
+  const matched = attachAdpBySource(players, maps);
   assert.deepStrictEqual(players[0].adpBySource, { espn: 1.32 });
   assert.strictEqual(players[1].adpBySource, undefined);
+  assert.strictEqual(matched.espn, 1, "exactly one player matched");
+});
+
+// The scenario the handler's response counts exist to catch: a source
+// answers successfully (it is present, not null) but its map matches nobody
+// in the pool -- a wholesale ID/name-scheme change, or ADP_YEAR bumped before
+// that source published. No error is thrown and nothing here logs; the
+// count is the only signal.
+test("a source that answers but matches nobody reports a zero count, not an error", () => {
+  const players = [{ position: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: {} }];
+  const maps = {
+    espn: { byStrict: new Map([["QB|KC|somebody else", 1.1]]), defByTeam: new Map(), kByName: new Map() },
+  };
+  const matched = attachAdpBySource(players, maps);
+  assert.strictEqual(players[0].adpBySource, undefined);
+  assert.strictEqual(matched.espn, 0);
 });
 
 test("a defence matches by team and a kicker by name", () => {
@@ -774,8 +790,10 @@ test("sources are independent", () => {
     espn: { byStrict: new Map([["RB|DET|jahmyr gibbs", 1.32]]), defByTeam: new Map(), kByName: new Map() },
     yahoo: null, // what a failed fetch leaves behind
   };
-  attachAdpBySource(players, maps);
+  const matched = attachAdpBySource(players, maps);
   assert.deepStrictEqual(players[0].adpBySource, { espn: 1.32 });
+  assert.strictEqual(matched.espn, 1);
+  assert.strictEqual(matched.yahoo, 0, "a null map (failed fetch) still reports a count, just zero");
 });
 
 // The actual nightly-outage scenario: both sources fail at once. adpBySource
@@ -790,4 +808,29 @@ test("both sources failing leaves adpBySource undefined, not an empty object", (
   };
   attachAdpBySource(players, maps);
   assert.strictEqual(players[0].adpBySource, undefined);
+});
+
+const { newAdpMaps, putAdp } = require("./sync/adpMap");
+
+// The guard's value half in one place: putAdp must reject 0, NaN, a negative
+// number, and Infinity, and accept nothing for any of them. A payload value
+// of `1e999` parses to Infinity (`JSON.parse('{"a":1e999}').a === Infinity`),
+// and DynamoDB's marshall() throws on a stored Infinity -- uncaught mid-batch,
+// that throw is what leaves the players table half rewritten. A negative
+// value used to slip through and sort above a real ADP instead of rendering
+// as "no data" and sorting last.
+test("putAdp rejects Infinity, a negative, 0, and NaN -- all four leave the map empty", () => {
+  for (const adp of [Infinity, -Infinity, -5, 0, NaN]) {
+    const maps = newAdpMaps();
+    putAdp(maps, { pos: "RB", team: "DET", nameKey: "jahmyr gibbs", adp });
+    assert.strictEqual(maps.byStrict.size, 0, `adp=${adp} must not be stored`);
+    assert.strictEqual(maps.defByTeam.size, 0, `adp=${adp} must not be stored`);
+    assert.strictEqual(maps.kByName.size, 0, `adp=${adp} must not be stored`);
+  }
+});
+
+test("putAdp still accepts a genuine positive ADP", () => {
+  const maps = newAdpMaps();
+  putAdp(maps, { pos: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: 1.32 });
+  assert.strictEqual(maps.byStrict.get("RB|DET|jahmyr gibbs"), 1.32);
 });
