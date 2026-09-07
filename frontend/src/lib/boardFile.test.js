@@ -238,3 +238,89 @@ test("a header with odd casing and padding still matches", () => {
   const { players } = parseBoardFile('Rank, Player , PlayerID \n1,Christian McCaffrey,4034\n');
   assert.deepStrictEqual(players[0], { playerId: "4034", name: "Christian McCaffrey" });
 });
+
+// A file with no header row at all. The spec always said this had to parse --
+// the person likeliest to send one is the person who typed it by hand, which
+// is the whole reason the feature exists.
+test("a headerless list of names parses", () => {
+  const r = parseBoardFile("Christian McCaffrey\nJustin Jefferson\n");
+  assert.deepStrictEqual(r.players.map((p) => p.name), ["Christian McCaffrey", "Justin Jefferson"]);
+  assert.deepStrictEqual(r.players.map((p) => p.playerId), [null, null]);
+});
+
+test("a headerless list numbered by hand loses the numbers, not the names", () => {
+  const r = parseBoardFile("1. Christian McCaffrey\n2) Justin Jefferson\n3 CeeDee Lamb\n");
+  assert.deepStrictEqual(r.players.map((p) => p.name), [
+    "Christian McCaffrey", "Justin Jefferson", "CeeDee Lamb",
+  ]);
+});
+
+test("a headerless file whose first column is a rank reads names from the second", () => {
+  const r = parseBoardFile("1,Christian McCaffrey,RB,SF\n2,Justin Jefferson,WR,MIN\n");
+  assert.deepStrictEqual(r.players.map((p) => p.name), ["Christian McCaffrey", "Justin Jefferson"]);
+});
+
+// The rank strip must not eat a name, so it applies only when every row is
+// numbered. One numbered line among unnumbered ones is not a numbering scheme.
+test("a name is not truncated because one row happens to start with a number", () => {
+  const r = parseBoardFile("1. Christian McCaffrey\nJustin Jefferson\n");
+  assert.deepStrictEqual(r.players.map((p) => p.name), ["1. Christian McCaffrey", "Justin Jefferson"]);
+});
+
+// Inferring a shape must not turn any old text file into a board. One row
+// cannot be told apart from prose, so it is still refused.
+test("a single line of prose is still refused", () => {
+  assert.throws(
+    () => parseBoardFile("just some notes I wrote"),
+    /no player column/i
+  );
+});
+
+test("a real header still wins over inference", () => {
+  const r = parseBoardFile("rank,player,playerId\n1,Christian McCaffrey,p1\n2,Justin Jefferson,p2\n");
+  assert.deepStrictEqual(r.players.map((p) => p.playerId), ["p1", "p2"]);
+});
+
+// An unbalanced quote used to swallow every row after it into one field. The
+// file still "parsed", the swallowed players were gone, and the import report
+// counted only the survivors -- so the number it showed was simply wrong.
+test("an unclosed quote is refused, naming the line to look at", () => {
+  const csv = [
+    "rank,player,playerId",
+    "1,Christian McCaffrey,p1",
+    '2,Ja"Marr Chase,p2',
+    "3,CeeDee Lamb,p3",
+    "4,Tyreek Hill,p4",
+  ].join("\n");
+  assert.throws(() => parseBoardFile(csv), /quotation mark on line 3 that is never closed/);
+});
+
+// The writer emits quoted fields containing newlines, so a legitimately quoted
+// file must not be caught by the check above.
+test("properly quoted fields, newlines and all, still parse", () => {
+  const csv = 'rank,player,playerId\n1,"Smith, Jr., DeVonta",p1\n2,"He said ""hi""",p2\n3,"two\nlines",p3\n';
+  const r = parseBoardFile(csv);
+  assert.deepStrictEqual(r.players.map((p) => p.name), ['Smith, Jr., DeVonta', 'He said "hi"', "two\nlines"]);
+});
+
+test("a list numbered with dashes or colons keeps clean names", () => {
+  for (const sep of ["-", ":", "–", "—", ".", ")"]) {
+    const r = parseBoardFile(`1 ${sep} Christian McCaffrey\n2 ${sep} Justin Jefferson\n`);
+    assert.deepStrictEqual(
+      r.players.map((p) => p.name),
+      ["Christian McCaffrey", "Justin Jefferson"],
+      `separator ${sep} left something behind`
+    );
+  }
+});
+
+// Pinning accepted behaviour, not endorsing it. Several lines of prose in one
+// column are indistinguishable from a list of names, so they parse. The damage
+// is capped downstream -- a shopping list matches no NFL player and the import
+// reports every line as not found -- but that safety net lives in another
+// module, so this test is here to make a future change to it visible rather
+// than silent.
+test("several lines of prose parse as names, and are caught by matching instead", () => {
+  const r = parseBoardFile("Buy milk\nCall the vet\nBook the flights\n");
+  assert.deepStrictEqual(r.players.map((p) => p.name), ["Buy milk", "Call the vet", "Book the flights"]);
+});
