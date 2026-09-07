@@ -71,31 +71,6 @@ export function boardFilename(board, ext) {
 
 const DEFAULT_META = { name: "Imported board", format: "ppr", season: 2026 };
 
-/**
- * One CSV line into fields, honouring RFC 4180 quoting.
- *
- * Written out rather than split(",") because a quoted field may contain a
- * comma, and a quoted field may contain a doubled quote meaning one quote.
- * Both occur in real player names.
- */
-function csvLineToFields(line) {
-  const fields = [];
-  let field = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQuotes) {
-      if (c === '"' && line[i + 1] === '"') { field += '"'; i++; }
-      else if (c === '"') inQuotes = false;
-      else field += c;
-    } else if (c === '"') inQuotes = true;
-    else if (c === ",") { fields.push(field); field = ""; }
-    else field += c;
-  }
-  fields.push(field);
-  return fields.map((f) => f.trim());
-}
-
 // Header names accepted for each column we care about. A hand-made file is
 // likelier to say "name" than "player", and being strict about that would
 // reject a file for no reason a user could see.
