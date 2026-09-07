@@ -1079,14 +1079,41 @@ git commit -m "feat: show every source's ADP in the draft pool"
 ### Task 7: Render the trio in the board editor
 
 **Files:**
+- Modify: `backend/src/boards.js` (the pool `.map(...)`)
+- Modify: `backend/src/lib/reconcile.js` (the `rows` map)
 - Modify: `frontend/src/pages/Board.jsx`
-- Test: `frontend/tests/board.spec.js`
+- Test: `backend/src/boards.test.js`, `frontend/tests/board.spec.js`
 
 **Interfaces:**
 - Consumes: `adpTrio`, `PLATFORM_WIDE_NOTE` (Task 5); `row.adpBySource` from `GET /boards/{boardId}` (Task 4).
 - Produces: a `data-testid="adp-trio"` element per board row.
 
-**Background the implementer needs.** Board rows have never shown ADP, so this adds a line rather than replacing one. Rows carry `myRank`, `consensusRank` and `delta`; `consensusRank` is a rank over the board's population and is NOT an ADP — do not pass it to `adpTrio` as our number. Our ADP for a board row is `row.adp` if present, otherwise `null`, which renders as a dash. Keep the existing drag handle behaviour untouched: the row is draggable everywhere except the player's name.
+**Background the implementer needs.** Board rows have never shown ADP, so this adds a line rather than replacing one.
+
+**Board rows do not currently carry our own ADP at all**, which is why this task touches the backend first. They carry `myRank`, `consensusRank`, `delta` and now `adpBySource`. `consensusRank` is a rank over the board's population and is NOT an ADP — passing it to `adpTrio` as our number would be wrong. Without the backend change below, every row would render `ours —` beside real ESPN and Yahoo numbers: our own number the only one missing, which reads as broken.
+
+Keep the existing drag handle behaviour untouched: the row is draggable everywhere except the player's name.
+
+- [ ] **Step 0: Carry our own ADP onto board rows**
+
+In `backend/src/boards.js`, in the pool `.map(...)` that builds `consensusRank`, add:
+
+```js
+      // Our own ADP, so the board editor can show it beside ESPN's and
+      // Yahoo's. consensusRank is a rank over this board's population and is
+      // a different number entirely -- it is not a stand-in for this.
+      adp: p.adp?.[format] ?? null,
+```
+
+In `backend/src/lib/reconcile.js`, in the `rows` map, carry it through:
+
+```js
+      adp: player.adp ?? null,
+```
+
+Add to `backend/src/boards.test.js` a test in the style of the neighbouring ones, asserting a board row carries `adp` for the requested format — it must ride through both files, exactly as `adpBySource` does.
+
+Run: `cd backend/src && npm test` — all pass.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1157,7 +1184,7 @@ Expected: PASS, including the existing drag and rename tests.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/pages/Board.jsx frontend/tests/board.spec.js
+git add backend/src/boards.js backend/src/lib/reconcile.js backend/src/boards.test.js frontend/src/pages/Board.jsx frontend/tests/board.spec.js
 git commit -m "feat: show every source's ADP in the board editor"
 ```
 
