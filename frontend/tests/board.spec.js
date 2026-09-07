@@ -3,6 +3,10 @@ import { BOARD_ID, makeBoardState } from "./fixtures.js";
 import { signIn } from "./auth.js";
 import { fileURLToPath } from "url";
 import path from "path";
+// eslint's config grants Node globals to playwright.config.js and scripts/**
+// but not tests/**, so the Node global Buffer used below by the import tests
+// needs an explicit import rather than tripping no-undef.
+import { Buffer } from "node:buffer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
@@ -464,4 +468,116 @@ test("exporting JSON downloads a parseable board", async ({ page }) => {
     page.getByTestId("export-json").click(),
   ]);
   expect(downloaded.suggestedFilename()).toMatch(/\.json$/);
+});
+
+// Importing always creates a brand-new board: /boards -> POST /boards -> GET
+// the created board's pool -> match -> PUT the order. `b-imported` stands in
+// for whatever id the server hands back from the POST.
+async function mockImport(page, { rows, onOrder, onDelete }) {
+  await page.route("**/me/boards", (r) => r.fulfill({ json: { boards: [] } }));
+  await page.route(`${API}/boards`, (r) =>
+    r.fulfill({ json: { boardId: "b-imported" } })
+  );
+  await page.route(`${API}/boards/b-imported`, (r) => {
+    const method = r.request().method();
+    if (method === "PUT") {
+      onOrder?.(r.request().postDataJSON().order);
+      return r.fulfill({ json: { ok: true, version: 2 } });
+    }
+    if (method === "DELETE") {
+      onDelete?.();
+      return r.fulfill({ json: { ok: true } });
+    }
+    return r.fulfill({
+      json: { boardId: "b-imported", name: "Imported", sport: "nfl", format: "ppr", season: 2026, version: 1, rows, changelog: [] },
+    });
+  });
+}
+
+const POOL_ROWS = [
+  { playerId: "p1", name: "Christian McCaffrey", position: "RB", team: "SF", myRank: 1, consensusRank: 1, delta: 0 },
+  { playerId: "p2", name: "Justin Jefferson", position: "WR", team: "MIN", myRank: 2, consensusRank: 2, delta: 0 },
+];
+
+test("importing a CSV creates a board in the file's order", async ({ page }) => {
+  let sent = null;
+  await mockImport(page, { rows: POOL_ROWS, onOrder: (o) => { sent = o; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("rank,player,playerId\n1,Justin Jefferson,p2\n2,Christian McCaffrey,p1\n"),
+  });
+
+  await expect(page).toHaveURL(/\/board\/b-imported$/);
+  expect(sent).toEqual(["p2", "p1"]);
+});
+
+test("a player who is not in the pool is named, not silently dropped", async ({ page }) => {
+  await mockImport(page, { rows: POOL_ROWS });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("rank,player\n1,Christian McCaffrey\n2,Rob Gronkowski\n"),
+  });
+
+  await expect(page.getByTestId("import-report")).toContainText("Imported 1 of 2");
+  await expect(page.getByTestId("import-report")).toContainText("Rob Gronkowski");
+});
+
+test("a clean import shows no report at all", async ({ page }) => {
+  await mockImport(page, { rows: POOL_ROWS });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("rank,player,playerId\n1,Christian McCaffrey,p1\n2,Justin Jefferson,p2\n"),
+  });
+
+  await expect(page).toHaveURL(/\/board\/b-imported$/);
+  await expect(page.getByTestId("import-report")).toHaveCount(0);
+});
+
+test("a file that is not a board says so and creates nothing", async ({ page }) => {
+  let created = false;
+  await page.route("**/me/boards", (r) => r.fulfill({ json: { boards: [] } }));
+  await page.route(`${API}/boards`, (r) => { created = true; return r.fulfill({ json: { boardId: "x" } }); });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("just some notes I wrote"),
+  });
+
+  await expect(page.getByText(/no player column/i)).toBeVisible();
+  expect(created).toBe(false);
+});
+
+// The brief's flow would leave an orphan board here: it creates the board
+// before it can know whether anything matched, so when nothing does, the
+// board it just created must be deleted rather than left behind, empty, in
+// the person's list.
+test("an import matching nobody deletes the board it created", async ({ page }) => {
+  let deleted = false;
+  await mockImport(page, { rows: POOL_ROWS, onDelete: () => { deleted = true; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("rank,player\n1,Le'Veon Bell\n2,Rob Gronkowski\n"),
+  });
+
+  await expect(page.getByText(/nothing to import/i)).toBeVisible();
+  await expect.poll(() => deleted).toBe(true);
 });

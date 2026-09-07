@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost, apiDelete } from "../lib/api";
+import { apiGet, apiPost, apiPut, apiDelete } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { fetchMyBoards } from "../lib/me";
+import { parseBoardFile } from "../lib/boardFile";
+import { matchPlayers } from "../lib/boardMatch";
 
 const BOARD_SEASON = 2026;
 
@@ -53,6 +55,56 @@ export default function Boards() {
       nav(`/board/${boardId}`);
     } catch (e) {
       setErr(e.message || "Failed to create board");
+    }
+  };
+
+  const fileRef = useRef(null);
+
+  const importBoard = async (file) => {
+    setErr("");
+    let parsed;
+    try {
+      parsed = parseBoardFile(await file.text());
+    } catch (e) {
+      setErr(e.message);
+      return;
+    }
+
+    let boardId;
+    try {
+      ({ boardId } = await apiPost("/boards", {
+        name: `${parsed.meta.name} (imported)`,
+        format: parsed.meta.format,
+        season: parsed.meta.season,
+      }));
+
+      // A new board reconciles to the whole eligible pool, so these rows are
+      // the pool -- exactly what the file's names have to be matched against.
+      const created = await apiGet(`/boards/${boardId}`);
+      const result = matchPlayers(parsed.players, created.rows);
+
+      if (result.order.length === 0) {
+        // Nothing matched, so the board just created above is empty and would
+        // otherwise sit in the list forever with no way for the person to
+        // know why it's there. We own it -- we just created it -- so delete
+        // it rather than leave an orphan behind. A delete failure here is not
+        // this person's problem: they still need to hear that their import
+        // found nothing, not that cleanup went wrong.
+        try {
+          await apiDelete(`/boards/${boardId}`);
+        } catch {
+          // Swallowed deliberately -- see comment above.
+        }
+        setErr("None of those players are in this season's pool, so there was nothing to import.");
+        return;
+      }
+
+      await apiPut(`/boards/${boardId}`, { order: result.order, version: created.version });
+      nav(`/board/${boardId}`, {
+        state: { importReport: { matched: result.order.length, total: parsed.players.length, ...result } },
+      });
+    } catch (e) {
+      setErr(e.message || "Could not import that board");
     }
   };
 
@@ -119,6 +171,29 @@ export default function Boards() {
             placeholder={`My ${format.toUpperCase()} Board`}
             className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
           />
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.json,text/csv,application/json"
+            data-testid="import-file"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Cleared so choosing the same file twice fires onChange twice --
+              // otherwise a failed import cannot be retried without picking a
+              // different file first.
+              e.target.value = "";
+              if (file) importBoard(file);
+            }}
+          />
+          <button
+            type="button"
+            data-testid="import-board"
+            onClick={() => fileRef.current?.click()}
+            className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-600"
+          >
+            Import board
+          </button>
           <button
             type="button"
             onClick={createBoard}

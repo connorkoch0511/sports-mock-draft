@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import {
   DndContext,
   KeyboardSensor,
@@ -108,6 +108,8 @@ function Row({ row, onOpen }) {
 
 export default function Board() {
   const { boardId } = useParams();
+  const location = useLocation();
+  const [report, setReport] = useState(location.state?.importReport ?? null);
   const [board, setBoard] = useState(null);
   // The title field's own value, so typing does not fight the loaded board.
   const [nameDraft, setNameDraft] = useState("");
@@ -304,6 +306,36 @@ export default function Board() {
       )}
 
       {err && <div className="mb-4 text-sm text-rose-300">{err}</div>}
+
+      {report && report.matched < report.total && (
+        <div
+          data-testid="import-report"
+          className="mb-4 rounded-2xl border border-cyan-800/40 bg-cyan-950/20 px-4 py-3 text-sm text-cyan-200"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p>Imported {report.matched} of {report.total} players.</p>
+              {/*
+                Named, not counted. "3 could not be imported" makes the reader
+                wonder which three, and the answer is already known here.
+              */}
+              {report.notFound.length > 0 && <p className="mt-1">Not found: {report.notFound.join(", ")}.</p>}
+              {report.ambiguous.length > 0 && (
+                <p className="mt-1">More than one player shares each of these names, so they were skipped: {report.ambiguous.join(", ")}.</p>
+              )}
+              {report.duplicates.length > 0 && <p className="mt-1">Listed more than once, kept at the first position: {report.duplicates.join(", ")}.</p>}
+            </div>
+            <button
+              type="button"
+              onClick={() => setReport(null)}
+              data-testid="import-report-dismiss"
+              className="shrink-0 text-xs text-cyan-300 hover:text-cyan-100"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={rows.map((r) => r.playerId)} strategy={verticalListSortingStrategy}>
