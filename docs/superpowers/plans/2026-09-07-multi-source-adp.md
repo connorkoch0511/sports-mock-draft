@@ -830,11 +830,16 @@ Expected: the new assertions fail — `undefined` where the map was expected.
 In each of the four files, add one line to the object literal, immediately after the existing `adp:` line (or after `consensusRank:` in `boards.js`/`reconcile.js`):
 
 ```js
-      // Spread as-is: it has no format dimension, because neither ESPN nor
-      // Yahoo publishes one. Absent stays absent -- an empty object would
-      // render as a source that exists but has no opinion.
-      ...(p.adpBySource ? { adpBySource: p.adpBySource } : {}),
+      ...adpBySourceField(p),
 ```
+
+`adpBySourceField` is a small shared helper in `backend/src/lib/`, not a spread
+written out six times. Two reasons, and the second is the one that matters:
+the identical three-line comment would otherwise be duplicated at every site,
+and a bare `p.adpBySource ? … : {}` does **not** enforce the rule it claims to
+— `{}` is truthy, so an empty map passes straight through to the client as a
+source that exists but has no opinion. The helper suppresses an empty map and
+lets a populated one through, including one holding a legitimate `0`.
 
 In `backend/src/lib/reconcile.js` the source object is `player`, so use `player.adpBySource` there. `reconcile.js` must also receive it: `boards.js` puts `adpBySource` on the pool objects it builds, and `reconcile` copies it onto each row.
 
@@ -903,6 +908,15 @@ test("a zero is treated as no number", () => {
   assert.strictEqual(adpTrio(0, { espn: 0 })[1].text, "—");
 });
 
+// The same mistake at the other end of the number line: Infinity passes a
+// bare `> 0` and would print the word "Infinity" in an ADP cell.
+test("an infinite adp is treated as no number", () => {
+  const trio = adpTrio(Infinity, { espn: Infinity });
+  assert.strictEqual(trio[0].text, "—");
+  assert.strictEqual(trio[0].value, null);
+  assert.strictEqual(trio[1].text, "—");
+});
+
 test("the platform-wide note says what it means", () => {
   assert.match(PLATFORM_WIDE_NOTE, /whole platform/);
 });
@@ -940,9 +954,11 @@ export function adpTrio(ourAdp, adpBySource) {
   const src = adpBySource ?? {};
   return SOURCE_LABELS.map(({ key, label }) => {
     const raw = key === "ours" ? ourAdp : src[key];
-    // 0 is not a draft position. Treating it as one would sort the player to
-    // the very top, which is the most misleading thing this could do.
-    const value = typeof raw === "number" && raw > 0 ? raw : null;
+    // Rejects 0, negatives, NaN and Infinity alike. 0 is not a draft position
+    // and would sort the player to the very top; Infinity is the same mistake
+    // at the other end, and renders as the literal word "Infinity" in a cell
+    // that should hold a number. isFinite is what makes the guard symmetric.
+    const value = Number.isFinite(raw) && raw > 0 ? raw : null;
     return { key, label, value, text: value == null ? "—" : value.toFixed(1) };
   });
 }
