@@ -14,6 +14,11 @@ const BASE = "https://pub-api-ro.fantasysports.yahoo.com/fantasy/v2/game/nfl/pla
  * Yahoo nests a player as an array of mixed objects and objects keyed by
  * numeric strings. Walking it and collecting every scalar is far more robust
  * than indexing a path that shifts whenever they add a field.
+ *
+ * Precedence is FIRST ENCOUNTERED in depth-first order -- not shallowest, and
+ * not most-specific. Yahoo currently sends each field we read exactly once, so
+ * nothing depends on the choice today; it is written down because if that ever
+ * stops being true, a wrong value here is silent.
  */
 function flattenYahooPlayer(node) {
   const flat = {};

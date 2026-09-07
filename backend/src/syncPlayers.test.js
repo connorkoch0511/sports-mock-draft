@@ -666,7 +666,7 @@ test("the espn adapter reads a real captured payload", () => {
   }
 });
 
-const { buildYahooMap, flattenYahooPlayer } = require("./sync/adpYahoo");
+const { buildYahooMap, flattenYahooPlayer, fetchYahooAdp } = require("./sync/adpYahoo");
 
 // Yahoo nests a player as an array of mixed objects, so the flattener -- not a
 // fixed path -- is what makes this readable.
@@ -713,16 +713,23 @@ test("a yahoo row with no average_pick is skipped", () => {
 
 const yahooFixture = require("./sync/__fixtures__/yahoo-adp.json");
 
-test("the yahoo adapter reads a real captured payload", () => {
-  const game = yahooFixture.fantasy_content.game;
-  const block = game.find((part) => part && typeof part === "object" && part.players);
-  const n = Number(block.players.count);
-  const flat = [];
-  for (let i = 0; i < n; i++) flat.push(flattenYahooPlayer(block.players[String(i)].player));
+// Drives fetchYahooAdp itself, with fetch stubbed to hand back the captured
+// document. Re-walking the fixture here instead would leave the block-finding
+// and page-looping code -- the part most likely to break when Yahoo moves
+// something -- with no test at all, while still looking green.
+test("the yahoo adapter reads a real captured payload through the real fetch path", async (t) => {
+  const realFetch = global.fetch;
+  t.after(() => { global.fetch = realFetch; });
+  global.fetch = async () => ({ ok: true, json: async () => yahooFixture });
 
-  assert.ok(flat.every((f) => f.full), "every captured player should have a name");
-  const { byStrict, defByTeam } = buildYahooMap(flat);
-  assert.ok(byStrict.size + defByTeam.size >= 1);
+  const players = await fetchYahooAdp({ count: 3, pages: 1 });
+  assert.strictEqual(players.length, 3, "all three captured players should come back");
+  assert.ok(players.every((f) => f.full), "every captured player should have a name");
+
+  const { byStrict, defByTeam } = buildYahooMap(players);
+  // All three, not "at least one": the fixture is known-good, so anything less
+  // means a join silently stopped working.
+  assert.strictEqual(byStrict.size + defByTeam.size, 3);
 });
 
 const { attachAdpBySource } = require("./syncPlayers");
