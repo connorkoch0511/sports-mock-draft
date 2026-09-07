@@ -59,8 +59,15 @@ export default function Boards() {
   };
 
   const fileRef = useRef(null);
+  const importingRef = useRef(false);
+  const [importing, setImporting] = useState(false);
 
   const importBoard = async (file) => {
+    // A second file chosen before the first finishes would create a second
+    // board and race it to the navigation, leaving the loser behind unexplained.
+    // A ref rather than the state, because this has to read true from the
+    // instant the first call starts, not after the next render.
+    if (importingRef.current) return;
     setErr("");
     let parsed;
     try {
@@ -70,13 +77,22 @@ export default function Boards() {
       return;
     }
 
-    let boardId;
+    // Every way out of the block below that has not saved an order leaves the
+    // board it created sitting in the person's list, so cleanup belongs in one
+    // place rather than on whichever branch was noticed first: a failed GET and
+    // a failed PUT orphan a board exactly as a zero-match import does.
+    // createdId is cleared only once the order is saved and the board is
+    // genuinely theirs.
+    let createdId = null;
+    importingRef.current = true;
+    setImporting(true);
     try {
-      ({ boardId } = await apiPost("/boards", {
+      const { boardId } = await apiPost("/boards", {
         name: `${parsed.meta.name} (imported)`,
         format: parsed.meta.format,
         season: parsed.meta.season,
-      }));
+      });
+      createdId = boardId;
 
       // A new board reconciles to the whole eligible pool, so these rows are
       // the pool -- exactly what the file's names have to be matched against.
@@ -84,27 +100,29 @@ export default function Boards() {
       const result = matchPlayers(parsed.players, created.rows);
 
       if (result.order.length === 0) {
-        // Nothing matched, so the board just created above is empty and would
-        // otherwise sit in the list forever with no way for the person to
-        // know why it's there. We own it -- we just created it -- so delete
-        // it rather than leave an orphan behind. A delete failure here is not
-        // this person's problem: they still need to hear that their import
-        // found nothing, not that cleanup went wrong.
-        try {
-          await apiDelete(`/boards/${boardId}`);
-        } catch {
-          // Swallowed deliberately -- see comment above.
-        }
         setErr("None of those players are in this season's pool, so there was nothing to import.");
         return;
       }
 
       await apiPut(`/boards/${boardId}`, { order: result.order, version: created.version });
+      createdId = null;
       nav(`/board/${boardId}`, {
         state: { importReport: { matched: result.order.length, total: parsed.players.length, ...result } },
       });
     } catch (e) {
       setErr(e.message || "Could not import that board");
+    } finally {
+      if (createdId) {
+        try {
+          await apiDelete(`/boards/${createdId}`);
+        } catch {
+          // Swallowed on purpose. A cleanup failure is not this person's
+          // problem, and reporting it would replace the message that tells
+          // them why their import produced nothing.
+        }
+      }
+      importingRef.current = false;
+      setImporting(false);
     }
   };
 
@@ -190,9 +208,10 @@ export default function Boards() {
             type="button"
             data-testid="import-board"
             onClick={() => fileRef.current?.click()}
-            className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-600"
+            disabled={importing}
+            className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
           >
-            Import board
+            {importing ? "Importing…" : "Import board"}
           </button>
           <button
             type="button"

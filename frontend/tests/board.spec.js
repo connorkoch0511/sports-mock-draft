@@ -495,7 +495,7 @@ test("exporting JSON downloads a parseable board in the order on screen", async 
 // Importing always creates a brand-new board: /boards -> POST /boards -> GET
 // the created board's pool -> match -> PUT the order. `b-imported` stands in
 // for whatever id the server hands back from the POST.
-async function mockImport(page, { rows, onOrder, onDelete }) {
+async function mockImport(page, { rows, onOrder, onDelete, failGet, failPut }) {
   await page.route("**/me/boards", (r) => r.fulfill({ json: { boards: [] } }));
   await page.route(`${API}/boards`, (r) =>
     r.fulfill({ json: { boardId: "b-imported" } })
@@ -503,6 +503,7 @@ async function mockImport(page, { rows, onOrder, onDelete }) {
   await page.route(`${API}/boards/b-imported`, (r) => {
     const method = r.request().method();
     if (method === "PUT") {
+      if (failPut) return r.fulfill({ status: 500, json: { message: "Save failed" } });
       onOrder?.(r.request().postDataJSON().order);
       return r.fulfill({ json: { ok: true, version: 2 } });
     }
@@ -510,6 +511,7 @@ async function mockImport(page, { rows, onOrder, onDelete }) {
       onDelete?.();
       return r.fulfill({ json: { ok: true } });
     }
+    if (failGet) return r.fulfill({ status: 500, json: { message: "Could not load that board" } });
     return r.fulfill({
       json: { boardId: "b-imported", name: "Imported", sport: "nfl", format: "ppr", season: 2026, version: 1, rows, changelog: [] },
     });
@@ -602,4 +604,38 @@ test("an import matching nobody deletes the board it created", async ({ page }) 
 
   await expect(page.getByText(/nothing to import/i)).toBeVisible();
   await expect.poll(() => deleted).toBe(true);
+});
+
+// The zero-match path was not the only way to strand a board. Every step after
+// the POST can fail, and each one used to leave an empty "(imported)" board in
+// the list with nothing to explain it.
+const CSV_TWO_MATCHES = "rank,player,playerId\n1,Christian McCaffrey,p1\n2,Justin Jefferson,p2\n";
+
+test("a board is not left behind when reading its pool fails", async ({ page }) => {
+  let deleted = false;
+  await mockImport(page, { rows: POOL_ROWS, failGet: true, onDelete: () => { deleted = true; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv", mimeType: "text/csv", buffer: Buffer.from(CSV_TWO_MATCHES),
+  });
+
+  await expect.poll(() => deleted).toBe(true);
+  // Still on the list, because there is no board worth sending anyone to.
+  await expect(page).toHaveURL(/\/boards$/);
+});
+
+test("a board is not left behind when saving the order fails", async ({ page }) => {
+  let deleted = false;
+  await mockImport(page, { rows: POOL_ROWS, failPut: true, onDelete: () => { deleted = true; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv", mimeType: "text/csv", buffer: Buffer.from(CSV_TWO_MATCHES),
+  });
+
+  await expect.poll(() => deleted).toBe(true);
+  await expect(page).toHaveURL(/\/boards$/);
 });
