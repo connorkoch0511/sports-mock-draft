@@ -777,3 +777,17 @@ test("sources are independent", () => {
   attachAdpBySource(players, maps);
   assert.deepStrictEqual(players[0].adpBySource, { espn: 1.32 });
 });
+
+// The actual nightly-outage scenario: both sources fail at once. adpBySource
+// must stay undefined, not {} -- an empty object would reach the UI as a
+// source that exists but has no opinion on this player, rather than no
+// source having spoken at all.
+test("both sources failing leaves adpBySource undefined, not an empty object", () => {
+  const players = [{ position: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: {} }];
+  const maps = {
+    espn: null, // what a failed fetch leaves behind
+    yahoo: null,
+  };
+  attachAdpBySource(players, maps);
+  assert.strictEqual(players[0].adpBySource, undefined);
+});
