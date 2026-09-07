@@ -3,6 +3,10 @@ import { BOARD_ID, makeBoardState } from "./fixtures.js";
 import { signIn } from "./auth.js";
 import { fileURLToPath } from "url";
 import path from "path";
+// eslint's config grants Node globals to playwright.config.js and scripts/**
+// but not tests/**, so the Node global Buffer used below by the import tests
+// needs an explicit import rather than tripping no-undef.
+import { Buffer } from "node:buffer";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
@@ -426,4 +430,240 @@ test("the delete confirmation names the board", async ({ page }) => {
   await page.getByRole("button", { name: "Delete My PPR Board" }).click();
 
   await expect.poll(() => message).toContain("My PPR Board");
+});
+
+async function readDownload(downloaded) {
+  const stream = await downloaded.createReadStream();
+  return new Promise((resolve, reject) => {
+    let out = "";
+    stream.on("data", (c) => { out += c; });
+    stream.on("end", () => resolve(out));
+    stream.on("error", reject);
+  });
+}
+
+// Deliberately not in consensus-rank order. makeBoardState() with no argument
+// gives a board whose myRank order and consensusRank order coincide, against
+// which an export that ignored the board and sorted by rank would pass just as
+// happily as a correct one -- and these are the only tests standing behind the
+// promise that what is on screen is what leaves.
+const SCRAMBLED = ["p5", "p1", "p9", "p3", "p7"];
+
+test("exporting CSV downloads the board in the order on screen", async ({ page }) => {
+  await mockBoard(page, makeBoardState({ order: SCRAMBLED }));
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("export-csv").click(),
+  ]);
+
+  const lines = (await readDownload(downloaded)).trim().split("\n");
+  expect(lines[0]).toContain("# PerfectPick board");
+  expect(lines[1]).toBe("rank,player,position,team,playerId");
+
+  // Every row in order, not just the first: a swap further down is exactly the
+  // kind of regression a first-row check waves through. Taking the LAST field
+  // is what makes this safe against a name containing commas.
+  const exported = lines.slice(2).map((l) => l.split(",").pop());
+  const onScreen = await page
+    .getByTestId("board-row")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("data-player-id")));
+  expect(exported).toEqual(onScreen);
+  expect(exported).toEqual(SCRAMBLED);
+});
+
+test("exporting JSON downloads a parseable board in the order on screen", async ({ page }) => {
+  await mockBoard(page, makeBoardState({ order: SCRAMBLED }));
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const [downloaded] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByTestId("export-json").click(),
+  ]);
+
+  expect(downloaded.suggestedFilename()).toMatch(/\.json$/);
+  // Parsed, not just named: the filename tells you nothing about whether the
+  // body is empty or malformed.
+  const parsed = JSON.parse(await readDownload(downloaded));
+  expect(parsed.players.map((pl) => pl.playerId)).toEqual(SCRAMBLED);
+  expect(parsed.players[0].name).toBe("Ja'Marr Chase");
+});
+
+// Importing always creates a brand-new board: /boards -> POST /boards -> GET
+// the created board's pool -> match -> PUT the order. `b-imported` stands in
+// for whatever id the server hands back from the POST.
+async function mockImport(page, { rows, onOrder, onDelete, failGet, failPut }) {
+  await page.route("**/me/boards", (r) => r.fulfill({ json: { boards: [] } }));
+  await page.route(`${API}/boards`, (r) =>
+    r.fulfill({ json: { boardId: "b-imported" } })
+  );
+  await page.route(`${API}/boards/b-imported`, (r) => {
+    const method = r.request().method();
+    if (method === "PUT") {
+      if (failPut) return r.fulfill({ status: 500, json: { message: "Save failed" } });
+      onOrder?.(r.request().postDataJSON().order);
+      return r.fulfill({ json: { ok: true, version: 2 } });
+    }
+    if (method === "DELETE") {
+      onDelete?.();
+      return r.fulfill({ json: { ok: true } });
+    }
+    if (failGet) return r.fulfill({ status: 500, json: { message: "Could not load that board" } });
+    return r.fulfill({
+      json: { boardId: "b-imported", name: "Imported", sport: "nfl", format: "ppr", season: 2026, version: 1, rows, changelog: { added: 0, removed: 0 } },
+    });
+  });
+}
+
+const POOL_ROWS = [
+  { playerId: "p1", name: "Christian McCaffrey", position: "RB", team: "SF", myRank: 1, consensusRank: 1, delta: 0 },
+  { playerId: "p2", name: "Justin Jefferson", position: "WR", team: "MIN", myRank: 2, consensusRank: 2, delta: 0 },
+];
+
+test("importing a CSV creates a board in the file's order", async ({ page }) => {
+  let sent = null;
+  await mockImport(page, { rows: POOL_ROWS, onOrder: (o) => { sent = o; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("rank,player,playerId\n1,Justin Jefferson,p2\n2,Christian McCaffrey,p1\n"),
+  });
+
+  await expect(page).toHaveURL(/\/board\/b-imported$/);
+  expect(sent).toEqual(["p2", "p1"]);
+});
+
+test("a player who is not in the pool is named, not silently dropped", async ({ page }) => {
+  await mockImport(page, { rows: POOL_ROWS });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("rank,player\n1,Christian McCaffrey\n2,Rob Gronkowski\n"),
+  });
+
+  await expect(page.getByTestId("import-report")).toContainText("Imported 1 of 2");
+  await expect(page.getByTestId("import-report")).toContainText("Rob Gronkowski");
+});
+
+test("a clean import shows no report at all", async ({ page }) => {
+  await mockImport(page, { rows: POOL_ROWS });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("rank,player,playerId\n1,Christian McCaffrey,p1\n2,Justin Jefferson,p2\n"),
+  });
+
+  await expect(page).toHaveURL(/\/board\/b-imported$/);
+  // Wait for the board itself. toHaveCount(0) is satisfied the instant the page
+  // is still showing "Loading...", because the report sits below that early
+  // return -- so without this the assertion resolves before anything could have
+  // rendered, and passes just as happily against a report shown unconditionally.
+  await expect(page.getByTestId("board-row").first()).toBeVisible();
+  await expect(page.getByTestId("import-report")).toHaveCount(0);
+});
+
+test("a file that is not a board says so and creates nothing", async ({ page }) => {
+  let created = false;
+  await page.route("**/me/boards", (r) => r.fulfill({ json: { boards: [] } }));
+  await page.route(`${API}/boards`, (r) => { created = true; return r.fulfill({ json: { boardId: "x" } }); });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "notes.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("just some notes I wrote"),
+  });
+
+  await expect(page.getByText(/no player column/i)).toBeVisible();
+  expect(created).toBe(false);
+});
+
+// The brief's flow would leave an orphan board here: it creates the board
+// before it can know whether anything matched, so when nothing does, the
+// board it just created must be deleted rather than left behind, empty, in
+// the person's list.
+test("an import matching nobody deletes the board it created", async ({ page }) => {
+  let deleted = false;
+  await mockImport(page, { rows: POOL_ROWS, onDelete: () => { deleted = true; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from("rank,player\n1,Le'Veon Bell\n2,Rob Gronkowski\n"),
+  });
+
+  await expect(page.getByText(/nothing to import/i)).toBeVisible();
+  await expect.poll(() => deleted).toBe(true);
+});
+
+// "Not in this season's pool" would be a lie here -- the player is in the pool
+// twice, which is why nothing could be imported. The report that would explain
+// it never renders, because there is no board to navigate to.
+test("a file matching only an ambiguous name says so, rather than blaming the pool", async ({ page }) => {
+  const twins = [
+    { playerId: "t1", name: "Michael Thomas", position: "WR", team: "NO", myRank: 1, consensusRank: 1, delta: 0 },
+    { playerId: "t2", name: "Michael Thomas", position: "S", team: "HOU", myRank: 2, consensusRank: 2, delta: 0 },
+  ];
+  let deleted = false;
+  await mockImport(page, { rows: twins, onDelete: () => { deleted = true; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv", mimeType: "text/csv",
+    buffer: Buffer.from("rank,player\n1,Michael Thomas\n"),
+  });
+
+  await expect(page.getByText(/more than one player shares/i)).toBeVisible();
+  await expect(page.getByText(/not in this season|nothing to import/i)).toHaveCount(0);
+  await expect.poll(() => deleted).toBe(true);
+});
+
+// The zero-match path was not the only way to strand a board. Every step after
+// the POST can fail, and each one used to leave an empty "(imported)" board in
+// the list with nothing to explain it.
+const CSV_TWO_MATCHES = "rank,player,playerId\n1,Christian McCaffrey,p1\n2,Justin Jefferson,p2\n";
+
+test("a board is not left behind when reading its pool fails", async ({ page }) => {
+  let deleted = false;
+  await mockImport(page, { rows: POOL_ROWS, failGet: true, onDelete: () => { deleted = true; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv", mimeType: "text/csv", buffer: Buffer.from(CSV_TWO_MATCHES),
+  });
+
+  await expect.poll(() => deleted).toBe(true);
+  // Still on the list, because there is no board worth sending anyone to.
+  await expect(page).toHaveURL(/\/boards$/);
+});
+
+test("a board is not left behind when saving the order fails", async ({ page }) => {
+  let deleted = false;
+  await mockImport(page, { rows: POOL_ROWS, failPut: true, onDelete: () => { deleted = true; } });
+  await signIn(page);
+  await page.goto("/boards");
+
+  await page.getByTestId("import-file").setInputFiles({
+    name: "board.csv", mimeType: "text/csv", buffer: Buffer.from(CSV_TWO_MATCHES),
+  });
+
+  await expect.poll(() => deleted).toBe(true);
+  await expect(page).toHaveURL(/\/boards$/);
 });

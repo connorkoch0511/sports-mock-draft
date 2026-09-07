@@ -1055,9 +1055,11 @@ And above the rows list, after the existing error line:
 
 Add to `frontend/tests/board.spec.js`:
 
-```js
-const API = "http://localhost:9999";
+`board.spec.js:9` already declares `const API = "http://localhost:9999";` —
+use it, do not declare it again. A second `const` of the same name is a
+SyntaxError that takes the whole spec file down.
 
+```js
 async function mockImport(page, { rows, onOrder }) {
   await page.route("**/me/boards", (r) => r.fulfill({ json: { boards: [] } }));
   await page.route(`${API}/boards`, (r) =>

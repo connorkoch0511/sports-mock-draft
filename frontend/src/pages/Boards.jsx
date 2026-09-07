@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { apiPost, apiDelete } from "../lib/api";
+import { apiGet, apiPost, apiPut, apiDelete } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { fetchMyBoards } from "../lib/me";
+import { parseBoardFile } from "../lib/boardFile";
+import { matchPlayers } from "../lib/boardMatch";
 
 const BOARD_SEASON = 2026;
 
@@ -53,6 +55,86 @@ export default function Boards() {
       nav(`/board/${boardId}`);
     } catch (e) {
       setErr(e.message || "Failed to create board");
+    }
+  };
+
+  const fileRef = useRef(null);
+  const importingRef = useRef(false);
+  const [importing, setImporting] = useState(false);
+
+  const importBoard = async (file) => {
+    // A second file chosen before the first finishes would create a second
+    // board and race it to the navigation, leaving the loser behind unexplained.
+    // A ref rather than the state, because it has to read true from the instant
+    // the first call starts -- state would not, and reading the file is itself
+    // a wait during which a second call could get past this.
+    if (importingRef.current) return;
+    importingRef.current = true;
+    setImporting(true);
+    setErr("");
+
+    // Every way out of the block below that has not saved an order leaves the
+    // board it created sitting in the person's list, so cleanup belongs in one
+    // place rather than on whichever branch was noticed first: a failed GET and
+    // a failed PUT orphan a board exactly as a zero-match import does.
+    // createdId is cleared only once the order is saved and the board is
+    // genuinely theirs.
+    let createdId = null;
+    try {
+      let parsed;
+      try {
+        parsed = parseBoardFile(await file.text());
+      } catch (e) {
+        // Its own catch because the parser's message names what is wrong with
+        // the file, which is far more use than the generic one below.
+        setErr(e.message);
+        return;
+      }
+
+      const { boardId } = await apiPost("/boards", {
+        name: `${parsed.meta.name} (imported)`,
+        format: parsed.meta.format,
+        season: parsed.meta.season,
+      });
+      createdId = boardId;
+
+      // A new board reconciles to the whole eligible pool, so these rows are
+      // the pool -- exactly what the file's names have to be matched against.
+      const created = await apiGet(`/boards/${boardId}`);
+      const result = matchPlayers(parsed.players, created.rows);
+
+      if (result.order.length === 0) {
+        // Which reason it was matters. Telling someone their players are not in
+        // the pool when the pool holds two of each is both wrong and impossible
+        // to act on, and the report that would have explained it never renders
+        // -- there is no board to navigate to.
+        setErr(
+          result.ambiguous.length > 0
+            ? `More than one player shares each of these names, so nothing could be imported: ${result.ambiguous.join(", ")}.`
+            : "None of those players are in this season's pool, so there was nothing to import."
+        );
+        return;
+      }
+
+      await apiPut(`/boards/${boardId}`, { order: result.order, version: created.version });
+      createdId = null;
+      nav(`/board/${boardId}`, {
+        state: { importReport: { matched: result.order.length, total: parsed.players.length, ...result } },
+      });
+    } catch (e) {
+      setErr(e.message || "Could not import that board");
+    } finally {
+      if (createdId) {
+        try {
+          await apiDelete(`/boards/${createdId}`);
+        } catch {
+          // Swallowed on purpose. A cleanup failure is not this person's
+          // problem, and reporting it would replace the message that tells
+          // them why their import produced nothing.
+        }
+      }
+      importingRef.current = false;
+      setImporting(false);
     }
   };
 
@@ -119,6 +201,30 @@ export default function Boards() {
             placeholder={`My ${format.toUpperCase()} Board`}
             className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-zinc-600 focus:outline-none"
           />
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.json,text/csv,application/json"
+            data-testid="import-file"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              // Cleared so choosing the same file twice fires onChange twice --
+              // otherwise a failed import cannot be retried without picking a
+              // different file first.
+              e.target.value = "";
+              if (file) importBoard(file);
+            }}
+          />
+          <button
+            type="button"
+            data-testid="import-board"
+            onClick={() => fileRef.current?.click()}
+            disabled={importing}
+            className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
+          >
+            {importing ? "Importing…" : "Import board"}
+          </button>
           <button
             type="button"
             onClick={createBoard}
