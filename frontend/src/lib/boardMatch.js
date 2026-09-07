@@ -38,16 +38,23 @@ export function normaliseName(name) {
  * id can move between seasons.
  */
 export function matchPlayers(parsed, pool) {
-  const byId = new Map(pool.map((p) => [String(p.playerId), p]));
-
+  const byId = new Map();
   const byName = new Map();
   for (const p of pool) {
+    const id = p.playerId == null ? "" : String(p.playerId);
+    // A board's order is a list of ids, so a pool player without one cannot go
+    // on a board at all. Indexing it would only let it match a row and then
+    // push the string "undefined" into the order.
+    if (!id) continue;
+
+    // null poisons a key claimed by two pool players, by id or by name: the
+    // key then identifies neither of them, and keeping whichever was seen last
+    // would put a player nobody chose on the board, silently. A poisoned id is
+    // falsy on lookup, so its row falls through to the name -- which may be
+    // unambiguous, and is then the better answer.
+    byId.set(id, byId.has(id) ? null : p);
     const key = normaliseName(p.name);
-    if (!key) continue;
-    // null marks a key claimed by more than one player: seen once we store the
-    // player, seen again we poison it, so a later lookup knows the name is
-    // ambiguous rather than silently taking whichever was inserted first.
-    byName.set(key, byName.has(key) ? null : p);
+    if (key) byName.set(key, byName.has(key) ? null : p);
   }
 
   const order = [];

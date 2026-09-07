@@ -123,3 +123,43 @@ test("a row with neither a usable id nor a known name is reported, not dropped",
   assert.deepStrictEqual(r.order, []);
   assert.deepStrictEqual(r.notFound, ["ghost"]);
 });
+
+// The mirror of the ambiguous-name case. Without this, two pool players
+// sharing an id resolved to whichever came last in the array -- putting a
+// player nobody chose on the board, silently, which is the exact failure this
+// module exists to prevent.
+test("an id claimed by two pool players is not used to guess", () => {
+  const pool = [
+    { playerId: "1", name: "Player A" },
+    { playerId: "1", name: "Player B" },
+  ];
+  const r = matchPlayers([{ playerId: "1", name: "" }], pool);
+  assert.deepStrictEqual(r.order, []);
+  assert.deepStrictEqual(r.notFound, ["1"]);
+});
+
+// A poisoned id is falsy, so the row falls through to the name -- and an
+// unambiguous name is a better answer than refusing outright.
+test("an unambiguous name still resolves a row whose id is ambiguous", () => {
+  const pool = [
+    { playerId: "1", name: "Player A" },
+    { playerId: "1", name: "Player B" },
+    { playerId: "2", name: "Player C" },
+  ];
+  const r = matchPlayers([{ playerId: "1", name: "Player C" }], pool);
+  assert.deepStrictEqual(r.order, ["2"]);
+  assert.deepStrictEqual(r.ambiguous, []);
+});
+
+// Two pool players with no id would both key to the string "undefined",
+// letting either stand in for a row that genuinely carried that text.
+test("pool players without ids do not collide on a shared key", () => {
+  const pool = [
+    { playerId: null, name: "Player A" },
+    { name: "Player B" },
+    { playerId: "7", name: "Player C" },
+  ];
+  const r = matchPlayers([{ playerId: "undefined", name: "Player B" }], pool);
+  assert.deepStrictEqual(r.order, []);
+  assert.deepStrictEqual(r.notFound, ["Player B"]);
+});
