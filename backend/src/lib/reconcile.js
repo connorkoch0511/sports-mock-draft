@@ -53,6 +53,10 @@ function reconcile(storedOrder, livePool) {
       team: player.team,
       myRank,
       consensusRank,
+      // Spread as-is: it has no format dimension, because neither ESPN nor
+      // Yahoo publishes one. Absent stays absent -- an empty object would
+      // render as a source that exists but has no opinion.
+      ...(player.adpBySource ? { adpBySource: player.adpBySource } : {}),
       delta: consensusRank == null ? null : consensusRank - myRank,
       isNew,
     };

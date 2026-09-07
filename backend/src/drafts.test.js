@@ -646,6 +646,42 @@ test("auto-pick success returns { ok: true, picked }", async () => {
   });
 });
 
+test("auto-pick's picked player carries per-source ADP", async () => {
+  const draftItem = {
+    draftId: "d1",
+    ownerId: "user-me",
+    seats: [{ team: 1, sub: "user-me", kind: "human" }],
+    sport: "nfl",
+    format: "standard",
+    picked: [],
+    picks: [{ overall: 1, round: 1, team: 1, playerId: null, player: null }],
+    currentIndex: 0,
+  };
+  const poolItems = [
+    {
+      sport: "nfl",
+      id: "p1",
+      playerId: "p1",
+      name: "Player One",
+      position: "RB",
+      team: "SF",
+      rank: { standard: 10 },
+      adp: { standard: 12.3 },
+      tier: { standard: 2 },
+      adpBySource: { espn: 12.1, yahoo: 12.5 },
+    },
+  ];
+  stubByTable({
+    "drafts-test": { Item: draftItem },
+    "players-test": { Items: poolItems },
+  });
+  const res = await handler(
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME })
+  );
+  const body = JSON.parse(res.body);
+  assert.deepStrictEqual(body.picked.adpBySource, { espn: 12.1, yahoo: 12.5 });
+});
+
 test("sim-to-end success returns { ok: true, completed }", async () => {
   const draftItem = {
     draftId: "d1",

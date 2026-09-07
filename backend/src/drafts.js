@@ -50,6 +50,10 @@ async function loadPlayersForSport(table, sport, format) {
       team: p.team,
       rank: p.rank?.[format] ?? null,
       adp:  p.adp?.[format] ?? null,
+      // Spread as-is: it has no format dimension, because neither ESPN nor
+      // Yahoo publishes one. Absent stays absent -- an empty object would
+      // render as a source that exists but has no opinion.
+      ...(p.adpBySource ? { adpBySource: p.adpBySource } : {}),
       tier: p.tier?.[format] ?? null,
     }))
     // IMPORTANT: sort by rank, push nulls to bottom
@@ -78,6 +82,10 @@ async function getPlayerSnapshot(playersTable, sport, format, playerId) {
     team: p.team,
     rank: p.rank?.[format] ?? null,
     adp: p.adp?.[format] ?? null,
+    // Spread as-is: it has no format dimension, because neither ESPN nor
+    // Yahoo publishes one. Absent stays absent -- an empty object would
+    // render as a source that exists but has no opinion.
+    ...(p.adpBySource ? { adpBySource: p.adpBySource } : {}),
     tier: p.tier?.[format] ?? null,
   };
 }

@@ -79,6 +79,10 @@ async function loadPool(playersTable, sport, format) {
       position: p.position,
       team: p.team,
       consensusRank: p.rank[format],
+      // Spread as-is: it has no format dimension, because neither ESPN nor
+      // Yahoo publishes one. Absent stays absent -- an empty object would
+      // render as a source that exists but has no opinion.
+      ...(p.adpBySource ? { adpBySource: p.adpBySource } : {}),
     }));
 }
 

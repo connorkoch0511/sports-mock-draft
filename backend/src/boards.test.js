@@ -405,3 +405,28 @@ test("the second pool query carries the first page's cursor", async () => {
   assert.strictEqual(seen[0], undefined, "first query starts with no cursor");
   assert.deepStrictEqual(seen[1], cursor, "second query resumes from the first page's key");
 });
+
+// Board rows carry no ADP at all today: boards.js builds the pool and
+// reconcile.js builds the final rows from it, so the field has to ride
+// through BOTH files or it never reaches the editor.
+test("board rows carry a player's per-source ADP", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Key) {
+      return { Item: { boardId: "b1", ownerId: "user-me", name: "B", sport: "nfl", format: "standard", version: 1, order: [] } };
+    }
+    return {
+      Items: [
+        { ...poolPlayer("a", 1), adpBySource: { espn: 1.32 } },
+        poolPlayer("b", 2),
+      ],
+    };
+  });
+
+  const res = await handler(event("GET", undefined, "b1", ME));
+  const body = JSON.parse(res.body);
+
+  const rowA = body.rows.find((r) => r.playerId === "a");
+  const rowB = body.rows.find((r) => r.playerId === "b");
+  assert.deepStrictEqual(rowA.adpBySource, { espn: 1.32 });
+  assert.ok(!("adpBySource" in rowB), "a player with no per-source ADP must not gain an empty one");
+});
