@@ -782,8 +782,10 @@ git commit -m "feat: fetch ESPN and Yahoo ADP in the daily sync"
 In `backend/src/players.test.js`:
 
 ```js
+const { toDetail } = require("./players");
+
 test("a player's per-source ADP reaches the client", () => {
-  const out = toClient(
+  const out = toDetail(
     { playerId: "1", name: "Jahmyr Gibbs", position: "RB", team: "DET",
       adp: { ppr: 1.4 }, adpBySource: { espn: 1.32, yahoo: 1.3 } },
     "ppr"
@@ -792,7 +794,7 @@ test("a player's per-source ADP reaches the client", () => {
 });
 
 test("a player with no per-source ADP does not gain an empty one", () => {
-  const out = toClient({ playerId: "1", name: "X", position: "RB", team: "DET", adp: { ppr: 1.4 } }, "ppr");
+  const out = toDetail({ playerId: "1", name: "X", position: "RB", team: "DET", adp: { ppr: 1.4 } }, "ppr");
   assert.strictEqual(out.adpBySource, undefined);
 });
 ```
@@ -805,7 +807,12 @@ In `backend/src/boards.test.js`:
 test("board rows carry per-source ADP", async () => {
   // Build the pool the way the neighbouring tests in this file do, with a
   // player carrying adpBySource, then assert it survives onto the row.
-  const rows = poolFromItems([
+  // boards.js does not export a pool helper, so drive a real GET through the
+  // handler the way the neighbouring tests in this file already do, with a
+  // stored player carrying adpBySource. That also proves the field survives
+  // the boards.js -> reconcile.js relay, which is where it would silently
+  // half-work.
+  const rows = await rowsFromGetBoard([
     { playerId: "1", name: "Jahmyr Gibbs", position: "RB", team: "DET",
       rank: { ppr: 1 }, adpBySource: { espn: 1.32 } },
   ], "ppr");
