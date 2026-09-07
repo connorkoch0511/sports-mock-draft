@@ -77,9 +77,12 @@ const DEFAULT_META = { name: "Imported board", format: "ppr", season: 2026 };
 const NAME_HEADERS = ["player", "name", "playername"];
 const ID_HEADERS = ["playerid", "id"];
 
-// A bare rank, and a rank used to number a hand-typed line ("3. ", "3) ").
+// A bare rank, and a rank used to number a hand-typed line. The separator set
+// is wide on purpose: "1 - Name" is as common a way to number a list as "1. ",
+// and matching only the digit would strip the number and leave the dash behind
+// on every name. Nobody's name begins with a digit, so this cannot eat one.
 const RANK_FIELD = /^\d+\.?$/;
-const RANK_PREFIX = /^\d+\s*[.)]?\s+/;
+const RANK_PREFIX = /^\d+\s*[.):\-\u2013\u2014]?\s+/;
 
 function everyRow(rows, col, re) {
   return rows.every((r) => re.test(String(r[col] ?? "").trim()));

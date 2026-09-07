@@ -302,3 +302,25 @@ test("properly quoted fields, newlines and all, still parse", () => {
   const r = parseBoardFile(csv);
   assert.deepStrictEqual(r.players.map((p) => p.name), ['Smith, Jr., DeVonta', 'He said "hi"', "two\nlines"]);
 });
+
+test("a list numbered with dashes or colons keeps clean names", () => {
+  for (const sep of ["-", ":", "–", "—", ".", ")"]) {
+    const r = parseBoardFile(`1 ${sep} Christian McCaffrey\n2 ${sep} Justin Jefferson\n`);
+    assert.deepStrictEqual(
+      r.players.map((p) => p.name),
+      ["Christian McCaffrey", "Justin Jefferson"],
+      `separator ${sep} left something behind`
+    );
+  }
+});
+
+// Pinning accepted behaviour, not endorsing it. Several lines of prose in one
+// column are indistinguishable from a list of names, so they parse. The damage
+// is capped downstream -- a shopping list matches no NFL player and the import
+// reports every line as not found -- but that safety net lives in another
+// module, so this test is here to make a future change to it visible rather
+// than silent.
+test("several lines of prose parse as names, and are caught by matching instead", () => {
+  const r = parseBoardFile("Buy milk\nCall the vet\nBook the flights\n");
+  assert.deepStrictEqual(r.players.map((p) => p.name), ["Buy milk", "Call the vet", "Book the flights"]);
+});
