@@ -27,6 +27,7 @@
 
 | File | Responsibility |
 |---|---|
+| `backend/src/sync/adpMap.js` (new) | The earliest-pick-wins rule and the DEF/K fallbacks, in one place, shared by both new adapters. |
 | `backend/src/sync/adpEspn.js` (new) | Fetch ESPN's feed; convert its numeric ids and rows into the shared map shape. |
 | `backend/src/sync/adpYahoo.js` (new) | Fetch Yahoo's feed (3 pages); flatten its irregular JSON into the shared map shape. |
 | `backend/src/syncPlayers.js` | Call both, wrapped independently; write `adpBySource`. |
@@ -41,12 +42,18 @@
 ### Task 1: ESPN adapter
 
 **Files:**
+- Create: `backend/src/sync/adpMap.js`
 - Create: `backend/src/sync/adpEspn.js`
 - Test: `backend/src/syncPlayers.test.js` (append — this is where `buildFfcMap` is already tested; `node --test` discovers `backend/src/*.test.js` only, so do NOT create `sync/*.test.js`)
 
 **Interfaces:**
 - Consumes: `FETCH_TIMEOUT_MS` from `./http`; `ALLOWED`, `normName`, `normTeam` from `./normalize`.
-- Produces: `fetchEspnAdp({ year, limit })` → array of raw ESPN row objects. `buildEspnMap(rows)` → `{ byStrict: Map, defByTeam: Map, kByName: Map }` — the same shape `buildFfcMap` returns, so `syncPlayers` can consume both identically.
+- Produces:
+  - `newAdpMaps()` → `{ byStrict: Map, defByTeam: Map, kByName: Map }` and `putAdp(maps, { pos, team, nameKey, adp })` from `backend/src/sync/adpMap.js`. **Task 2 uses both** — they are the shared insertion rules, so the earliest-wins and DEF/K logic exists once rather than once per source.
+  - `fetchEspnAdp({ year, limit })` → array of raw ESPN row objects.
+  - `buildEspnMap(rows)` → the same map shape `buildFfcMap` returns, so `syncPlayers` consumes every source identically.
+
+The shipped `buildFfcMap` in `backend/src/sync/adp.js` is **not** refactored to use the helper. It works, it is tested, and this feature has no reason to touch it.
 
 **Background the implementer needs.** ESPN returns **numeric** position and team ids and no string form anywhere in the payload. The tables below were derived empirically on 7 Sep 2026 by cross-referencing 300 ESPN players against Sleeper by name; every team id resolved unambiguously. Team codes here are raw Sleeper-style codes and MUST be passed through `normTeam` (which maps e.g. `WAS` → `WSH`), because the Sleeper side of the join does the same. ESPN's `draftRanksByRankType` contains `STANDARD`/`PPR` keys — those are **ranks, not ADP**; ignore them. The only ADP is `ownership.averageDraftPosition`.
 
@@ -117,7 +124,51 @@ Expected: FAIL — `Cannot find module './sync/adpEspn'`.
 
 - [ ] **Step 3: Write the adapter**
 
-Create `backend/src/sync/adpEspn.js`:
+First create `backend/src/sync/adpMap.js`:
+
+```js
+// The rules for putting an ADP into the lookup maps, in one place.
+//
+// Every source disagrees about field names but agrees about these rules, so
+// they live here rather than once per adapter: earliest pick wins, defences
+// are found by team because their names never match, and kickers get a
+// name-only fallback because their team moves more often than they do.
+
+const { ALLOWED } = require("./normalize");
+
+function newAdpMaps() {
+  return {
+    byStrict: new Map(),  // pos|team|name
+    defByTeam: new Map(), // team -> adp
+    kByName: new Map(),   // nameKey -> adp
+  };
+}
+
+function keepLowest(map, key, adp) {
+  const prev = map.get(key);
+  // Lowest wins: a player listed twice was drafted earliest at the lower
+  // number, and that is the pick people are actually reasoning about.
+  if (prev == null || adp < prev) map.set(key, adp);
+}
+
+function putAdp(maps, { pos, team, nameKey, adp }) {
+  if (!pos || !team || !adp || Number.isNaN(adp)) return;
+
+  if (pos === "DEF") {
+    keepLowest(maps.defByTeam, team, adp);
+    return;
+  }
+
+  if (pos === "K" && nameKey) keepLowest(maps.kByName, nameKey, adp);
+
+  if (!ALLOWED.has(pos) || !nameKey) return;
+  keepLowest(maps.byStrict, `${pos}|${team}|${nameKey}`, adp);
+}
+
+module.exports = { newAdpMaps, putAdp };
+```
+
+Then create `backend/src/sync/adpEspn.js`:
 
 ```js
 // Average draft position from ESPN's public fantasy read API, and the lookup
@@ -126,7 +177,8 @@ Create `backend/src/sync/adpEspn.js`:
 // The endpoint needs no authentication of any kind -- verified 7 Sep 2026.
 
 const { FETCH_TIMEOUT_MS } = require("./http");
-const { ALLOWED, normName, normTeam } = require("./normalize");
+const { normName, normTeam } = require("./normalize");
+const { newAdpMaps, putAdp } = require("./adpMap");
 
 // ESPN sends numeric ids and NO string abbreviation anywhere in the payload,
 // so these tables are not a convenience -- nothing joins without them. Derived
@@ -163,9 +215,7 @@ async function fetchEspnAdp({ year, limit }) {
 }
 
 function buildEspnMap(rows) {
-  const byStrict = new Map();   // pos|team|name
-  const defByTeam = new Map();  // team -> adp
-  const kByName = new Map();    // nameKey -> adp
+  const maps = newAdpMaps();
 
   for (const row of rows) {
     const p = row?.player;
@@ -174,35 +224,22 @@ function buildEspnMap(rows) {
     const adp = p.ownership?.averageDraftPosition != null
       ? Number(p.ownership.averageDraftPosition)
       : null;
-    if (!adp || Number.isNaN(adp)) continue;
 
     const pos = ESPN_POS[p.defaultPositionId];
     const rawTeam = ESPN_TEAM[p.proTeamId];
     // An id we do not recognise is dropped rather than keyed on something
     // invented -- a bogus key would sit in the map forever matching nobody.
     if (!pos || !rawTeam) continue;
-    const team = normTeam(rawTeam);
-    const nameKey = normName(p.fullName);
 
-    // Earliest pick wins throughout, matching buildFfcMap.
-    if (pos === "DEF") {
-      const prev = defByTeam.get(team);
-      if (prev == null || adp < prev) defByTeam.set(team, adp);
-      continue;
-    }
-
-    if (pos === "K" && nameKey) {
-      const prev = kByName.get(nameKey);
-      if (prev == null || adp < prev) kByName.set(nameKey, adp);
-    }
-
-    if (!ALLOWED.has(pos) || !nameKey) continue;
-    const key = `${pos}|${team}|${nameKey}`;
-    const prev = byStrict.get(key);
-    if (prev == null || adp < prev) byStrict.set(key, adp);
+    putAdp(maps, {
+      pos,
+      team: normTeam(rawTeam),
+      nameKey: normName(p.fullName),
+      adp,
+    });
   }
 
-  return { byStrict, defByTeam, kByName };
+  return maps;
 }
 
 module.exports = { fetchEspnAdp, buildEspnMap, ESPN_POS, ESPN_TEAM };
@@ -249,7 +286,7 @@ Run: `cd backend/src && node --test syncPlayers.test.js` — PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/src/sync/adpEspn.js backend/src/sync/__fixtures__/espn-adp.json backend/src/syncPlayers.test.js
+git add backend/src/sync/adpMap.js backend/src/sync/adpEspn.js backend/src/sync/__fixtures__/espn-adp.json backend/src/syncPlayers.test.js
 git commit -m "feat: ESPN ADP adapter"
 ```
 
@@ -262,7 +299,7 @@ git commit -m "feat: ESPN ADP adapter"
 - Test: `backend/src/syncPlayers.test.js` (append)
 
 **Interfaces:**
-- Consumes: `FETCH_TIMEOUT_MS` from `./http`; `ALLOWED`, `normName`, `normTeam`, `toAppPos`, `sleep` from `./normalize`.
+- Consumes: `FETCH_TIMEOUT_MS` from `./http`; `normName`, `normTeam`, `toAppPos`, `sleep` from `./normalize`; **`newAdpMaps` and `putAdp` from `./adpMap` (created in Task 1)** — do not re-implement the earliest-wins or DEF/K rules here.
 - Produces: `fetchYahooAdp({ count, pages })` → flat array of Yahoo player objects. `buildYahooMap(players)` → `{ byStrict, defByTeam, kByName }` — same shape as Task 1 and as `buildFfcMap`.
 
 **Background the implementer needs.** Yahoo's JSON is deeply and irregularly nested: objects keyed by numeric strings, and arrays holding a mix of objects and metadata. Do NOT index by a fixed path — flatten defensively. Verified live 7 Sep 2026: no authentication, and `count=100` is honoured (it is not capped at 25), so three pages give 300. Fields that matter: `full` (name), `display_position` (e.g. `"RB"`), `editorial_team_abbr` (**mixed case**, e.g. `"Det"`), `average_pick` (the ADP).
@@ -335,7 +372,8 @@ Create `backend/src/sync/adpYahoo.js`:
 // OAuth fantasy API; it is the public game-level draft analysis feed.
 
 const { FETCH_TIMEOUT_MS } = require("./http");
-const { ALLOWED, normName, normTeam, toAppPos, sleep } = require("./normalize");
+const { normName, normTeam, toAppPos, sleep } = require("./normalize");
+const { newAdpMaps, putAdp } = require("./adpMap");
 
 const BASE = "https://pub-api-ro.fantasysports.yahoo.com/fantasy/v2/game/nfl/players";
 
@@ -394,38 +432,20 @@ async function fetchYahooAdp({ count, pages }) {
 }
 
 function buildYahooMap(players) {
-  const byStrict = new Map();
-  const defByTeam = new Map();
-  const kByName = new Map();
+  const maps = newAdpMaps();
 
   for (const p of players) {
-    // Yahoo sends ADP as a string, and "-" for a player nobody drafted.
-    const adp = Number(p?.average_pick);
-    if (!adp || Number.isNaN(adp)) continue;
-
-    const pos = toAppPos(p.display_position);
-    const team = normTeam(p.editorial_team_abbr);
-    const nameKey = normName(p.full);
-    if (!pos || !team) continue;
-
-    if (pos === "DEF") {
-      const prev = defByTeam.get(team);
-      if (prev == null || adp < prev) defByTeam.set(team, adp);
-      continue;
-    }
-
-    if (pos === "K" && nameKey) {
-      const prev = kByName.get(nameKey);
-      if (prev == null || adp < prev) kByName.set(nameKey, adp);
-    }
-
-    if (!ALLOWED.has(pos) || !nameKey) continue;
-    const key = `${pos}|${team}|${nameKey}`;
-    const prev = byStrict.get(key);
-    if (prev == null || adp < prev) byStrict.set(key, adp);
+    putAdp(maps, {
+      pos: toAppPos(p.display_position),
+      team: normTeam(p.editorial_team_abbr),
+      nameKey: normName(p.full),
+      // Yahoo sends ADP as a string, and "-" for a player nobody drafted --
+      // Number("-") is NaN, which putAdp drops.
+      adp: Number(p?.average_pick),
+    });
   }
 
-  return { byStrict, defByTeam, kByName };
+  return maps;
 }
 
 module.exports = { fetchYahooAdp, buildYahooMap, flattenYahooPlayer };
