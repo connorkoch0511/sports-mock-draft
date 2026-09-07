@@ -48,9 +48,9 @@ function Row({ row, onOpen }) {
     <li
       ref={setNodeRef}
       // Pointer listeners on the row, so the whole thing reorders -- rank,
-      // position, team, delta, the grip, the empty space between them. The
-      // grip alone used to be the only draggable target, and it is a dim
-      // six-dot glyph that is easy to miss entirely.
+      // position, team, delta, the ADP line, the grip, the empty space
+      // between them. The grip alone used to be the only draggable target,
+      // and it is a dim six-dot glyph that is easy to miss entirely.
       //
       // The player's name is the deliberate exception: it stops propagation,
       // so it stays a plain click target and opening a player never competes
@@ -64,6 +64,12 @@ function Row({ row, onOpen }) {
         isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""
       }`}
     >
+      {/*
+        The row stacks: this holds everything that was here before, and the
+        ADP line sits beneath it. Without the split, three sources would run
+        on as a sixth item in the same row and read as more player metadata
+        rather than as a separate reading of where he goes.
+      */}
       <div className="flex items-center gap-3">
         <button
           {...attributes}
