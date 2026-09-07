@@ -432,8 +432,25 @@ test("the delete confirmation names the board", async ({ page }) => {
   await expect.poll(() => message).toContain("My PPR Board");
 });
 
+async function readDownload(downloaded) {
+  const stream = await downloaded.createReadStream();
+  return new Promise((resolve, reject) => {
+    let out = "";
+    stream.on("data", (c) => { out += c; });
+    stream.on("end", () => resolve(out));
+    stream.on("error", reject);
+  });
+}
+
+// Deliberately not in consensus-rank order. makeBoardState() with no argument
+// gives a board whose myRank order and consensusRank order coincide, against
+// which an export that ignored the board and sorted by rank would pass just as
+// happily as a correct one -- and these are the only tests standing behind the
+// promise that what is on screen is what leaves.
+const SCRAMBLED = ["p5", "p1", "p9", "p3", "p7"];
+
 test("exporting CSV downloads the board in the order on screen", async ({ page }) => {
-  await mockBoard(page, makeBoardState());
+  await mockBoard(page, makeBoardState({ order: SCRAMBLED }));
   await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
 
@@ -442,24 +459,23 @@ test("exporting CSV downloads the board in the order on screen", async ({ page }
     page.getByTestId("export-csv").click(),
   ]);
 
-  const stream = await downloaded.createReadStream();
-  const text = await new Promise((resolve, reject) => {
-    let out = "";
-    stream.on("data", (c) => { out += c; });
-    stream.on("end", () => resolve(out));
-    stream.on("error", reject);
-  });
-
-  const lines = text.trim().split("\n");
+  const lines = (await readDownload(downloaded)).trim().split("\n");
   expect(lines[0]).toContain("# PerfectPick board");
   expect(lines[1]).toBe("rank,player,position,team,playerId");
-  // The first data row must be the first row on screen.
-  const firstOnScreen = await page.getByTestId("board-row").first().getAttribute("data-player-id");
-  expect(lines[2]).toContain(firstOnScreen);
+
+  // Every row in order, not just the first: a swap further down is exactly the
+  // kind of regression a first-row check waves through. playerId is the last
+  // field, and no name in this slice of the fixture contains a comma.
+  const exported = lines.slice(2).map((l) => l.split(",").pop());
+  const onScreen = await page
+    .getByTestId("board-row")
+    .evaluateAll((els) => els.map((el) => el.getAttribute("data-player-id")));
+  expect(exported).toEqual(onScreen);
+  expect(exported).toEqual(SCRAMBLED);
 });
 
-test("exporting JSON downloads a parseable board", async ({ page }) => {
-  await mockBoard(page, makeBoardState());
+test("exporting JSON downloads a parseable board in the order on screen", async ({ page }) => {
+  await mockBoard(page, makeBoardState({ order: SCRAMBLED }));
   await signIn(page);
   await page.goto(`/board/${BOARD_ID}`);
 
@@ -467,7 +483,13 @@ test("exporting JSON downloads a parseable board", async ({ page }) => {
     page.waitForEvent("download"),
     page.getByTestId("export-json").click(),
   ]);
+
   expect(downloaded.suggestedFilename()).toMatch(/\.json$/);
+  // Parsed, not just named: the filename tells you nothing about whether the
+  // body is empty or malformed.
+  const parsed = JSON.parse(await readDownload(downloaded));
+  expect(parsed.players.map((pl) => pl.playerId)).toEqual(SCRAMBLED);
+  expect(parsed.players[0].name).toBe("Ja'Marr Chase");
 });
 
 // Importing always creates a brand-new board: /boards -> POST /boards -> GET
