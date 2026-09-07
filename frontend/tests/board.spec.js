@@ -146,6 +146,25 @@ test("renaming to the same name saves nothing", async ({ page }) => {
   expect(saved).toBeNull();
 });
 
+test("board rows show every source's ADP", async ({ page }) => {
+  const state = makeBoardState();
+  state.rows[0].adpBySource = { espn: 4.2, yahoo: 3.5 };
+  state.rows[0].adp = 4.4;
+  await mockBoard(page, state);
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  await expect(page.getByTestId("adp-trio").first())
+    .toHaveText(/ours\s*4\.4.*esp\s*4\.2.*yah\s*3\.5/s);
+});
+
+test("a board row with no per-source ADP shows dashes, not zeros", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+  await expect(page.getByTestId("adp-trio").first()).toContainText("—");
+});
+
 test("renders the board in saved order", async ({ page }) => {
   await mockBoard(page, makeBoardState());
   await signIn(page);

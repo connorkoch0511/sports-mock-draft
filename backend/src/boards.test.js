@@ -430,3 +430,29 @@ test("board rows carry a player's per-source ADP", async () => {
   assert.deepStrictEqual(rowA.adpBySource, { espn: 1.32 });
   assert.ok(!("adpBySource" in rowB), "a player with no per-source ADP must not gain an empty one");
 });
+
+// Board rows never carried our own ADP either, for the same reason: it has to
+// ride through both boards.js (the pool) and reconcile.js (the rows) or it
+// never reaches the editor. consensusRank must NOT stand in for it -- that's
+// a rank over the board's own population, a different number from an ADP.
+test("board rows carry a player's own ADP for the requested format", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Key) {
+      return { Item: { boardId: "b1", ownerId: "user-me", name: "B", sport: "nfl", format: "standard", version: 1, order: [] } };
+    }
+    return {
+      Items: [
+        { ...poolPlayer("a", 1), adp: { standard: 2.4, ppr: 3.1 } },
+        poolPlayer("b", 2),
+      ],
+    };
+  });
+
+  const res = await handler(event("GET", undefined, "b1", ME));
+  const body = JSON.parse(res.body);
+
+  const rowA = body.rows.find((r) => r.playerId === "a");
+  const rowB = body.rows.find((r) => r.playerId === "b");
+  assert.strictEqual(rowA.adp, 2.4);
+  assert.strictEqual(rowB.adp, null, "a player with no ADP for this format is null, not consensusRank");
+});
