@@ -599,3 +599,69 @@ test("buildFfcMap ignores an entry with no usable ADP", () => {
   ]);
   assert.strictEqual(maps.byStrict.size, 0);
 });
+
+const { buildEspnMap } = require("./sync/adpEspn");
+
+// ESPN ships numeric ids and no string form, so the whole adapter hinges on
+// these tables being right. A wrong entry produces a MISS, not a wrong player,
+// because the key is position + team + name together.
+test("espn rows map onto the shared key shape", () => {
+  const rows = [
+    { player: { fullName: "Jahmyr Gibbs", defaultPositionId: 2, proTeamId: 8, ownership: { averageDraftPosition: 1.32 } } },
+    { player: { fullName: "Ja'Marr Chase", defaultPositionId: 3, proTeamId: 4, ownership: { averageDraftPosition: 4.23 } } },
+  ];
+  const { byStrict } = buildEspnMap(rows);
+  assert.strictEqual(byStrict.get("RB|DET|jahmyr gibbs"), 1.32);
+  assert.strictEqual(byStrict.get("WR|CIN|jamarr chase"), 4.23);
+});
+
+// Verified live: D/ST is defaultPositionId 16, named "Texans D/ST", and
+// carries proTeamId. It joins by team, which is why defByTeam exists.
+test("espn defences land in defByTeam, keyed by team", () => {
+  const rows = [
+    { player: { fullName: "Texans D/ST", defaultPositionId: 16, proTeamId: 34, ownership: { averageDraftPosition: 92.6 } } },
+  ];
+  const { defByTeam } = buildEspnMap(rows);
+  assert.strictEqual(defByTeam.get("HOU"), 92.6);
+});
+
+test("espn rows without a usable adp are skipped, not stored as zero", () => {
+  const rows = [
+    { player: { fullName: "Nobody", defaultPositionId: 2, proTeamId: 8, ownership: {} } },
+    { player: { fullName: "Ghost", defaultPositionId: 2, proTeamId: 8 } },
+    { player: null },
+  ];
+  const { byStrict } = buildEspnMap(rows);
+  assert.strictEqual(byStrict.size, 0);
+});
+
+// An unknown id must not invent a player at a bogus key.
+test("an unknown espn position or team id is dropped", () => {
+  const rows = [
+    { player: { fullName: "Someone", defaultPositionId: 99, proTeamId: 8, ownership: { averageDraftPosition: 5 } } },
+    { player: { fullName: "Other", defaultPositionId: 2, proTeamId: 999, ownership: { averageDraftPosition: 6 } } },
+  ];
+  const { byStrict } = buildEspnMap(rows);
+  assert.strictEqual(byStrict.size, 0);
+});
+
+// Mirrors buildFfcMap: the earliest pick wins when a player appears twice.
+test("the lowest espn adp wins for a repeated player", () => {
+  const rows = [
+    { player: { fullName: "Jahmyr Gibbs", defaultPositionId: 2, proTeamId: 8, ownership: { averageDraftPosition: 4 } } },
+    { player: { fullName: "Jahmyr Gibbs", defaultPositionId: 2, proTeamId: 8, ownership: { averageDraftPosition: 1.32 } } },
+  ];
+  assert.strictEqual(buildEspnMap(rows).byStrict.get("RB|DET|jahmyr gibbs"), 1.32);
+});
+
+const espnFixture = require("./sync/__fixtures__/espn-adp.json");
+
+// Real captured response, not a hand-written shape. If ESPN moves the ADP or
+// renames a field, this is what notices.
+test("the espn adapter reads a real captured payload", () => {
+  const { byStrict, defByTeam } = buildEspnMap(espnFixture.players);
+  assert.ok(byStrict.size + defByTeam.size >= 3, "every captured player should map");
+  for (const adp of byStrict.values()) {
+    assert.ok(adp > 0 && adp < 400, `implausible adp ${adp}`);
+  }
+});
