@@ -724,3 +724,49 @@ test("the yahoo adapter reads a real captured payload", () => {
   const { byStrict, defByTeam } = buildYahooMap(flat);
   assert.ok(byStrict.size + defByTeam.size >= 1);
 });
+
+const { attachAdpBySource } = require("./syncPlayers");
+
+// The whole point of a source map: a hit becomes a number, a miss becomes an
+// absent key -- never null and never 0, both of which would render as a real
+// ADP of zero on the row.
+test("a matched player gets the source number, an unmatched one gets no key", () => {
+  const players = [
+    { position: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: {} },
+    { position: "WR", team: "CIN", nameKey: "nobody at all", adp: {} },
+  ];
+  const maps = {
+    espn: { byStrict: new Map([["RB|DET|jahmyr gibbs", 1.32]]), defByTeam: new Map(), kByName: new Map() },
+  };
+  attachAdpBySource(players, maps);
+  assert.deepStrictEqual(players[0].adpBySource, { espn: 1.32 });
+  assert.strictEqual(players[1].adpBySource, undefined);
+});
+
+test("a defence matches by team and a kicker by name", () => {
+  const players = [
+    { position: "DEF", team: "HOU", nameKey: "houston texans", adp: {} },
+    { position: "K", team: "BAL", nameKey: "justin tucker", adp: {} },
+  ];
+  const maps = {
+    espn: {
+      byStrict: new Map(),
+      defByTeam: new Map([["HOU", 92.6]]),
+      kByName: new Map([["justin tucker", 140.2]]),
+    },
+  };
+  attachAdpBySource(players, maps);
+  assert.deepStrictEqual(players[0].adpBySource, { espn: 92.6 });
+  assert.deepStrictEqual(players[1].adpBySource, { espn: 140.2 });
+});
+
+// One source dying must not take the other with it.
+test("sources are independent", () => {
+  const players = [{ position: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: {} }];
+  const maps = {
+    espn: { byStrict: new Map([["RB|DET|jahmyr gibbs", 1.32]]), defByTeam: new Map(), kByName: new Map() },
+    yahoo: null, // what a failed fetch leaves behind
+  };
+  attachAdpBySource(players, maps);
+  assert.deepStrictEqual(players[0].adpBySource, { espn: 1.32 });
+});
