@@ -646,6 +646,53 @@ test("auto-pick success returns { ok: true, picked }", async () => {
   });
 });
 
+// The auto-pick response above tests `best`, the pool entry itself -- which
+// already carried adpBySource before this fix. It never touched what actually
+// gets stored on the pick, or what GET /drafts/{draftId} reads back. This one
+// drives a real pick, then re-reads the draft the way the client would, so it
+// exercises the stored `d.picks[i].player` snapshot end to end.
+test("a picked player's per-source ADP survives into GET /drafts/{draftId}", async () => {
+  const draftItem = {
+    draftId: "d1",
+    ownerId: "user-me",
+    seats: [{ team: 1, sub: "user-me", kind: "human" }],
+    sport: "nfl",
+    format: "standard",
+    picked: [],
+    picks: [{ overall: 1, round: 1, team: 1, playerId: null, player: null }],
+    currentIndex: 0,
+  };
+  const playerItem = {
+    sport: "nfl",
+    playerId: "p1",
+    id: "p1",
+    name: "Player One",
+    position: "RB",
+    team: "SF",
+    rank: { standard: 5 },
+    adp: { standard: 5.5 },
+    tier: { standard: 1 },
+    adpBySource: { espn: 5.1, yahoo: 6.0 },
+  };
+  // Both handler calls read/write the same `draftItem`, so the pick's
+  // in-place mutation of d.picks is what the later GET reads back -- exactly
+  // the round trip the reviewer traced through the stored data.
+  stubByTable({
+    "drafts-test": { Item: draftItem },
+    "players-test": { Item: playerItem },
+  });
+
+  const pickRes = await handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+  );
+  assert.strictEqual(pickRes.statusCode, 200);
+
+  const getRes = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.strictEqual(getRes.statusCode, 200);
+  const body = JSON.parse(getRes.body);
+  assert.deepStrictEqual(body.picks[0].player.adpBySource, { espn: 5.1, yahoo: 6.0 });
+});
+
 test("auto-pick's picked player carries per-source ADP", async () => {
   const draftItem = {
     draftId: "d1",

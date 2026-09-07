@@ -29,6 +29,16 @@ test("a zero is treated as no number", () => {
   assert.strictEqual(adpTrio(0, { espn: 0 })[1].text, "—");
 });
 
+// Infinity satisfies `raw > 0` just as 0 fails it -- the guard must reject
+// both ends of the number line, not just the low one.
+test("Infinity is treated as no number, not a valid ADP", () => {
+  const trio = adpTrio(Infinity, { espn: Infinity });
+  assert.strictEqual(trio[0].value, null);
+  assert.strictEqual(trio[0].text, "—");
+  assert.strictEqual(trio[1].value, null);
+  assert.strictEqual(trio[1].text, "—");
+});
+
 test("the platform-wide note says what it means", () => {
   assert.match(PLATFORM_WIDE_NOTE, /whole platform/);
 });

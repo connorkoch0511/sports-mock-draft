@@ -20,9 +20,14 @@ export function adpTrio(ourAdp, adpBySource) {
   const src = adpBySource ?? {};
   return SOURCE_LABELS.map(({ key, label }) => {
     const raw = key === "ours" ? ourAdp : src[key];
-    // 0 is not a draft position. Treating it as one would sort the player to
-    // the very top, which is the most misleading thing this could do.
-    const value = typeof raw === "number" && raw > 0 ? raw : null;
+    // Reject anything that is not a finite positive number. 0 is not a draft
+    // position -- treating it as one would sort the player to the very top.
+    // Infinity is not one either, and is just as dangerous at the other end
+    // of the number line: `raw > 0` alone lets it through, since Infinity > 0
+    // is true, and it would render as the literal word "Infinity" in a row
+    // that should read as unranked. Number.isFinite rejects it (and NaN)
+    // while still accepting every real ADP.
+    const value = Number.isFinite(raw) && raw > 0 ? raw : null;
     return { key, label, value, text: value == null ? "—" : value.toFixed(1) };
   });
 }

@@ -5,6 +5,7 @@ const {
   GetCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const { responder } = require("./lib/http");
+const { withAdpBySource } = require("./lib/adpBySource");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -24,9 +25,9 @@ function toDetail(p, format) {
     rank: p.rank?.[format] ?? null,
     adp: p.adp?.[format] ?? null,
     // Spread as-is: it has no format dimension, because neither ESPN nor
-    // Yahoo publishes one. Absent stays absent -- an empty object would
-    // render as a source that exists but has no opinion.
-    ...(p.adpBySource ? { adpBySource: p.adpBySource } : {}),
+    // Yahoo publishes one. See lib/adpBySource for why absent must stay
+    // absent.
+    ...withAdpBySource(p.adpBySource),
     tier: p.tier?.[format] ?? null,
   };
 
@@ -107,9 +108,9 @@ exports.handler = async (event) => {
         rank,
         adp: p.adp?.[format] ?? null,
         // Spread as-is: it has no format dimension, because neither ESPN nor
-        // Yahoo publishes one. Absent stays absent -- an empty object would
-        // render as a source that exists but has no opinion.
-        ...(p.adpBySource ? { adpBySource: p.adpBySource } : {}),
+        // Yahoo publishes one. See lib/adpBySource for why absent must stay
+        // absent.
+        ...withAdpBySource(p.adpBySource),
         tier: p.tier?.[format] ?? null,
       };
 
