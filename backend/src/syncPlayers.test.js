@@ -834,3 +834,64 @@ test("putAdp still accepts a genuine positive ADP", () => {
   putAdp(maps, { pos: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: 1.32 });
   assert.strictEqual(maps.byStrict.get("RB|DET|jahmyr gibbs"), 1.32);
 });
+
+const { assertSomethingRanked } = require("./syncPlayers");
+
+// FFC answering 200 with a reshaped body returns an empty list rather than
+// throwing, so nothing upstream catches it. Every player would then be written
+// without a rank -- and boards keep only ranked players, so every big board
+// would render empty and report every player as removed.
+test("a run that ranked nobody refuses to write", () => {
+  assert.throws(
+    () => assertSomethingRanked({ standard: 0, "half-ppr": 0, ppr: 0 }, 897),
+    /not one ranked/
+  );
+});
+
+test("a run that ranked somebody in any format writes", () => {
+  assert.doesNotThrow(() => assertSomethingRanked({ standard: 0, "half-ppr": 0, ppr: 12 }, 897));
+  assert.doesNotThrow(() => assertSomethingRanked({ standard: 209, "half-ppr": 213, ppr: 260 }, 897));
+});
+
+// An empty pool is a different failure with its own floor, and must not be
+// reported as a missing-ADP one.
+test("no players at all is left to the prune floor", () => {
+  assert.doesNotThrow(() => assertSomethingRanked({ standard: 0, "half-ppr": 0, ppr: 0 }, 0));
+});
+
+// Drives the real handler, because the guard above being correct is worthless
+// if nothing calls it -- and removing the call left this suite entirely green
+// until this test existed.
+test("the handler writes nothing when no ADP arrived", async () => {
+  const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
+  const realSend = DynamoDBDocumentClient.prototype.send;
+  const realFetch = global.fetch;
+  const realTable = process.env.PLAYERS_TABLE;
+
+  let writes = 0;
+  DynamoDBDocumentClient.prototype.send = async (cmd) => {
+    if (cmd?.constructor?.name === "BatchWriteCommand") writes++;
+    return { UnprocessedItems: {}, Items: [] };
+  };
+
+  // Sleeper answers normally; every other feed answers 200 with a body that
+  // carries no players -- the reshaped-payload case that never throws.
+  global.fetch = async (url) => ({
+    ok: true,
+    json: async () =>
+      String(url).includes("sleeper.app/v1/players")
+        ? { 4034: { player_id: "4034", full_name: "Christian McCaffrey", fantasy_positions: ["RB"], position: "RB", team: "SF", status: "Active" } }
+        : {},
+  });
+  process.env.PLAYERS_TABLE = "players-test";
+
+  try {
+    const { handler } = require("./syncPlayers");
+    await assert.rejects(() => handler(), /not one ranked/);
+    assert.strictEqual(writes, 0, "a rankless table must never be written");
+  } finally {
+    DynamoDBDocumentClient.prototype.send = realSend;
+    global.fetch = realFetch;
+    process.env.PLAYERS_TABLE = realTable;
+  }
+});
