@@ -69,4 +69,31 @@ function isSeated(draft, sub) {
   return seats.some((s) => s && s.kind === "human" && s.sub === sub);
 }
 
-module.exports = { ANON, subOf, isUnowned, canMutate, buildSeats, isSeated };
+/**
+ * The seat this person holds, or null.
+ *
+ * A bot seat carries sub null, and a signed-out caller has no sub, so the
+ * empty check comes first: without it a request with no identity would match
+ * every bot seat in the draft.
+ */
+function seatOf(draft, sub) {
+  if (typeof sub !== "string" || sub.length === 0) return null;
+  const seats = draft?.seats;
+  if (!Array.isArray(seats)) return null;
+  return seats.find((s) => s && s.sub === sub) || null;
+}
+
+// The team whose pick is next. Null once the draft is finished, which is a
+// different thing from team 0 and must not be confused with it.
+function teamOnClock(draft) {
+  const pick = draft?.picks?.[draft?.currentIndex];
+  return pick?.team ?? null;
+}
+
+function humanSeatCount(draft) {
+  const seats = draft?.seats;
+  if (!Array.isArray(seats)) return 0;
+  return seats.filter((s) => s && s.kind === "human").length;
+}
+
+module.exports = { ANON, subOf, isUnowned, canMutate, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount };

@@ -1022,3 +1022,46 @@ test("a new draft has exactly one human seat, and it is the owner", async () => 
   assert.strictEqual(humans.length, 1);
   assert.strictEqual(humans[0].sub, put.Item.ownerId);
 });
+
+const { seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
+
+const draftWith = (seats, currentIndex = 0, picks = [{ team: 1 }, { team: 2 }]) =>
+  ({ seats, currentIndex, picks });
+
+test("seatOf finds the seat a person holds", () => {
+  const d = draftWith([
+    { team: 1, sub: "alice", kind: "human" },
+    { team: 2, sub: null, kind: "bot" },
+  ]);
+  assert.strictEqual(seatOf(d, "alice").team, 1);
+  assert.strictEqual(seatOf(d, "bob"), null);
+});
+
+// A bot seat has sub null, and a signed-out caller has no sub. Neither may
+// match the other, or a signed-out request would hold every bot seat.
+test("a null sub matches no seat, including bot seats", () => {
+  const d = draftWith([{ team: 1, sub: null, kind: "bot" }]);
+  assert.strictEqual(seatOf(d, null), null);
+  assert.strictEqual(seatOf(d, undefined), null);
+  assert.strictEqual(seatOf(d, ""), null);
+});
+
+test("teamOnClock reads the pick the draft is on", () => {
+  assert.strictEqual(teamOnClock(draftWith([], 0)), 1);
+  assert.strictEqual(teamOnClock(draftWith([], 1)), 2);
+});
+
+test("a finished or malformed draft has nobody on the clock", () => {
+  assert.strictEqual(teamOnClock(draftWith([], 2)), null);
+  assert.strictEqual(teamOnClock({ picks: [], currentIndex: 0 }), null);
+  assert.strictEqual(teamOnClock({}), null);
+});
+
+test("humanSeatCount counts only human seats", () => {
+  assert.strictEqual(humanSeatCount(draftWith([
+    { team: 1, sub: "a", kind: "human" },
+    { team: 2, sub: "b", kind: "human" },
+    { team: 3, sub: null, kind: "bot" },
+  ])), 2);
+  assert.strictEqual(humanSeatCount({}), 0);
+});
