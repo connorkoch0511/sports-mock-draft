@@ -46,6 +46,7 @@ built from the four above — do not build a second stubbing mechanism.
 |---|---|
 | `backend/src/lib/owner.js` | Gains `seatOf(draft, sub)` and `teamOnClock(draft)` — the two questions every turn decision asks. |
 | `backend/src/drafts.js` | Turn check, conditional writes, `yourTeam` on GET, the join route, invite token at creation. |
+| `backend/src/lib/advance.js` (new) | The conditional write that moves a draft forward, and the 409 it returns when it loses. One place, because three copies of a concurrency guard drift. |
 | `backend/src/lib/members.js` (new) | Writing and reading membership rows, in one place so the dual write is not spread around. |
 | `backend/src/me.js` | Lists drafts you are *in*, via members, instead of drafts you own. |
 | `backend/template.yaml` | The members table, its policies, and the join route. |
@@ -277,7 +278,7 @@ git commit -m "feat: a pick must come from the seat on the clock"
 
 **Interfaces:**
 - Consumes: nothing beyond Task 2.
-- Produces: each pick-advancing write is conditional on the `currentIndex` it read; a failed condition returns **409 `{ error: "Somebody just picked", currentIndex, version }`**.
+- Produces: `advanceDraft({ ddb, table, draftId, draft, expectedIndex })` in `backend/src/lib/advance.js` — performs the conditional write, and **throws a `RaceLost` error carrying the current `currentIndex` and `version`** when the condition fails. All three handlers call it; each turns a `RaceLost` into **409 `{ error: "Somebody just picked", currentIndex, version }`**.
 
 **Background the implementer needs — this is the most consequential task in the plan.** Every one of those three writes today does a read, then an unconditional write of `picks`, `picked` and `currentIndex`. The only `ConditionExpression` anywhere in `drafts.js` guards the DELETE. Two people picking in the same moment both read `currentIndex = 5`, both write slot 5, and **one pick disappears with no error at all** — the player was drafted and then was not.
 
@@ -316,45 +317,80 @@ Expected: FAIL — today the rejection escapes as a 500, not a 409.
 
 - [ ] **Step 3: Implement**
 
-For each of the three `UpdateCommand` calls, capture the index that was read before mutating, add the condition, and catch the failure. In `/pick`:
+Create `backend/src/lib/advance.js` first, so the rule lives in one place:
+
+```js
+// Moving a draft forward, safely.
+//
+// Every pick-advancing write does a read and then a write, and between those
+// two somebody else may have picked. The condition here is what stops the
+// second write landing on top of the first -- without it the loser's pick is
+// silently overwritten and the player who was drafted simply is not, with no
+// error anywhere. Written once rather than three times because three copies
+// of a concurrency guard drift, and drift here reintroduces exactly the bug
+// this exists to prevent.
+
+const { UpdateCommand, GetCommand } = require("@aws-sdk/lib-dynamodb");
+
+class RaceLost extends Error {
+  constructor(currentIndex, version) {
+    super("Somebody just picked");
+    this.name = "RaceLost";
+    this.currentIndex = currentIndex;
+    this.version = version;
+  }
+}
+
+async function advanceDraft({ ddb, table, draftId, draft, expectedIndex }) {
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: table,
+        Key: { draftId },
+        UpdateExpression:
+          "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
+        ConditionExpression: "currentIndex = :expected",
+        ExpressionAttributeValues: {
+          ":p": draft.picks, ":k": draft.picked, ":i": draft.currentIndex,
+          ":z": 0, ":one": 1, ":expected": expectedIndex,
+        },
+      })
+    );
+  } catch (e) {
+    if (e?.name !== "ConditionalCheckFailedException") throw e;
+    // Read back so the caller can tell the browser where the draft actually
+    // is, rather than leaving it to guess and poll.
+    const now = await ddb.send(new GetCommand({ TableName: table, Key: { draftId } }));
+    throw new RaceLost(now.Item?.currentIndex ?? null, now.Item?.version ?? null);
+  }
+}
+
+module.exports = { advanceDraft, RaceLost };
+```
+
+Then in each of the three handlers, capture the index before mutating and call it. In `/pick`:
 
 ```js
       // Captured before the mutation below moves it.
       const expectedIndex = d.currentIndex;
 ```
 
-then on the command:
-
-```js
-          ConditionExpression: "currentIndex = :expected",
-          ExpressionAttributeValues: {
-            ":p": d.picks, ":k": d.picked, ":i": d.currentIndex,
-            ":z": 0, ":one": 1, ":expected": expectedIndex,
-          },
-```
-
-and around the send:
+then replace that handler's whole `await ddb.send(new UpdateCommand({...}))` with:
 
 ```js
       try {
-        await ddb.send(new UpdateCommand({ /* as above */ }));
+        await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
       } catch (e) {
-        // Somebody else advanced the draft between our read and our write.
-        // Without this condition that write would land on top of theirs and
-        // their pick would vanish with no error anywhere.
-        if (e?.name === "ConditionalCheckFailedException") {
-          const now = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
-          return json(409, {
-            error: "Somebody just picked",
-            currentIndex: now.Item?.currentIndex ?? null,
-            version: now.Item?.version ?? null,
-          });
+        if (e?.name === "RaceLost") {
+          return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
         }
         throw e;
       }
 ```
 
-Apply the same three changes to `/auto-pick` and `/sim-to-end`. Do not factor them into a shared helper in this task — the three handlers differ in what they compute before the write, and a premature shared wrapper here would obscure that.
+Do the same in `/auto-pick` and `/sim-to-end`. What each handler computes
+before the write stays exactly as it is and differs between them; only the
+write itself is shared.
 
 - [ ] **Step 4: Run the tests**
 
@@ -364,7 +400,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/src/drafts.js backend/src/drafts.test.js
+git add backend/src/lib/advance.js backend/src/drafts.js backend/src/drafts.test.js
 git commit -m "fix: a pick that lost the race no longer overwrites the winner"
 ```
 
