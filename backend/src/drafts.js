@@ -3,7 +3,6 @@ const {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
-  UpdateCommand,
   QueryCommand,
   DeleteCommand,
 } = require("@aws-sdk/lib-dynamodb");
@@ -17,6 +16,7 @@ const {
 const { responder } = require("./lib/http");
 const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock } = require("./lib/owner");
 const { withAdpBySource } = require("./lib/adpBySource");
+const { advanceDraft } = require("./lib/advance");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -322,17 +322,20 @@ exports.handler = async (event) => {
         tier: snap.tier,
       };
 
+      // Captured before the mutation below moves it.
+      const expectedIndex = d.currentIndex;
+
       d.picked = [playerId, ...(d.picked || [])];
       d.currentIndex = d.currentIndex + 1;
 
-      await ddb.send(
-        new UpdateCommand({
-          TableName: draftsTable,
-          Key: { draftId },
-          UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
-        })
-      );
+      try {
+        await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
+      } catch (e) {
+        if (e?.name === "RaceLost") {
+          return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
+        }
+        throw e;
+      }
 
       return json(200, { ok: true });
     }
@@ -367,17 +370,21 @@ exports.handler = async (event) => {
         ...withAdpBySource(best.adpBySource),
         tier: best.tier,
       };
+
+      // Captured before the mutation below moves it.
+      const expectedIndex = d.currentIndex;
+
       d.picked = [best.id, ...(d.picked || [])];
       d.currentIndex = d.currentIndex + 1;
 
-      await ddb.send(
-        new UpdateCommand({
-          TableName: draftsTable,
-          Key: { draftId },
-          UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
-        })
-      );
+      try {
+        await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
+      } catch (e) {
+        if (e?.name === "RaceLost") {
+          return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
+        }
+        throw e;
+      }
 
       return json(200, { ok: true, picked: best });
     }
@@ -392,6 +399,12 @@ exports.handler = async (event) => {
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
       const { players, byId } = await loadPlayersForSport(playersTable, sport, format);
+
+      // Captured before the loop below moves it. sim-to-end computes many
+      // picks in memory but writes once at the end, so the guard is against
+      // anything that moved currentIndex since this single read -- not
+      // against anything that happens mid-loop, which is all local state.
+      const expectedIndex = d.currentIndex;
 
       while (d.currentIndex < d.picks.length) {
         const teamNum = d.picks[d.currentIndex]?.team;
@@ -415,14 +428,14 @@ exports.handler = async (event) => {
         d.currentIndex += 1;
       }
 
-      await ddb.send(
-        new UpdateCommand({
-          TableName: draftsTable,
-          Key: { draftId },
-          UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
-        })
-      );
+      try {
+        await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
+      } catch (e) {
+        if (e?.name === "RaceLost") {
+          return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
+        }
+        throw e;
+      }
 
       return json(200, { ok: true, completed: d.currentIndex >= d.picks.length });
     }

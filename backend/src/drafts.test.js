@@ -74,6 +74,50 @@ function ownedDraft(ownerId, seatSub = ownerId) {
   };
 }
 
+// Drives /pick all the way to its write, simulating a table where somebody
+// else's pick has already moved currentIndex on since our stale read.
+//
+// This does not just make the UpdateCommand reject unconditionally -- a stub
+// that rejects no matter what the command contains would still "pass" this
+// test even if advance.js's ConditionExpression were deleted, since nothing
+// here would notice. Instead this behaves the way DynamoDB actually does:
+// it inspects the write's own ConditionExpression and only fails the request
+// when one is present and does not hold against the server's index. Remove
+// the guard from advance.js and this stub lets the write through, same as a
+// real, unconditional UpdateCommand would -- which is exactly the silent
+// overwrite this task exists to prevent, and exactly what should turn this
+// test from green to red.
+function pickAsWithConditionFailure(draft, sub, playerId) {
+  const serverCurrentIndex = draft.currentIndex + 1;
+  let draftGets = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "UpdateCommand") {
+      const expected = cmd.input.ExpressionAttributeValues?.[":expected"];
+      if (cmd.input.ConditionExpression && expected !== serverCurrentIndex) {
+        const e = new Error("The conditional request failed");
+        e.name = "ConditionalCheckFailedException";
+        throw e;
+      }
+      return {};
+    }
+    if (cmd?.input?.TableName === "players-test") {
+      return {
+        Item: {
+          playerId, id: playerId, name: "Test Back", position: "RB", team: "SF",
+          rank: { standard: 1 }, adp: { standard: 1 }, tier: { standard: 1 },
+        },
+      };
+    }
+    draftGets += 1;
+    if (draftGets === 1) return { Item: draft };
+    // Somebody else's pick landed between our read and our write.
+    return { Item: { ...draft, currentIndex: serverCurrentIndex, version: (draft.version || 0) + 1 } };
+  });
+  return handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId }, claims: { sub } })
+  );
+}
+
 test("POST /drafts seats the creator", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
@@ -289,6 +333,24 @@ test("the owner can pick", async () => {
     })
   );
   assert.strictEqual(res.statusCode, 200);
+});
+
+// The defect this task exists for: two picks from the same currentIndex.
+// Today both succeed and one is silently overwritten.
+test("a pick that lost the race is refused, not silently dropped", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+    picks: [{ team: 1 }, { team: 1 }],
+  };
+  // The second write fails its condition, as DynamoDB would when another
+  // request has already moved currentIndex on.
+  const res = await pickAsWithConditionFailure(draft, "alice", "p1");
+  assert.strictEqual(res.statusCode, 409);
+  const body = JSON.parse(res.body);
+  assert.match(body.error, /somebody just picked/i);
+  // The client needs to know where the draft actually is now.
+  assert.ok(Number.isInteger(body.currentIndex));
 });
 
 // Superseded: sharing a link no longer grants access on its own. This task
