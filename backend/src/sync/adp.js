@@ -15,9 +15,20 @@ async function fetchFfcAdp({ format, teams, year }) {
   return Array.isArray(j.players) ? j.players : [];
 }
 
-// Wrapped in the stats block's try/catch (see the handler below), so a
-// timeout here is exactly the "degrade to players-without-stats" outcome
-// that block's own comment promises for a Sleeper outage -- a hang is just
+// NOT wrapped in a try/catch at its call site, unlike the stats block and the
+// ESPN and Yahoo adapters, and that is deliberate rather than an oversight.
+//
+// Those three are decoration: losing them costs a column. This one is load
+// bearing -- rank and tier are derived from nothing but this ADP, and a board
+// keeps only players that have a rank. A run that "degraded" past an FFC
+// failure would write a rankless table, which empties every big board and
+// reports every player as removed. Failing the whole run leaves yesterday's
+// rows in place, which is the better of the two outcomes by a wide margin.
+//
+// A failure that throws is therefore handled correctly already. The one that
+// is not is FFC answering 200 with a reshaped body: that returns an empty
+// list rather than raising, so the handler guards the rank count before it
+// writes. See assertSomethingRanked in syncPlayers.js.
 
 function buildFfcMap(ffcPlayers) {
   const byStrict = new Map();     // pos|team|name

@@ -61,6 +61,24 @@ const YAHOO_PAGE = 100; // verified: Yahoo honours count=100, so 3 pages
  * count is the only thing that tells the two apart, the same reason
  * `statsMatched` exists below for season stats.
  */
+/**
+ * Throw unless somebody, in some format, came out of this run with a rank.
+ *
+ * Separate and exported so it can be tested directly: the path that reaches it
+ * is a third party returning a wrong-shaped 200, which is awkward to provoke
+ * through the handler and too consequential to leave untested.
+ */
+function assertSomethingRanked(countsByFormat, playerCount) {
+  const totalRanked = Object.values(countsByFormat).reduce((n, c) => n + c, 0);
+  // No players at all is a different failure, caught by the prune floor.
+  if (playerCount > 0 && totalRanked === 0) {
+    throw new Error(
+      `Refusing to write: ${playerCount} players and not one ranked in any format. ` +
+        `ADP is missing entirely, which would empty every board.`
+    );
+  }
+}
+
 function attachAdpBySource(players, maps) {
   const matched = {};
   for (const source of Object.keys(maps)) matched[source] = 0;
@@ -214,6 +232,15 @@ exports.handler = async () => {
     }
   }
 
+  // A rankless table is worse than a stale one, so refuse to write one.
+  //
+  // The prune floor below catches a short player list. It cannot catch this:
+  // every player is present and written, they simply have no rank, so `wrote`
+  // looks perfectly healthy at ~900. FFC answering 200 with a reshaped body
+  // produces exactly that -- an empty list, no exception -- and the result
+  // would empty every big board and report every player as removed.
+  assertSomethingRanked(countsByFormat, basePlayers.length);
+
   // 6) Batch write with retry
   const batches = chunk(basePlayers, 25);
   let wrote = 0;
@@ -299,3 +326,4 @@ module.exports.pickWeek = pickWeek;
 module.exports.mergeGameLogs = mergeGameLogs;
 module.exports.fetchWeekStats = fetchWeekStats;
 module.exports.attachAdpBySource = attachAdpBySource;
+module.exports.assertSomethingRanked = assertSomethingRanked;
