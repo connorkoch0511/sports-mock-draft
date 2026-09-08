@@ -146,6 +146,37 @@ test("renaming to the same name saves nothing", async ({ page }) => {
   expect(saved).toBeNull();
 });
 
+test("board rows show every source's ADP", async ({ page }) => {
+  const state = makeBoardState();
+  state.rows[0].adpBySource = { espn: 4.2, yahoo: 3.5 };
+  state.rows[0].adp = 4.4;
+  await mockBoard(page, state);
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  await expect(page.getByTestId("adp-trio").first())
+    .toHaveText(/ours\s*4\.4.*esp\s*4\.2.*yah\s*3\.5/s);
+});
+
+test("a board row with no per-source ADP shows dashes, not zeros", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+  await expect(page.getByTestId("adp-trio").first()).toContainText("—");
+});
+
+// The per-row "adp-trio" title= is mouse-only -- unreachable by keyboard or
+// screen reader. Deleting PLATFORM_WIDE_NOTE from Board.jsx must fail this.
+test("the platform-wide ADP caveat is visible small print, not just a title attribute", async ({ page }) => {
+  await mockBoard(page, makeBoardState());
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+
+  const note = page.getByTestId("adp-source-note");
+  await expect(note).toBeVisible();
+  await expect(note).toContainText("whole platform");
+});
+
 test("renders the board in saved order", async ({ page }) => {
   await mockBoard(page, makeBoardState());
   await signIn(page);

@@ -11,6 +11,7 @@ const { randomUUID } = require("crypto");
 const { json, responder } = require("./lib/http");
 const { reconcile } = require("./lib/reconcile");
 const { subOf, canMutate, ANON } = require("./lib/owner");
+const { withAdpBySource } = require("./lib/adpBySource");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -79,6 +80,14 @@ async function loadPool(playersTable, sport, format) {
       position: p.position,
       team: p.team,
       consensusRank: p.rank[format],
+      // Our own ADP, so the board editor can show it beside ESPN's and
+      // Yahoo's. consensusRank is a rank over this board's population and is
+      // a different number entirely -- it is not a stand-in for this.
+      adp: p.adp?.[format] ?? null,
+      // Spread as-is: it has no format dimension, because neither ESPN nor
+      // Yahoo publishes one. See lib/adpBySource for why absent must stay
+      // absent.
+      ...withAdpBySource(p.adpBySource),
     }));
 }
 

@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { mock } = require("node:test");
 const { DynamoDBDocumentClient } = require("@aws-sdk/lib-dynamodb");
-const { handler } = require("./players");
+const { handler, toDetail } = require("./players");
 
 process.env.PLAYERS_TABLE = "players-test";
 
@@ -393,4 +393,32 @@ test("yearsExp rides along on the single player", async () => {
   stubGet(player("4034", 7, { yearsExp: 0 }));
   const { body } = await getOne("4034");
   assert.strictEqual(body.player.yearsExp, 0);
+});
+
+test("a player's per-source ADP reaches the client", () => {
+  const out = toDetail(
+    { playerId: "1", name: "Jahmyr Gibbs", position: "RB", team: "DET",
+      adp: { ppr: 1.4 }, adpBySource: { espn: 1.32, yahoo: 1.3 } },
+    "ppr"
+  );
+  assert.deepStrictEqual(out.adpBySource, { espn: 1.32, yahoo: 1.3 });
+});
+
+test("a player with no per-source ADP does not gain an empty one", () => {
+  const out = toDetail({ playerId: "1", name: "X", position: "RB", team: "DET", adp: { ppr: 1.4 } }, "ppr");
+  assert.strictEqual(out.adpBySource, undefined);
+});
+
+// The list endpoint (GET /players) is a second, independent mapping site --
+// exercise it separately so a fix applied only to toDetail doesn't look done.
+test("GET /players carries a player's per-source ADP", async () => {
+  stubPages([{ Items: [player("a", 1, { adpBySource: { espn: 1.32, yahoo: 1.3 } })] }]);
+  const { body } = await get({ format: "standard" });
+  assert.deepStrictEqual(body.players[0].adpBySource, { espn: 1.32, yahoo: 1.3 });
+});
+
+test("GET /players does not add adpBySource for a player who has none", async () => {
+  stubPages([{ Items: [player("a", 1)] }]);
+  const { body } = await get({ format: "standard" });
+  assert.ok(!("adpBySource" in body.players[0]));
 });

@@ -1,3 +1,5 @@
+const { withAdpBySource } = require("./adpBySource");
+
 const NO_RANK = Number.MAX_SAFE_INTEGER;
 
 function rankOf(player) {
@@ -53,6 +55,11 @@ function reconcile(storedOrder, livePool) {
       team: player.team,
       myRank,
       consensusRank,
+      adp: player.adp ?? null,
+      // Spread as-is: it has no format dimension, because neither ESPN nor
+      // Yahoo publishes one. See lib/adpBySource for why absent must stay
+      // absent.
+      ...withAdpBySource(player.adpBySource),
       delta: consensusRank == null ? null : consensusRank - myRank,
       isNew,
     };

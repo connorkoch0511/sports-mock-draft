@@ -5,6 +5,7 @@ const {
   GetCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const { responder } = require("./lib/http");
+const { withAdpBySource } = require("./lib/adpBySource");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -23,6 +24,10 @@ function toDetail(p, format) {
     yearsExp: p.yearsExp ?? null,
     rank: p.rank?.[format] ?? null,
     adp: p.adp?.[format] ?? null,
+    // Spread as-is: it has no format dimension, because neither ESPN nor
+    // Yahoo publishes one. See lib/adpBySource for why absent must stay
+    // absent.
+    ...withAdpBySource(p.adpBySource),
     tier: p.tier?.[format] ?? null,
   };
 
@@ -102,6 +107,10 @@ exports.handler = async (event) => {
         team: p.team,
         rank,
         adp: p.adp?.[format] ?? null,
+        // Spread as-is: it has no format dimension, because neither ESPN nor
+        // Yahoo publishes one. See lib/adpBySource for why absent must stay
+        // absent.
+        ...withAdpBySource(p.adpBySource),
         tier: p.tier?.[format] ?? null,
       };
 

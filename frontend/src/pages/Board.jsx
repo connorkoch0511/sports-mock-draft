@@ -17,6 +17,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { apiGet, apiPut } from "../lib/api";
+import { adpTrio, PLATFORM_WIDE_NOTE } from "../lib/adpSources";
 import { usePageTitle } from "../lib/usePageTitle";
 import { PlayerModal } from "../components/draft/PlayerModal";
 import { download } from "../lib/download";
@@ -47,9 +48,9 @@ function Row({ row, onOpen }) {
     <li
       ref={setNodeRef}
       // Pointer listeners on the row, so the whole thing reorders -- rank,
-      // position, team, delta, the grip, the empty space between them. The
-      // grip alone used to be the only draggable target, and it is a dim
-      // six-dot glyph that is easy to miss entirely.
+      // position, team, delta, the ADP line, the grip, the empty space
+      // between them. The grip alone used to be the only draggable target,
+      // and it is a dim six-dot glyph that is easy to miss entirely.
       //
       // The player's name is the deliberate exception: it stops propagation,
       // so it stays a plain click target and opening a player never competes
@@ -59,49 +60,75 @@ function Row({ row, onOpen }) {
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid="board-row"
       data-player-id={row.playerId}
-      className={`flex cursor-grab items-center gap-3 rounded-2xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-2 active:cursor-grabbing ${
+      className={`flex cursor-grab flex-col gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-2 active:cursor-grabbing ${
         isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""
       }`}
     >
-      <button
-        {...attributes}
-        {...listeners}
-        aria-label={`Reorder ${row.name}`}
-        title="Drag anywhere on the row to reorder"
-        className="cursor-grab px-1 text-zinc-500 hover:text-zinc-200 active:cursor-grabbing"
-      >
-        ⠿
-      </button>
-      <span className="w-8 text-right text-sm tabular-nums text-zinc-500">{row.myRank}</span>
       {/*
-        The name opens the player; the ⠿ grip beside it still reorders. They
-        are separate controls, so there is no click-versus-drag ambiguity to
-        tune and no clash with the keyboard sensor, which owns Space on the
-        grip.
+        The row stacks: this holds everything that was here before, and the
+        ADP line sits beneath it. Without the split, three sources would run
+        on as a sixth item in the same row and read as more player metadata
+        rather than as a separate reading of where he goes.
       */}
-      <button
-        type="button"
-        data-testid="open-player"
-        onClick={() => onOpen(row)}
-        // The one part of the row that is NOT a drag handle. Everything else
-        // reorders; the name stays a plain click target, so opening a player
-        // never has to compete with a drag that started on the same pixel.
-        onPointerDown={(e) => e.stopPropagation()}
-        title={`${row.name} — stats and trends`}
-        className="flex-1 cursor-pointer truncate text-left text-sm text-zinc-100 hover:text-cyan-200"
+      <div className="flex items-center gap-3">
+        <button
+          {...attributes}
+          {...listeners}
+          aria-label={`Reorder ${row.name}`}
+          title="Drag anywhere on the row to reorder"
+          className="cursor-grab px-1 text-zinc-500 hover:text-zinc-200 active:cursor-grabbing"
+        >
+          ⠿
+        </button>
+        <span className="w-8 text-right text-sm tabular-nums text-zinc-500">{row.myRank}</span>
+        {/*
+          The name opens the player; the ⠿ grip beside it still reorders. They
+          are separate controls, so there is no click-versus-drag ambiguity to
+          tune and no clash with the keyboard sensor, which owns Space on the
+          grip.
+        */}
+        <button
+          type="button"
+          data-testid="open-player"
+          onClick={() => onOpen(row)}
+          // The one part of the row that is NOT a drag handle. Everything else
+          // reorders; the name stays a plain click target, so opening a player
+          // never has to compete with a drag that started on the same pixel.
+          onPointerDown={(e) => e.stopPropagation()}
+          title={`${row.name} — stats and trends`}
+          className="flex-1 cursor-pointer truncate text-left text-sm text-zinc-100 hover:text-cyan-200"
+        >
+          {row.name}
+          {row.isNew && (
+            <span className="ml-2 rounded-full bg-cyan-300/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-cyan-300">
+              New
+            </span>
+          )}
+        </button>
+        <span className={`w-10 text-xs ${POS_COLORS[row.position] || "text-zinc-400"}`}>
+          {row.position}
+        </span>
+        <span className="w-10 text-xs text-zinc-500">{row.team}</span>
+        <span className="w-16 text-right"><DeltaBadge delta={row.delta} /></span>
+      </div>
+      {/*
+        Boards have never shown ADP. It belongs here because this is
+        where ranking decisions get made -- the whole reason to see
+        several sources is to decide where a player goes.
+      */}
+      <div
+        data-testid="adp-trio"
+        title={PLATFORM_WIDE_NOTE}
+        className="text-xs text-zinc-500"
       >
-        {row.name}
-        {row.isNew && (
-          <span className="ml-2 rounded-full bg-cyan-300/15 px-2 py-0.5 text-[10px] uppercase tracking-wide text-cyan-300">
-            New
+        {adpTrio(row.adp ?? null, row.adpBySource).map((s, i) => (
+          <span key={s.key}>
+            {i > 0 ? <span className="mx-1 text-zinc-700">·</span> : null}
+            <span>{s.label} </span>
+            <span className="tabular-nums text-zinc-400">{s.text}</span>
           </span>
-        )}
-      </button>
-      <span className={`w-10 text-xs ${POS_COLORS[row.position] || "text-zinc-400"}`}>
-        {row.position}
-      </span>
-      <span className="w-10 text-xs text-zinc-500">{row.team}</span>
-      <span className="w-16 text-right"><DeltaBadge delta={row.delta} /></span>
+        ))}
+      </div>
     </li>
   );
 }
@@ -336,6 +363,16 @@ export default function Board() {
           </div>
         </div>
       )}
+
+      {/*
+        Visible small print, not just the per-row `title` on each row's
+        "adp-trio" -- a title is mouse-only (unreachable by keyboard or
+        screen reader), so this is the one place a person can actually find
+        the caveat.
+      */}
+      <p data-testid="adp-source-note" className="mb-2 text-xs text-zinc-500">
+        {PLATFORM_WIDE_NOTE}
+      </p>
 
       <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
         <SortableContext items={rows.map((r) => r.playerId)} strategy={verticalListSortingStrategy}>

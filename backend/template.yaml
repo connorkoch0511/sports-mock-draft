@@ -297,7 +297,9 @@ Resources:
       # did not rewrite and fetches 18 weekly stat payloads (~3.4s measured),
       # and those three costs share one budget.
       Timeout: 120
-      MemorySize: 512
+      # 512 was sized before this job also parsed ESPN's ADP payload, which is
+      # 9.8MB at the depth we fetch, on top of Sleeper's 14.6MB dump.
+      MemorySize: 1024
       Environment:
         Variables:
           PLAYERS_TABLE: !Ref PlayersTable

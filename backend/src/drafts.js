@@ -16,6 +16,7 @@ const {
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
 const { subOf, ANON, buildSeats, isSeated } = require("./lib/owner");
+const { withAdpBySource } = require("./lib/adpBySource");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -50,6 +51,10 @@ async function loadPlayersForSport(table, sport, format) {
       team: p.team,
       rank: p.rank?.[format] ?? null,
       adp:  p.adp?.[format] ?? null,
+      // Spread as-is: it has no format dimension, because neither ESPN nor
+      // Yahoo publishes one. See lib/adpBySource for why absent must stay
+      // absent.
+      ...withAdpBySource(p.adpBySource),
       tier: p.tier?.[format] ?? null,
     }))
     // IMPORTANT: sort by rank, push nulls to bottom
@@ -78,6 +83,10 @@ async function getPlayerSnapshot(playersTable, sport, format, playerId) {
     team: p.team,
     rank: p.rank?.[format] ?? null,
     adp: p.adp?.[format] ?? null,
+    // Spread as-is: it has no format dimension, because neither ESPN nor
+    // Yahoo publishes one. See lib/adpBySource for why absent must stay
+    // absent.
+    ...withAdpBySource(p.adpBySource),
     tier: p.tier?.[format] ?? null,
   };
 }
@@ -305,6 +314,7 @@ exports.handler = async (event) => {
         team: snap.team,
         rank: snap.rank,
         adp: snap.adp,
+        ...withAdpBySource(snap.adpBySource),
         tier: snap.tier,
       };
 
@@ -350,6 +360,7 @@ exports.handler = async (event) => {
         team: best.team,
         rank: best.rank,
         adp: best.adp,
+        ...withAdpBySource(best.adpBySource),
         tier: best.tier,
       };
       d.picked = [best.id, ...(d.picked || [])];
@@ -393,6 +404,7 @@ exports.handler = async (event) => {
           team: best.team,
           rank: best.rank,
           adp: best.adp,
+          ...withAdpBySource(best.adpBySource),
           tier: best.tier,
         };
         d.picked = [best.id, ...(d.picked || [])];

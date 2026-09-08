@@ -1,0 +1,833 @@
+{
+  "players": [
+    {
+      "draftAuctionValue": 0,
+      "droppedByEliminatedTeam": false,
+      "id": 4429795,
+      "keeperValue": 0,
+      "keeperValueFuture": 0,
+      "lineupLocked": false,
+      "onTeamId": 0,
+      "player": {
+        "active": true,
+        "defaultPositionId": 2,
+        "draftRanksByRankType": {
+          "STANDARD": {
+            "auctionValue": 57,
+            "published": false,
+            "rank": 1,
+            "rankSourceId": 0,
+            "rankType": "STANDARD",
+            "slotId": 0
+          },
+          "PPR": {
+            "auctionValue": 57,
+            "published": false,
+            "rank": 1,
+            "rankSourceId": 0,
+            "rankType": "PPR",
+            "slotId": 0
+          },
+          "ELIMINATION": {
+            "auctionValue": 43,
+            "published": false,
+            "rank": 1,
+            "rankSourceId": 0,
+            "rankType": "ELIMINATION",
+            "slotId": 0
+          },
+          "SUPERFLEX": {
+            "auctionValue": 57,
+            "published": false,
+            "rank": 7,
+            "rankSourceId": 0,
+            "rankType": "SUPERFLEX",
+            "slotId": 0
+          }
+        },
+        "droppable": false,
+        "eligibleSlots": [
+          2,
+          3,
+          23,
+          7,
+          20,
+          21
+        ],
+        "firstName": "Jahmyr",
+        "fullName": "Jahmyr Gibbs",
+        "id": 4429795,
+        "injured": false,
+        "injuryStatus": "ACTIVE",
+        "jersey": "0",
+        "lastName": "Gibbs",
+        "lastNewsDate": 1788365712000,
+        "lastVideoDate": 1787614482000,
+        "ownership": {
+          "activityLevel": null,
+          "auctionValueAverage": 70.59,
+          "auctionValueAverageChange": 0.04,
+          "averageDraftPosition": 1.32,
+          "averageDraftPositionPercentChange": 0.0,
+          "date": 1788809424740,
+          "leagueType": 0,
+          "percentChange": 0.0,
+          "percentOwned": 99.94,
+          "percentStarted": 99.81
+        },
+        "proTeamId": 8,
+        "rankings": {
+          "0": [
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 7,
+              "rankType": "STANDARD",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 7,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 6,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 10,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 5,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 11,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 12,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 3,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 1.0,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "STANDARD",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 1.25,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 9,
+              "rankType": "PPR",
+              "slotId": 2
+            }
+          ],
+          "1": [
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 7,
+              "rankType": "STANDARD",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 7,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 6,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 10,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 5,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 11,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 12,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 3,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 1.0,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "STANDARD",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 1.125,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 9,
+              "rankType": "PPR",
+              "slotId": 2
+            }
+          ]
+        },
+        "seasonOutlook": "Gibbs has finished in the top 10 among running backs in yards per carry, routes, targets, receptions, touchdowns and fantasy points in each of his first three campaigns. In fact, his 38 touchdowns over the past two seasons are four more than any other player. Though Gibbs has finished as a top-three fantasy back in each of the past two years, he has yet to finish a season higher than seventh in touches. That very well could change this season with David Montgomery no longer in the mix. The 24-year-old Gibbs is one of the NFL's top playmakers in one of its best offenses. He's a strong option with the first pick of fantasy drafts."
+      },
+      "ratings": {
+        "0": {
+          "positionalRanking": 3,
+          "totalRanking": 4,
+          "totalRating": 366.90002
+        }
+      },
+      "rosterLocked": false,
+      "status": "WAIVERS",
+      "tradeLocked": false,
+      "waiverProcessDate": 1788937200000
+    },
+    {
+      "draftAuctionValue": 0,
+      "droppedByEliminatedTeam": false,
+      "id": 4430807,
+      "keeperValue": 0,
+      "keeperValueFuture": 0,
+      "lineupLocked": false,
+      "onTeamId": 0,
+      "player": {
+        "active": true,
+        "defaultPositionId": 2,
+        "draftRanksByRankType": {
+          "STANDARD": {
+            "auctionValue": 56,
+            "published": false,
+            "rank": 2,
+            "rankSourceId": 0,
+            "rankType": "STANDARD",
+            "slotId": 0
+          },
+          "PPR": {
+            "auctionValue": 56,
+            "published": false,
+            "rank": 2,
+            "rankSourceId": 0,
+            "rankType": "PPR",
+            "slotId": 0
+          },
+          "ELIMINATION": {
+            "auctionValue": 41,
+            "published": false,
+            "rank": 3,
+            "rankSourceId": 0,
+            "rankType": "ELIMINATION",
+            "slotId": 0
+          },
+          "SUPERFLEX": {
+            "auctionValue": 57,
+            "published": false,
+            "rank": 8,
+            "rankSourceId": 0,
+            "rankType": "SUPERFLEX",
+            "slotId": 0
+          }
+        },
+        "droppable": false,
+        "eligibleSlots": [
+          2,
+          3,
+          23,
+          7,
+          20,
+          21
+        ],
+        "firstName": "Bijan",
+        "fullName": "Bijan Robinson",
+        "id": 4430807,
+        "injured": false,
+        "injuryStatus": "ACTIVE",
+        "jersey": "7",
+        "lastName": "Robinson",
+        "lastNewsDate": 1786802965000,
+        "lastVideoDate": 1787614482000,
+        "ownership": {
+          "activityLevel": null,
+          "auctionValueAverage": 67.71,
+          "auctionValueAverageChange": -0.25,
+          "averageDraftPosition": 2.4,
+          "averageDraftPositionPercentChange": -0.01,
+          "date": 1788809424776,
+          "leagueType": 0,
+          "percentChange": 0.0,
+          "percentOwned": 99.92,
+          "percentStarted": 99.75
+        },
+        "proTeamId": 1,
+        "rankings": {
+          "0": [
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 7,
+              "rankType": "STANDARD",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 7,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 6,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 10,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 5,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 11,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 12,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 3,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 2.0,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "STANDARD",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 1.75,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 9,
+              "rankType": "PPR",
+              "slotId": 2
+            }
+          ],
+          "1": [
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 5,
+              "rankSourceId": 7,
+              "rankType": "STANDARD",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 7,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 3,
+              "rankSourceId": 6,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 10,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 5,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 3,
+              "rankSourceId": 11,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 12,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 3,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 5.0,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "STANDARD",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 2.25,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "PPR",
+              "slotId": 2
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 9,
+              "rankType": "PPR",
+              "slotId": 2
+            }
+          ]
+        },
+        "seasonOutlook": "Robinson enters his fourth season having finished in the top five among running backs in carries, rushing yards, touches, yards and fantasy points in each of the past two seasons. Also a big factor as a receiver, he has ranked no lower than fifth at the position in routes, targets, receptions and receiving yards in his three pro seasons. In 2025, PFF tracked him with 86 forced missed tackles, which was easily the most among backs. The 24-year-old is in his prime and, though he has a new coach in Kevin Stefanski, his path to a massive offensive role remains clear. He's on the short list of players who should be considered with the first pick of your fantasy draft."
+      },
+      "ratings": {
+        "0": {
+          "positionalRanking": 2,
+          "totalRanking": 3,
+          "totalRating": 370.8
+        }
+      },
+      "rosterLocked": false,
+      "status": "WAIVERS",
+      "tradeLocked": false,
+      "waiverProcessDate": 1788937200000
+    },
+    {
+      "draftAuctionValue": 0,
+      "droppedByEliminatedTeam": false,
+      "id": 4362628,
+      "keeperValue": 0,
+      "keeperValueFuture": 0,
+      "lineupLocked": false,
+      "onTeamId": 0,
+      "player": {
+        "active": true,
+        "defaultPositionId": 3,
+        "draftRanksByRankType": {
+          "STANDARD": {
+            "auctionValue": 56,
+            "published": false,
+            "rank": 3,
+            "rankSourceId": 0,
+            "rankType": "STANDARD",
+            "slotId": 0
+          },
+          "PPR": {
+            "auctionValue": 56,
+            "published": false,
+            "rank": 3,
+            "rankSourceId": 0,
+            "rankType": "PPR",
+            "slotId": 0
+          },
+          "ELIMINATION": {
+            "auctionValue": 40,
+            "published": false,
+            "rank": 4,
+            "rankSourceId": 0,
+            "rankType": "ELIMINATION",
+            "slotId": 0
+          },
+          "SUPERFLEX": {
+            "auctionValue": 55,
+            "published": false,
+            "rank": 9,
+            "rankSourceId": 0,
+            "rankType": "SUPERFLEX",
+            "slotId": 0
+          }
+        },
+        "droppable": false,
+        "eligibleSlots": [
+          3,
+          4,
+          5,
+          23,
+          7,
+          20,
+          21
+        ],
+        "firstName": "Ja'Marr",
+        "fullName": "Ja'Marr Chase",
+        "id": 4362628,
+        "injured": false,
+        "injuryStatus": "QUESTIONABLE",
+        "jersey": "1",
+        "lastName": "Chase",
+        "lastNewsDate": 1788802686000,
+        "lastVideoDate": 1787236687000,
+        "ownership": {
+          "activityLevel": null,
+          "auctionValueAverage": 62.54,
+          "auctionValueAverageChange": -0.17,
+          "averageDraftPosition": 4.23,
+          "averageDraftPositionPercentChange": 0.02,
+          "date": 1788809424195,
+          "leagueType": 0,
+          "percentChange": 0.0,
+          "percentOwned": 99.92,
+          "percentStarted": 99.18
+        },
+        "proTeamId": 4,
+        "rankings": {
+          "0": [
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 9,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 7,
+              "rankType": "STANDARD",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 7,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 6,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 5,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 3,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 1.0,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "STANDARD",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 12,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 1.25,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 11,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 10,
+              "rankType": "PPR",
+              "slotId": 4
+            }
+          ],
+          "1": [
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 9,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 7,
+              "rankType": "STANDARD",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 7,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 6,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 5,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 3,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 2.0,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "STANDARD",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 12,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "averageRank": 1.75,
+              "published": true,
+              "rank": 0,
+              "rankSourceId": 0,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 1,
+              "rankSourceId": 11,
+              "rankType": "PPR",
+              "slotId": 4
+            },
+            {
+              "auctionValue": 0,
+              "published": true,
+              "rank": 2,
+              "rankSourceId": 10,
+              "rankType": "PPR",
+              "slotId": 4
+            }
+          ]
+        },
+        "seasonOutlook": "Chase is fresh off yet another elite fantasy season and he's now finished four of his five NFL campaigns no lower than fifth in fantasy PPG (the exception was 11th in 2023). Chase actually saw a big dip in yardage (1,740 to 1,426), TDs (17 to 8) and fantasy PPG (23.7 to 19.6) from 2024 to 2025 (which was no surprise with Joe Burrow missing nine games), but still put up big numbers thanks to pacing the league in pass routes and targets for the second season in a row. In fact, Chase's 125 receptions make him the third receiver in NFL history with 125-plus catches in multiple seasons. The 26-year-old remains the top target in a high-scoring Bengals offense, and is one of the top players in all of fantasy."
+      },
+      "ratings": {
+        "0": {
+          "positionalRanking": 4,
+          "totalRanking": 16,
+          "totalRating": 313.6
+        }
+      },
+      "rosterLocked": false,
+      "status": "WAIVERS",
+      "tradeLocked": false,
+      "waiverProcessDate": 1788937200000
+    }
+  ]
+}

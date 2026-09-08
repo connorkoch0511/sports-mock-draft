@@ -18,6 +18,8 @@ const {
   pickAvailability,
 } = require("./sync/normalize");
 const { fetchFfcAdp, buildFfcMap } = require("./sync/adp");
+const { fetchEspnAdp, buildEspnMap } = require("./sync/adpEspn");
+const { fetchYahooAdp, buildYahooMap } = require("./sync/adpYahoo");
 const {
   STATS_FIELDS,
   fetchSeasonStats,
@@ -37,6 +39,51 @@ const {
 } = require("./sync/gameLogs");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+
+// Top 300 per source. A 12-team, 16-round draft is 192 picks, so 300 covers
+// everything anyone drafts; below that nobody consults an ADP, and ESPN's
+// payload is 9.8MB at this depth already.
+const ADP_SOURCE_DEPTH = 300;
+const YAHOO_PAGE = 100; // verified: Yahoo honours count=100, so 3 pages
+
+/**
+ * Hang each source's number off the player it actually matches.
+ *
+ * A miss leaves the key ABSENT rather than null or 0: both of those would
+ * reach the UI as a genuine ADP, and a player nobody has ranked would appear
+ * to be the first pick of the draft.
+ *
+ * Returns how many players got a number from each source. A source that
+ * fetches successfully but joins onto nobody -- a wholesale ID/name-scheme
+ * change upstream, or a season rollover where ADP_YEAR was bumped before
+ * ESPN published that year's rankings -- looks, from `sourceMaps.espn` alone,
+ * exactly like a healthy run: no error is thrown, no line is logged. The
+ * count is the only thing that tells the two apart, the same reason
+ * `statsMatched` exists below for season stats.
+ */
+function attachAdpBySource(players, maps) {
+  const matched = {};
+  for (const source of Object.keys(maps)) matched[source] = 0;
+
+  for (const pl of players) {
+    const bySource = {};
+    for (const [source, m] of Object.entries(maps)) {
+      // A failed fetch leaves null here; the other sources carry on.
+      if (!m) continue;
+      const team = normTeam(pl.team);
+      let adp = m.byStrict.get(`${pl.position}|${team}|${pl.nameKey}`);
+      if (adp == null && pl.position === "DEF") adp = m.defByTeam.get(team);
+      if (adp == null && pl.position === "K") adp = m.kByName.get(pl.nameKey);
+      if (adp != null) {
+        bySource[source] = adp;
+        matched[source] += 1;
+      }
+    }
+    if (Object.keys(bySource).length > 0) pl.adpBySource = bySource;
+  }
+
+  return matched;
+}
 
 exports.handler = async () => {
   const table = process.env.PLAYERS_TABLE;
@@ -88,6 +135,27 @@ exports.handler = async () => {
         if (adp != null) pl.adp[fmt] = adp;
     }
   }
+
+  // 3b) ESPN and Yahoo ADP. Wrapped one source at a time, on the same
+  // reasoning as the stats block below: this job rewrites the whole table
+  // unattended every night, so an outage or a shape change at a third party
+  // must cost that one column and nothing else.
+  const sourceMaps = {};
+  try {
+    sourceMaps.espn = buildEspnMap(await fetchEspnAdp({ year: ADP_YEAR, limit: ADP_SOURCE_DEPTH }));
+  } catch (e) {
+    console.error("ESPN ADP unavailable:", e.message);
+    sourceMaps.espn = null;
+  }
+  try {
+    sourceMaps.yahoo = buildYahooMap(
+      await fetchYahooAdp({ count: YAHOO_PAGE, pages: Math.ceil(ADP_SOURCE_DEPTH / YAHOO_PAGE) })
+    );
+  } catch (e) {
+    console.error("Yahoo ADP unavailable:", e.message);
+    sourceMaps.yahoo = null;
+  }
+  const sourceMatched = attachAdpBySource(basePlayers, sourceMaps);
 
   // 4) Season stats. Deliberately wrapped: this job rewrites the entire
   // players table unattended every day, so a Sleeper outage or a shape change
@@ -193,6 +261,13 @@ exports.handler = async () => {
       adpYear: ADP_YEAR,
       withAdp: countsByFormat,
       formats: FORMATS,
+      // A source that fetches fine but matches nobody -- e.g. ADP_YEAR bumped
+      // at season rollover before ESPN publishes that year's rankings -- logs
+      // nothing and throws nothing, so it is otherwise indistinguishable from
+      // a healthy run. These counts are the tell, the same role statsMatched
+      // plays for season stats below.
+      espnMatched: sourceMatched.espn,
+      yahooMatched: sourceMatched.yahoo,
       statsSeason,
       statsMatched,
       gameLogWeeks,
@@ -223,3 +298,4 @@ module.exports.isPlayerId = isPlayerId;
 module.exports.pickWeek = pickWeek;
 module.exports.mergeGameLogs = mergeGameLogs;
 module.exports.fetchWeekStats = fetchWeekStats;
+module.exports.attachAdpBySource = attachAdpBySource;

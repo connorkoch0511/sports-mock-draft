@@ -599,3 +599,238 @@ test("buildFfcMap ignores an entry with no usable ADP", () => {
   ]);
   assert.strictEqual(maps.byStrict.size, 0);
 });
+
+const { buildEspnMap } = require("./sync/adpEspn");
+
+// ESPN ships numeric ids and no string form, so the whole adapter hinges on
+// these tables being right. A wrong entry produces a MISS, not a wrong player,
+// because the key is position + team + name together.
+test("espn rows map onto the shared key shape", () => {
+  const rows = [
+    { player: { fullName: "Jahmyr Gibbs", defaultPositionId: 2, proTeamId: 8, ownership: { averageDraftPosition: 1.32 } } },
+    { player: { fullName: "Ja'Marr Chase", defaultPositionId: 3, proTeamId: 4, ownership: { averageDraftPosition: 4.23 } } },
+  ];
+  const { byStrict } = buildEspnMap(rows);
+  assert.strictEqual(byStrict.get("RB|DET|jahmyr gibbs"), 1.32);
+  assert.strictEqual(byStrict.get("WR|CIN|jamarr chase"), 4.23);
+});
+
+// Verified live: D/ST is defaultPositionId 16, named "Texans D/ST", and
+// carries proTeamId. It joins by team, which is why defByTeam exists.
+test("espn defences land in defByTeam, keyed by team", () => {
+  const rows = [
+    { player: { fullName: "Texans D/ST", defaultPositionId: 16, proTeamId: 34, ownership: { averageDraftPosition: 92.6 } } },
+  ];
+  const { defByTeam } = buildEspnMap(rows);
+  assert.strictEqual(defByTeam.get("HOU"), 92.6);
+});
+
+test("espn rows without a usable adp are skipped, not stored as zero", () => {
+  const rows = [
+    { player: { fullName: "Nobody", defaultPositionId: 2, proTeamId: 8, ownership: {} } },
+    { player: { fullName: "Ghost", defaultPositionId: 2, proTeamId: 8 } },
+    { player: null },
+  ];
+  const { byStrict } = buildEspnMap(rows);
+  assert.strictEqual(byStrict.size, 0);
+});
+
+// An unknown id must not invent a player at a bogus key.
+test("an unknown espn position or team id is dropped", () => {
+  const rows = [
+    { player: { fullName: "Someone", defaultPositionId: 99, proTeamId: 8, ownership: { averageDraftPosition: 5 } } },
+    { player: { fullName: "Other", defaultPositionId: 2, proTeamId: 999, ownership: { averageDraftPosition: 6 } } },
+  ];
+  const { byStrict } = buildEspnMap(rows);
+  assert.strictEqual(byStrict.size, 0);
+});
+
+// Mirrors buildFfcMap: the earliest pick wins when a player appears twice.
+test("the lowest espn adp wins for a repeated player", () => {
+  const rows = [
+    { player: { fullName: "Jahmyr Gibbs", defaultPositionId: 2, proTeamId: 8, ownership: { averageDraftPosition: 4 } } },
+    { player: { fullName: "Jahmyr Gibbs", defaultPositionId: 2, proTeamId: 8, ownership: { averageDraftPosition: 1.32 } } },
+  ];
+  assert.strictEqual(buildEspnMap(rows).byStrict.get("RB|DET|jahmyr gibbs"), 1.32);
+});
+
+const espnFixture = require("./sync/__fixtures__/espn-adp.json");
+
+// Real captured response, not a hand-written shape. If ESPN moves the ADP or
+// renames a field, this is what notices.
+test("the espn adapter reads a real captured payload", () => {
+  const { byStrict, defByTeam } = buildEspnMap(espnFixture.players);
+  assert.ok(byStrict.size + defByTeam.size >= 3, "every captured player should map");
+  for (const adp of byStrict.values()) {
+    assert.ok(adp > 0 && adp < 400, `implausible adp ${adp}`);
+  }
+});
+
+const { buildYahooMap, flattenYahooPlayer, fetchYahooAdp } = require("./sync/adpYahoo");
+
+// Yahoo nests a player as an array of mixed objects, so the flattener -- not a
+// fixed path -- is what makes this readable.
+test("a yahoo player flattens out of its nested shape", () => {
+  const raw = [
+    [
+      { player_key: "470.p.40059" },
+      { player_id: "40059" },
+      { name: { full: "Jahmyr Gibbs", first: "Jahmyr" } },
+      { editorial_team_abbr: "Det" },
+      { display_position: "RB" },
+    ],
+    { draft_analysis: { average_pick: "1.3" } },
+  ];
+  const flat = flattenYahooPlayer(raw);
+  assert.strictEqual(flat.full, "Jahmyr Gibbs");
+  assert.strictEqual(flat.display_position, "RB");
+  assert.strictEqual(flat.editorial_team_abbr, "Det");
+  assert.strictEqual(flat.average_pick, "1.3");
+});
+
+// "Det" must become "DET" or nothing joins.
+test("yahoo mixed-case teams are normalised", () => {
+  const { byStrict } = buildYahooMap([
+    { full: "Jahmyr Gibbs", display_position: "RB", editorial_team_abbr: "Det", average_pick: "1.3" },
+  ]);
+  assert.strictEqual(byStrict.get("RB|DET|jahmyr gibbs"), 1.3);
+});
+
+test("yahoo defences land in defByTeam", () => {
+  const { defByTeam } = buildYahooMap([
+    { full: "Houston", display_position: "DEF", editorial_team_abbr: "Hou", average_pick: "92.6" },
+  ]);
+  assert.strictEqual(defByTeam.get("HOU"), 92.6);
+});
+
+test("a yahoo row with no average_pick is skipped", () => {
+  const { byStrict } = buildYahooMap([
+    { full: "Nobody", display_position: "RB", editorial_team_abbr: "Det" },
+    { full: "Ghost", display_position: "RB", editorial_team_abbr: "Det", average_pick: "-" },
+  ]);
+  assert.strictEqual(byStrict.size, 0);
+});
+
+const yahooFixture = require("./sync/__fixtures__/yahoo-adp.json");
+
+// Drives fetchYahooAdp itself, with fetch stubbed to hand back the captured
+// document. Re-walking the fixture here instead would leave the block-finding
+// and page-looping code -- the part most likely to break when Yahoo moves
+// something -- with no test at all, while still looking green.
+test("the yahoo adapter reads a real captured payload through the real fetch path", async (t) => {
+  const realFetch = global.fetch;
+  t.after(() => { global.fetch = realFetch; });
+  global.fetch = async () => ({ ok: true, json: async () => yahooFixture });
+
+  const players = await fetchYahooAdp({ count: 3, pages: 1 });
+  assert.strictEqual(players.length, 3, "all three captured players should come back");
+  assert.ok(players.every((f) => f.full), "every captured player should have a name");
+
+  const { byStrict, defByTeam } = buildYahooMap(players);
+  // All three, not "at least one": the fixture is known-good, so anything less
+  // means a join silently stopped working.
+  assert.strictEqual(byStrict.size + defByTeam.size, 3);
+});
+
+const { attachAdpBySource } = require("./syncPlayers");
+
+// The whole point of a source map: a hit becomes a number, a miss becomes an
+// absent key -- never null and never 0, both of which would render as a real
+// ADP of zero on the row.
+test("a matched player gets the source number, an unmatched one gets no key", () => {
+  const players = [
+    { position: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: {} },
+    { position: "WR", team: "CIN", nameKey: "nobody at all", adp: {} },
+  ];
+  const maps = {
+    espn: { byStrict: new Map([["RB|DET|jahmyr gibbs", 1.32]]), defByTeam: new Map(), kByName: new Map() },
+  };
+  const matched = attachAdpBySource(players, maps);
+  assert.deepStrictEqual(players[0].adpBySource, { espn: 1.32 });
+  assert.strictEqual(players[1].adpBySource, undefined);
+  assert.strictEqual(matched.espn, 1, "exactly one player matched");
+});
+
+// The scenario the handler's response counts exist to catch: a source
+// answers successfully (it is present, not null) but its map matches nobody
+// in the pool -- a wholesale ID/name-scheme change, or ADP_YEAR bumped before
+// that source published. No error is thrown and nothing here logs; the
+// count is the only signal.
+test("a source that answers but matches nobody reports a zero count, not an error", () => {
+  const players = [{ position: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: {} }];
+  const maps = {
+    espn: { byStrict: new Map([["QB|KC|somebody else", 1.1]]), defByTeam: new Map(), kByName: new Map() },
+  };
+  const matched = attachAdpBySource(players, maps);
+  assert.strictEqual(players[0].adpBySource, undefined);
+  assert.strictEqual(matched.espn, 0);
+});
+
+test("a defence matches by team and a kicker by name", () => {
+  const players = [
+    { position: "DEF", team: "HOU", nameKey: "houston texans", adp: {} },
+    { position: "K", team: "BAL", nameKey: "justin tucker", adp: {} },
+  ];
+  const maps = {
+    espn: {
+      byStrict: new Map(),
+      defByTeam: new Map([["HOU", 92.6]]),
+      kByName: new Map([["justin tucker", 140.2]]),
+    },
+  };
+  attachAdpBySource(players, maps);
+  assert.deepStrictEqual(players[0].adpBySource, { espn: 92.6 });
+  assert.deepStrictEqual(players[1].adpBySource, { espn: 140.2 });
+});
+
+// One source dying must not take the other with it.
+test("sources are independent", () => {
+  const players = [{ position: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: {} }];
+  const maps = {
+    espn: { byStrict: new Map([["RB|DET|jahmyr gibbs", 1.32]]), defByTeam: new Map(), kByName: new Map() },
+    yahoo: null, // what a failed fetch leaves behind
+  };
+  const matched = attachAdpBySource(players, maps);
+  assert.deepStrictEqual(players[0].adpBySource, { espn: 1.32 });
+  assert.strictEqual(matched.espn, 1);
+  assert.strictEqual(matched.yahoo, 0, "a null map (failed fetch) still reports a count, just zero");
+});
+
+// The actual nightly-outage scenario: both sources fail at once. adpBySource
+// must stay undefined, not {} -- an empty object would reach the UI as a
+// source that exists but has no opinion on this player, rather than no
+// source having spoken at all.
+test("both sources failing leaves adpBySource undefined, not an empty object", () => {
+  const players = [{ position: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: {} }];
+  const maps = {
+    espn: null, // what a failed fetch leaves behind
+    yahoo: null,
+  };
+  attachAdpBySource(players, maps);
+  assert.strictEqual(players[0].adpBySource, undefined);
+});
+
+const { newAdpMaps, putAdp } = require("./sync/adpMap");
+
+// The guard's value half in one place: putAdp must reject 0, NaN, a negative
+// number, and Infinity, and accept nothing for any of them. A payload value
+// of `1e999` parses to Infinity (`JSON.parse('{"a":1e999}').a === Infinity`),
+// and DynamoDB's marshall() throws on a stored Infinity -- uncaught mid-batch,
+// that throw is what leaves the players table half rewritten. A negative
+// value used to slip through and sort above a real ADP instead of rendering
+// as "no data" and sorting last.
+test("putAdp rejects Infinity, a negative, 0, and NaN -- all four leave the map empty", () => {
+  for (const adp of [Infinity, -Infinity, -5, 0, NaN]) {
+    const maps = newAdpMaps();
+    putAdp(maps, { pos: "RB", team: "DET", nameKey: "jahmyr gibbs", adp });
+    assert.strictEqual(maps.byStrict.size, 0, `adp=${adp} must not be stored`);
+    assert.strictEqual(maps.defByTeam.size, 0, `adp=${adp} must not be stored`);
+    assert.strictEqual(maps.kByName.size, 0, `adp=${adp} must not be stored`);
+  }
+});
+
+test("putAdp still accepts a genuine positive ADP", () => {
+  const maps = newAdpMaps();
+  putAdp(maps, { pos: "RB", team: "DET", nameKey: "jahmyr gibbs", adp: 1.32 });
+  assert.strictEqual(maps.byStrict.get("RB|DET|jahmyr gibbs"), 1.32);
+});

@@ -265,6 +265,87 @@ test.describe("Draft page", () => {
     await page.screenshot({ path: `${SCREENSHOTS}/draft.png`, fullPage: false });
   });
 
+  test("the pool shows every source's ADP, and a dash where a source has none", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+    // Registered last, so it wins over the fixture's own /players* route.
+    await page.route("**/players*", (r) =>
+      r.fulfill({ json: { players: [
+        { id: "p1", name: "Ja'Marr Chase", position: "WR", team: "CIN", rank: 1, adp: 4.2, tier: 1, adpBySource: { espn: 4.2, yahoo: 3.5 } },
+        { id: "p2", name: "Jaylen Waddle", position: "WR", team: "MIA", rank: 40, adp: 40.1, tier: 4, adpBySource: { espn: 28.4 } },
+      ] } })
+    );
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    const rows = page.getByTestId("adp-trio");
+    await expect(rows.first()).toHaveText(/ours\s*4\.2.*esp\s*4\.2.*yah\s*3\.5/s);
+    await expect(rows.nth(1)).toHaveText(/ours\s*40\.1.*esp\s*28\.4.*yah\s*—/s);
+  });
+
+  test("sorting by a source reorders the pool without changing the numbers", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+    await page.route("**/players*", (r) =>
+      r.fulfill({ json: { players: [
+        { id: "p1", name: "Ja'Marr Chase", position: "WR", team: "CIN", rank: 1, adp: 4.2, tier: 1, adpBySource: { espn: 30.0 } },
+        { id: "p2", name: "Jaylen Waddle", position: "WR", team: "MIA", rank: 40, adp: 40.1, tier: 4, adpBySource: { espn: 2.0 } },
+      ] } })
+    );
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    // Default is our rank, so Chase leads.
+    await expect(page.getByTestId("adp-trio").first()).toHaveText(/ours\s*4\.2/);
+
+    await page.getByTestId("adp-sort").selectOption("espn");
+
+    // ESPN has Waddle far earlier, so he leads now -- and every number shown is
+    // the same number as before. Only the order moved.
+    await expect(page.getByTestId("adp-trio").first()).toHaveText(/ours\s*40\.1.*esp\s*2\.0/s);
+    await expect(page.getByText("Jaylen Waddle").first()).toBeVisible();
+  });
+
+  test("a player with no number for the chosen source sorts last", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+    await page.route("**/players*", (r) =>
+      r.fulfill({ json: { players: [
+        { id: "p1", name: "Has None", position: "WR", team: "CIN", rank: 1, adp: 4.2, tier: 1 },
+        { id: "p2", name: "Has One", position: "WR", team: "MIA", rank: 40, adp: 40.1, tier: 4, adpBySource: { espn: 2.0 } },
+      ] } })
+    );
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+    await page.getByTestId("adp-sort").selectOption("espn");
+
+    // The one with no ESPN number is last, not first -- an absent number must
+    // never sort as if it were zero.
+    await expect(page.getByTestId("adp-trio").last()).toHaveText(/ours\s*4\.2.*esp\s*—/s);
+  });
+
+  // The per-row "adp-trio" title= is mouse-only and, in the Big Board, sits
+  // nested inside an already-titled row button -- unreachable either way.
+  // Deleting PLATFORM_WIDE_NOTE from BigBoardPanel.jsx must fail this test.
+  test("the platform-wide ADP caveat is visible small print, not just a title attribute", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    const note = page.getByTestId("adp-source-note");
+    await expect(note).toBeVisible();
+    await expect(note).toContainText("whole platform");
+  });
+
 });
 
 // --- Pinning the Big Board row before it is restructured -------------------
