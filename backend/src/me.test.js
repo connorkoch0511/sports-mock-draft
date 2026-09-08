@@ -187,3 +187,80 @@ test("the newest draft comes first", async () => {
   });
   assert.deepStrictEqual(JSON.parse(res.body).drafts.map((d) => d.id), ["new", "old"]);
 });
+
+// FIX: BatchGetCommand can legally return fewer items than asked for,
+// handing back the rest as UnprocessedKeys. Without a retry those drafts
+// silently vanish from the list -- no error, no retry, nothing.
+test("UnprocessedKeys are retried until they clear", async () => {
+  const drafts = {
+    d1: { draftId: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 1, currentIndex: 0, createdAt: 1 },
+    d2: { draftId: "d2", teams: 12, rounds: 15, format: "ppr", userTeam: 1, currentIndex: 0, createdAt: 2 },
+  };
+  let batchCalls = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd instanceof QueryCommand) {
+      return { Items: [{ sub: "user-me", draftId: "d1" }, { sub: "user-me", draftId: "d2" }] };
+    }
+    if (cmd instanceof BatchGetCommand) {
+      batchCalls += 1;
+      const table = process.env.DRAFTS_TABLE;
+      const keys = cmd.input.RequestItems[table].Keys;
+      if (batchCalls === 1) {
+        // Only the first key gets served; the second comes back unprocessed,
+        // the way DynamoDB does under load -- the stub must actually stop
+        // returning it as unprocessed once retried, or this test would pass
+        // even without a retry.
+        const [first, ...rest] = keys;
+        return {
+          Responses: { [table]: [drafts[first.draftId]].filter(Boolean) },
+          UnprocessedKeys: rest.length ? { [table]: { Keys: rest } } : undefined,
+        };
+      }
+      return {
+        Responses: { [table]: keys.map(({ draftId }) => drafts[draftId]).filter(Boolean) },
+      };
+    }
+    return {};
+  });
+  const res = await handler(getEvent("/me/drafts", { sub: "user-me" }));
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(
+    JSON.parse(res.body).drafts.map((d) => d.id).sort(),
+    ["d1", "d2"]
+  );
+  // One initial attempt plus exactly one retry -- proves the retry ran and
+  // that it stopped once the keys cleared, not that it looped forever.
+  assert.strictEqual(batchCalls, 2);
+});
+
+// If the keys never clear after the bounded number of retries, the listing
+// must still return what it did get rather than hanging or throwing.
+test("keys that never clear still return a partial list", async () => {
+  const drafts = {
+    d1: { draftId: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 1, currentIndex: 0, createdAt: 1 },
+  };
+  let batchCalls = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd instanceof QueryCommand) {
+      return { Items: [{ sub: "user-me", draftId: "d1" }, { sub: "user-me", draftId: "stuck" }] };
+    }
+    if (cmd instanceof BatchGetCommand) {
+      batchCalls += 1;
+      const table = process.env.DRAFTS_TABLE;
+      const keys = cmd.input.RequestItems[table].Keys;
+      const stuck = keys.find((k) => k.draftId === "stuck");
+      const rest = keys.filter((k) => k.draftId !== "stuck");
+      return {
+        Responses: { [table]: rest.map((k) => drafts[k.draftId]).filter(Boolean) },
+        // "stuck" never clears, no matter how many times it's retried.
+        UnprocessedKeys: stuck ? { [table]: { Keys: [stuck] } } : undefined,
+      };
+    }
+    return {};
+  });
+  const res = await handler(getEvent("/me/drafts", { sub: "user-me" }));
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body).drafts.map((d) => d.id), ["d1"]);
+  // Bounded: three attempts total, not an infinite loop chasing "stuck".
+  assert.strictEqual(batchCalls, 3);
+});

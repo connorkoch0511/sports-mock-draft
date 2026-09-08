@@ -1376,3 +1376,56 @@ test("a null seat entry is skipped rather than crashing", async () => {
   assert.strictEqual(res.statusCode, 200);
   assert.strictEqual(JSON.parse(res.body).team, 3);
 });
+
+// FIX: a bookkeeping failure must never turn into a failed *request* for
+// work that already committed. The seat (or the draft itself) is written
+// before addMember runs; if the members-table write throws, the caller must
+// still see success -- especially for POST /drafts, where a client retrying
+// a reported failure would mint a second draft (a fresh randomUUID() each
+// time), not retry the first one.
+test("a membership write that throws still reports the draft as created", async () => {
+  let draftPut = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "PutCommand") {
+      if (cmd.input?.Item?.seats) {
+        draftPut = cmd.input;
+        return {};
+      }
+      // This is the membership row's Put -- simulate the small table
+      // throttling, after the draft item above already committed.
+      throw new Error("ProvisionedThroughputExceededException");
+    }
+    return {};
+  });
+  const res = await handler(
+    evt("POST", "/drafts", { body: { teams: 2, rounds: 1 }, claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).draftId, draftPut.Item.draftId);
+});
+
+// Same failure, on the join success path: the seat UpdateCommand has already
+// landed by the time addMember runs, so a throw there must not turn a
+// successful join into a 500.
+test("a membership write that throws still reports a successful join", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+    ],
+  };
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") return { Item: draft };
+    if (cmd.constructor.name === "UpdateCommand") return {};
+    if (cmd.constructor.name === "PutCommand") {
+      throw new Error("ProvisionedThroughputExceededException");
+    }
+    return {};
+  });
+  const res = await handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token: "t" }, claims: { sub: "bob" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});

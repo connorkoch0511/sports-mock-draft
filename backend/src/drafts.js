@@ -242,9 +242,17 @@ exports.handler = async (event) => {
       };
 
       await ddb.send(new PutCommand({ TableName: draftsTable, Item: item }));
-      // Seat first, row second: if this fails, the failure mode is a missing
-      // list entry, not a phantom one.
-      await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, id);
+      // The seat is already committed by this point, and the row is only a
+      // convenience for listing. Failing the whole request here would tell
+      // somebody their draft was not created when it was -- and a retry would
+      // mint a second one, since the id is new each time. Log it and carry on;
+      // the list entry can be missing, which is the failure this design
+      // deliberately chose to have.
+      try {
+        await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, id);
+      } catch (e) {
+        console.error("membership row not written:", e.message);
+      }
 
       return json(200, { draftId: id });
     }
@@ -303,7 +311,18 @@ exports.handler = async (event) => {
         // Idempotent: this is the self-healing path for a row that never got
         // written (e.g. joined before this table existed). Cheap because a
         // Put here just overwrites the same item with a fresh joinedAt.
-        await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
+        //
+        // The seat is already committed by this point (it was committed on a
+        // prior request, or this one wouldn't be in the `already` branch),
+        // and the row is only a convenience for listing. Failing the whole
+        // request here would tell somebody they aren't seated when they are.
+        // Log it and carry on; the list entry can be missing, which is the
+        // failure this design deliberately chose to have.
+        try {
+          await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
+        } catch (e) {
+          console.error("membership row not written:", e.message);
+        }
         return json(200, { ok: true, team: already.team });
       }
 
@@ -322,9 +341,16 @@ exports.handler = async (event) => {
               ExpressionAttributeValues: { ":me": sub, ":human": "human", ":bot": "bot", ":one": 1 },
             })
           );
-          // Seat first, row second: if this fails, the failure mode is a
-          // missing list entry, not a phantom one.
-          await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
+          // Seat first, row second: the seat write above already succeeded,
+          // and the row is only a convenience for listing. Failing the whole
+          // request here would tell somebody they failed to join a draft they
+          // just joined. Log it and carry on; the list entry can be missing,
+          // which is the failure this design deliberately chose to have.
+          try {
+            await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
+          } catch (e) {
+            console.error("membership row not written:", e.message);
+          }
           return json(200, { ok: true, team: seats[i].team });
         } catch (e) {
           if (e?.name !== "ConditionalCheckFailedException") throw e;

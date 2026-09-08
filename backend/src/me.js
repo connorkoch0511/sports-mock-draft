@@ -61,12 +61,22 @@ exports.handler = async (event) => {
       const items = [];
       for (const group of chunk(ids, 100)) {
         if (group.length === 0) continue;
-        const res = await ddb.send(
-          new BatchGetCommand({
-            RequestItems: { [draftsTable]: { Keys: group.map((draftId) => ({ draftId })) } },
-          })
-        );
-        items.push(...(res.Responses?.[draftsTable] || []));
+        let keys = group.map((draftId) => ({ draftId }));
+        // DynamoDB may return fewer items than asked for under load, handing
+        // back the rest as UnprocessedKeys. Without this they simply vanish
+        // from somebody's list, silently. Bounded rather than a loop: a list
+        // missing a few drafts is a bad day, but a listing that never returns
+        // is a worse one.
+        for (let attempt = 0; attempt < 3 && keys.length > 0; attempt++) {
+          const res = await ddb.send(
+            new BatchGetCommand({ RequestItems: { [draftsTable]: { Keys: keys } } })
+          );
+          items.push(...(res.Responses?.[draftsTable] || []));
+          keys = res.UnprocessedKeys?.[draftsTable]?.Keys || [];
+        }
+        if (keys.length > 0) {
+          console.error(`${keys.length} draft(s) unprocessed after retries; returning partial list`);
+        }
       }
       const drafts = items.sort(byNewest);
       return json(200, {
