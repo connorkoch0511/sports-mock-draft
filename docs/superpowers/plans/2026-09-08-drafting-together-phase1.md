@@ -490,6 +490,24 @@ test("joining takes the lowest bot seat", async () => {
   assert.strictEqual(JSON.parse(res.body).team, 2);
 });
 
+// The stub must model the CONDITION, not the outcome -- the same lesson the
+// advance.js stub learned. Rejecting the first write regardless of which seat
+// it targets would pass even against an implementation that retried the same
+// seat forever, or conditioned on something unrelated to that seat's kind.
+// Model stored state and let the condition decide.
+function stubSeatWrites({ takenIndexes }) {
+  return async (cmd) => {
+    const expr = cmd?.input?.ConditionExpression || "";
+    const m = expr.match(/seats\[(\d+)\]\.kind/);
+    if (m && takenIndexes.includes(Number(m[1]))) {
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
+    }
+    return {};
+  };
+}
+
 // Two people opening the link at once must not both get seat 2.
 test("losing the seat race costs a retry, not a seat", async () => {
   const draft = {
@@ -504,6 +522,25 @@ test("losing the seat race costs a retry, not a seat", async () => {
   const res = await joinAsWithFirstSeatTaken(draft, "bob", "t");
   assert.strictEqual(res.statusCode, 200);
   assert.strictEqual(JSON.parse(res.body).team, 3);
+});
+
+// The same person double-clicking the link sends two requests that both read
+// before either writes. Advancing to the next bot seat on a condition failure
+// is right when somebody else took it and wrong when we did.
+test("a double-clicked link does not seat one person twice", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  // The write for seat index 1 fails because this same person's other
+  // in-flight request just took it; the re-read shows them already seated.
+  const res = await joinAsWithOwnSeatTaken(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2, "the seat they already hold, not a second one");
 });
 
 test("re-opening the link when already seated is harmless", async () => {
@@ -573,8 +610,13 @@ Add the handler, before the existing `/pick` route:
       const already = seatOf(d, sub);
       if (already) return json(200, { ok: true, team: already.team });
 
-      for (let i = 0; i < d.seats.length; i++) {
-        if (d.seats[i].kind !== "bot") continue;
+      // Guarded the way seatOf and isSeated guard, one file away: a draft
+      // with no seats, or a null entry among them, must not become a 500 --
+      // and a 500 where every other answer is a 404 is itself a signal that
+      // the draft exists.
+      const seats = Array.isArray(d.seats) ? d.seats : [];
+      for (let i = 0; i < seats.length; i++) {
+        if (seats[i]?.kind !== "bot") continue;
         try {
           await ddb.send(
             new UpdateCommand({
@@ -587,11 +629,18 @@ Add the handler, before the existing `/pick` route:
               ExpressionAttributeValues: { ":me": sub, ":human": "human", ":bot": "bot", ":one": 1 },
             })
           );
-          return json(200, { ok: true, team: d.seats[i].team });
+          return json(200, { ok: true, team: seats[i].team });
         } catch (e) {
-          // Somebody took this seat between our read and our write. That is
-          // the race this condition exists for: try the next one.
           if (e?.name !== "ConditionalCheckFailedException") throw e;
+          // Somebody took this seat between our read and our write. Before
+          // trying the next one, check whether that somebody was US -- a
+          // double-clicked link sends two requests that both read the draft
+          // before either writes, and blindly advancing would give one person
+          // two seats. Re-read rather than trusting the snapshot from the top
+          // of this request, which is by now stale by definition.
+          const fresh = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+          const mine = seatOf(fresh.Item, sub);
+          if (mine) return json(200, { ok: true, team: mine.team });
         }
       }
 
