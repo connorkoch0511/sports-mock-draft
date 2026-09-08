@@ -27,7 +27,9 @@ test("a callback whose state matches sends the code and returns to New Draft", a
 
   await expect(page).toHaveURL(/\/draft\/new$/);
   await expect.poll(() => sentCode).toBe("abc");
-  await expect(page.getByTestId("yahoo-error")).toHaveCount(0);
+  // yahoo-panel-error, not yahoo-error: the latter lives only on the callback
+  // route, so asserting its absence here would pass against anything.
+  await expect(page.getByTestId("yahoo-panel-error")).toHaveCount(0);
 });
 
 // The whole point of the guard: a crafted callback must not reach our API.
@@ -99,4 +101,47 @@ test("an account with no Yahoo leagues says so plainly", async ({ page }) => {
 
   await expect(page.getByTestId("yahoo-leagues-empty")).toContainText(/no yahoo nfl leagues/i);
   await expect(page.getByTestId("yahoo-error")).toHaveCount(0);
+});
+
+// A Yahoo authorisation code can be redeemed exactly once, so exchanging it
+// twice fails the second time and shows an error on top of an import that
+// already worked. StrictMode double-invokes effects in development, and this
+// suite runs against the dev server -- so without this assertion the doubled
+// path is exercised on every run and noticed on none of them.
+test("a valid callback exchanges the code exactly once", async ({ page }) => {
+  let calls = 0;
+  await page.route(`${API}/yahoo/leagues`, (r) => {
+    calls += 1;
+    return r.fulfill({ json: { leagues: [] } });
+  });
+  await seedState(page, "once-only");
+  await signIn(page);
+  await page.goto("/yahoo/callback?code=abc&state=once-only");
+
+  await expect(page).toHaveURL(/\/draft\/new$/);
+  // Settle, so a late second request would still be counted.
+  await page.waitForTimeout(500);
+  expect(calls).toBe(1);
+});
+
+// The roster summary is filled by whichever import ran, but it used to sit
+// inside the Sleeper card -- so a Yahoo import rendered its slots under the
+// Sleeper heading, and the note below them named Sleeper as the reason the
+// counts differed.
+test("a Yahoo import's roster summary does not blame Sleeper", async ({ page }) => {
+  await page.route(`${API}/yahoo/leagues`, (r) =>
+    r.fulfill({ json: { leagues: [{ leagueName: "Money League", teams: 10, rounds: 16, format: "half-ppr", rosterSlots: ["QB", "RB"], userTeam: 4 }] } })
+  );
+  await seedState(page, "s");
+  await signIn(page);
+  await page.goto("/yahoo/callback?code=abc&state=s");
+
+  await page.getByTestId("yahoo-leagues").getByRole("button", { name: /Money League/ }).click();
+
+  const summary = page.getByTestId("roster-summary");
+  await expect(summary).toContainText("Money League");
+  // 2 slots against 16 rounds, so the explanatory note renders -- and must not
+  // name a platform this league did not come from.
+  await expect(page.getByTestId("roster-rounds-note")).toBeVisible();
+  await expect(page.getByTestId("roster-rounds-note")).not.toContainText(/sleeper/i);
 });

@@ -193,35 +193,6 @@ export default function NewDraft() {
           </ul>
         )}
 
-        {rosterSlots && (
-          <div data-testid="roster-summary" className="mt-4 space-y-2">
-            <div className="text-xs text-zinc-400">
-              Roster imported from {importedFrom} — {rosterSlots.length} roster slots
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {rosterSlots.map((s, i) => (
-                <span
-                  key={`${s}-${i}`}
-                  className={`rounded-full border px-2 py-0.5 text-[10px] ${
-                    s === "BN"
-                      ? "border-zinc-800 text-zinc-500"
-                      : "border-cyan-300/40 text-cyan-200"
-                  }`}
-                >
-                  {s}
-                </span>
-              ))}
-            </div>
-            {rosterSlots.length !== rounds && (
-              <div data-testid="roster-rounds-note" className="text-xs text-zinc-500">
-                This draft is {rounds} rounds, and the roster holds {rosterSlots.length} slots.
-                {rounds < rosterSlots.length
-                  ? " Both are expected — a rookie or partial draft fills only part of a roster."
-                  : " Both are expected — Sleeper's roster slots don't always include every taxi or IR spot, so a draft can run more rounds than the roster shows."}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       <div className="mb-6 max-w-2xl rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-5">
@@ -280,6 +251,41 @@ export default function NewDraft() {
           </ul>
         )}
       </div>
+      {/*
+        Outside both import panels, because either one can fill it. It used to
+        live inside the Sleeper card, so importing a Yahoo league rendered
+        "Roster imported from <a Yahoo league>" underneath the Sleeper heading,
+        with Sleeper named in the explanation below it.
+      */}
+      {rosterSlots && (
+        <div data-testid="roster-summary" className="mt-4 space-y-2">
+          <div className="text-xs text-zinc-400">
+            Roster imported from {importedFrom} — {rosterSlots.length} roster slots
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {rosterSlots.map((s, i) => (
+              <span
+                key={`${s}-${i}`}
+                className={`rounded-full border px-2 py-0.5 text-[10px] ${
+                  s === "BN"
+                    ? "border-zinc-800 text-zinc-500"
+                    : "border-cyan-300/40 text-cyan-200"
+                }`}
+              >
+                {s}
+              </span>
+            ))}
+          </div>
+          {rosterSlots.length !== rounds && (
+            <div data-testid="roster-rounds-note" className="text-xs text-zinc-500">
+              This draft is {rounds} rounds, and the roster holds {rosterSlots.length} slots.
+              {rounds < rosterSlots.length
+                ? " Both are expected — a rookie or partial draft fills only part of a roster."
+                : " Both are expected — a league's roster slots don't always include every taxi or IR spot, so a draft can run more rounds than the roster shows."}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="max-w-2xl space-y-6">
         <div className="grid gap-3 sm:grid-cols-2">
