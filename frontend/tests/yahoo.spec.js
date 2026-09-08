@@ -59,3 +59,44 @@ test("a failure at our API says so rather than showing a blank page", async ({ p
 
   await expect(page.getByTestId("yahoo-error")).toContainText(/could not reach yahoo/i);
 });
+
+test("the Yahoo panel sends you to Yahoo with a state", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/draft/new");
+
+  // Catch the navigation rather than following it off-site.
+  await page.route("https://api.login.yahoo.com/**", (r) => r.fulfill({ status: 200, body: "stub" }));
+  await page.getByTestId("yahoo-import").click();
+
+  await expect(page).toHaveURL(/api\.login\.yahoo\.com\/oauth2\/request_auth/);
+  const url = new URL(page.url());
+  expect(url.searchParams.get("state")).toBeTruthy();
+  expect(url.searchParams.get("response_type")).toBe("code");
+});
+
+test("leagues carried back from the callback are listed and apply to the form", async ({ page }) => {
+  await page.route(`${API}/yahoo/leagues`, (r) =>
+    r.fulfill({ json: { leagues: [{ leagueName: "Money League", teams: 10, rounds: 16, format: "half-ppr", rosterSlots: ["QB", "RB"], userTeam: 4 }] } })
+  );
+  await page.addInitScript(([v]) => window.sessionStorage.setItem("yahoo_oauth_state", v), ["s"]);
+  await signIn(page);
+  await page.goto("/yahoo/callback?code=abc&state=s");
+
+  await expect(page.getByTestId("yahoo-leagues")).toContainText("Money League");
+  await page.getByTestId("yahoo-leagues").getByRole("button", { name: /Money League/ }).click();
+
+  // The same form the Sleeper import fills.
+  await expect(page.getByLabel(/teams/i)).toHaveValue("10");
+  await expect(page.getByLabel(/rounds/i)).toHaveValue("16");
+});
+
+// An account with no NFL leagues is not an error, and must not read as one.
+test("an account with no Yahoo leagues says so plainly", async ({ page }) => {
+  await page.route(`${API}/yahoo/leagues`, (r) => r.fulfill({ json: { leagues: [] } }));
+  await page.addInitScript(([v]) => window.sessionStorage.setItem("yahoo_oauth_state", v), ["s"]);
+  await signIn(page);
+  await page.goto("/yahoo/callback?code=abc&state=s");
+
+  await expect(page.getByTestId("yahoo-leagues-empty")).toContainText(/no yahoo nfl leagues/i);
+  await expect(page.getByTestId("yahoo-error")).toHaveCount(0);
+});

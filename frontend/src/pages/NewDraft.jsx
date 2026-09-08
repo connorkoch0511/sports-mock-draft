@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
@@ -10,6 +10,7 @@ import {
   fetchLeagueDraft,
   toDraftConfig,
 } from "../lib/sleeper";
+import { beginYahooAuth } from "../lib/yahoo";
 
 // Home carried this as state with a setter that was never called. It is a
 // constant here rather than dead state; the request body is unchanged.
@@ -24,6 +25,7 @@ const SLEEPER_SEASON = 2026;
 
 export default function NewDraft() {
   const nav = useNavigate();
+  const location = useLocation();
   const [teams, setTeams] = useState(12);
   const [rounds, setRounds] = useState(15);
   const [loading, setLoading] = useState(false);
@@ -39,7 +41,9 @@ export default function NewDraft() {
   const [sleeperErr, setSleeperErr] = useState("");
   const [finding, setFinding] = useState(false);
   const [importedFrom, setImportedFrom] = useState("");
-
+  const [yahooLeagues, setYahooLeagues] = useState(location.state?.yahooLeagues ?? null);
+  const [yahooErr, setYahooErr] = useState("");
+  const yahooClientId = import.meta.env.VITE_YAHOO_CLIENT_ID;
 
   usePageTitle("New Draft");
 
@@ -103,19 +107,26 @@ export default function NewDraft() {
     }
   };
 
+  // Both imports end here. Sleeper builds its config in the browser; Yahoo's
+  // arrives already built from the Lambda. What they do with it is identical,
+  // and that is worth keeping true in one place.
+  const applyConfig = (cfg) => {
+    setTeams(cfg.teams);
+    setRounds(cfg.rounds);
+    setFormat(cfg.format);
+    setSlot(cfg.userTeam);
+    setRandomSlot(false);
+    setRosterSlots(cfg.rosterSlots);
+    setImportedFrom(cfg.leagueName);
+    setLeagues(null);
+  };
+
   const applyLeague = async (league) => {
     setSleeperErr("");
     try {
       const draft = await fetchLeagueDraft(league.league_id);
       const cfg = toDraftConfig(league, draft, league.__userId);
-      setTeams(cfg.teams);
-      setRounds(cfg.rounds);
-      setFormat(cfg.format);
-      setSlot(cfg.userTeam);
-      setRandomSlot(false);
-      setRosterSlots(cfg.rosterSlots);
-      setImportedFrom(cfg.leagueName);
-      setLeagues(null);
+      applyConfig(cfg);
     } catch (e) {
       setSleeperErr(e.message || "Could not load that league's draft");
     }
@@ -134,7 +145,7 @@ export default function NewDraft() {
         <div className="text-sm font-semibold text-white">Import from Sleeper</div>
         <p className="mt-1 text-xs text-zinc-400">
           Enter a Sleeper username to pull a league's teams, rounds, scoring, roster
-          slots, and your draft slot. Nothing is stored and no sign-in is needed.
+          slots, and your draft slot. Nothing is stored and no Sleeper sign-in is needed.
         </p>
 
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
@@ -210,6 +221,63 @@ export default function NewDraft() {
               </div>
             )}
           </div>
+        )}
+      </div>
+
+      <div className="mb-6 max-w-2xl rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-5">
+        <div className="text-sm font-semibold text-white">Import from Yahoo</div>
+        <p className="mt-1 text-xs text-zinc-400">
+          Yahoo needs you to sign in before it will show your leagues. Nothing about
+          your Yahoo account is kept — the sign-in is used once and thrown away.
+        </p>
+
+        {!yahooClientId ? (
+          // Same rule the landing page follows for sign-in: a button that
+          // cannot work is worse than an explanation of why it is missing.
+          <p className="mt-3 text-xs text-zinc-500">This build is not configured for Yahoo.</p>
+        ) : (
+          <button
+            type="button"
+            data-testid="yahoo-import"
+            onClick={() => {
+              try {
+                window.location.assign(
+                  beginYahooAuth(yahooClientId, `${window.location.origin}/yahoo/callback`)
+                );
+              } catch (e) {
+                setYahooErr(e.message);
+              }
+            }}
+            className="mt-3 rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-sm text-zinc-200 hover:border-zinc-600"
+          >
+            Sign in to Yahoo
+          </button>
+        )}
+
+        {yahooErr && (
+          <div data-testid="yahoo-panel-error" className="mt-3 text-sm text-rose-300">{yahooErr}</div>
+        )}
+
+        {yahooLeagues && yahooLeagues.length === 0 && (
+          <p data-testid="yahoo-leagues-empty" className="mt-3 text-sm text-zinc-400">
+            No Yahoo NFL leagues found for this season.
+          </p>
+        )}
+
+        {yahooLeagues && yahooLeagues.length > 0 && (
+          <ul data-testid="yahoo-leagues" className="mt-3 space-y-1">
+            {yahooLeagues.map((cfg) => (
+              <li key={cfg.leagueName}>
+                <button
+                  type="button"
+                  onClick={() => { applyConfig(cfg); setYahooLeagues(null); }}
+                  className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/60 px-3 py-2 text-left text-sm text-zinc-200 hover:border-cyan-300/60"
+                >
+                  {cfg.leagueName}
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

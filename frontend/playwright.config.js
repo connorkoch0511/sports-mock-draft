@@ -31,6 +31,11 @@ export default defineConfig({
       VITE_COGNITO_AUTHORITY:
         "https://cognito-idp.us-east-1.amazonaws.com/us-east-1_test",
       VITE_COGNITO_CLIENT_ID: "test-client-id",
+      // Not a real Yahoo app id. Tests either intercept the request to
+      // api.login.yahoo.com before it leaves the browser, or skip the
+      // button by seeding sessionStorage and driving the callback route
+      // directly -- so nothing here ever reaches Yahoo.
+      VITE_YAHOO_CLIENT_ID: "test-yahoo-client-id",
     },
   },
 });
