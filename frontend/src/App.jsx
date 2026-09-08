@@ -8,6 +8,7 @@ import Boards from "./pages/Boards.jsx";
 import MyDrafts from "./pages/MyDrafts.jsx";
 import Player from "./pages/Player.jsx";
 import AuthCallback from "./pages/AuthCallback.jsx";
+import YahooCallback from "./pages/YahooCallback.jsx";
 import { Privacy, Terms } from "./pages/Legal.jsx";
 import { AuthProvider } from "./lib/AuthProvider.jsx";
 import NavBar from "./components/NavBar.jsx";
@@ -39,6 +40,7 @@ export default function App() {
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/yahoo/callback" element={<RequireAuth><YahooCallback /></RequireAuth>} />
             </Routes>
           </div>
         </div>
