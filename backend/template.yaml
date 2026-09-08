@@ -22,6 +22,16 @@ Parameters:
     Type: String
     Description: Prefix for the Cognito hosted sign-in domain.
     Default: "perfectpick-auth"
+  YahooClientId:
+    Type: String
+    Description: Yahoo OAuth client id. Not secret.
+  YahooClientSecret:
+    Type: String
+    NoEcho: true
+    Description: >
+      Yahoo OAuth client secret. NoEcho keeps it out of console output and
+      stack events -- it does NOT keep it out of samconfig.toml, which this
+      repo tracks in git. Pass it explicitly at deploy, never with --guided.
 
 Globals:
   Function:
@@ -361,6 +371,34 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /boards/{boardId}
             Method: DELETE
+            Auth:
+              Authorizer: CognitoAuth
+
+  YahooFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: yahoo.handler
+      # Above the global 10s, which the fetch timeout in yahoo.js would
+      # otherwise collide with exactly: a merely-slow Yahoo would be killed by
+      # the platform before our own abort fired, so the friendly "could not
+      # confirm that sign-in" message could never actually be sent. The
+      # headroom also covers Task 6, which adds a second call to fetch the
+      # leagues after the token exchange.
+      Timeout: 20
+      Environment:
+        Variables:
+          YAHOO_CLIENT_ID: !Ref YahooClientId
+          YAHOO_CLIENT_SECRET: !Ref YahooClientSecret
+          YAHOO_REDIRECT_URI: "https://d2kf4b52rvabfv.cloudfront.net/yahoo/callback"
+          ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
+      Events:
+        YahooLeagues:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /yahoo/leagues
+            Method: POST
             Auth:
               Authorizer: CognitoAuth
 
