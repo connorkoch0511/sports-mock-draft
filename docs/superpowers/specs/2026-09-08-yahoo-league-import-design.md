@@ -149,6 +149,28 @@ versions of and which the verification task must check:
   `half-ppr`, `ppr`. Yahoo leagues can score in ways none of those describe;
   the mapping must pick the nearest and must not pretend otherwise.
 
+## Which season's leagues
+
+Yahoo leagues are per-season, as Sleeper's are. `frontend/src/pages/NewDraft.jsx`
+already carries a `SLEEPER_SEASON` constant that is **deliberately not**
+`DRAFT_YEAR`, with a comment explaining why: last year's Sleeper leagues are
+different leagues, so looking up the draft year would show the wrong ones.
+
+Yahoo needs the same decision made explicitly rather than inherited. Use the
+same season constant, and if Yahoo's game key for that season is not yet
+published when the season turns over, that is the "no leagues found" message
+rather than an error — the verification task should check what Yahoo actually
+returns in that window.
+
+## Local development
+
+The redirect URI is registered with Yahoo and must match exactly, so the flow
+cannot complete against `localhost` unless a second redirect URI is registered
+for it. This is worth knowing before someone spends an afternoon on it: the
+end-to-end tests mock Yahoo's endpoints precisely so the suite never depends on
+a real sign-in, and a developer without a second registered URI verifies
+against those rather than the live service.
+
 ## Errors, and what each says
 
 Each failure names what went wrong, in terms of what the person did:
