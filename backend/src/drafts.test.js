@@ -1190,3 +1190,98 @@ test("somebody with no seat still gets 404 rather than 409", async () => {
   const res = await pickAs(draft, "stranger", "p1");
   assert.strictEqual(res.statusCode, 404);
 });
+
+// Drives /join to its success path: one GetCommand to read the draft, then
+// (usually) one UpdateCommand to claim a bot seat.
+function joinAs(draft, sub, token) {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") return { Item: draft };
+    return {}; // UpdateCommand result is ignored
+  });
+  return handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
+  );
+}
+
+// The seat race the whole task exists for: the first conditional write fails
+// as though somebody else's write landed on that exact seat between our read
+// and our write, and the retry must land on the next bot seat rather than
+// giving up or clobbering the seat somebody else just took.
+function joinAsWithFirstSeatTaken(draft, sub, token) {
+  let updateCalls = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") return { Item: draft };
+    if (cmd.constructor.name === "UpdateCommand") {
+      updateCalls += 1;
+      if (updateCalls === 1) {
+        const e = new Error("The conditional request failed");
+        e.name = "ConditionalCheckFailedException";
+        throw e;
+      }
+      return {};
+    }
+    return {};
+  });
+  return handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
+  );
+}
+
+test("a wrong invite token is indistinguishable from a missing draft", async () => {
+  const draft = { draftId: "d1", inviteToken: "real", seats: [{ team: 1, sub: "alice", kind: "human" }] };
+  const wrong = await joinAs(draft, "bob", "guessed");
+  const missing = await joinAs(null, "bob", "anything");
+  assert.strictEqual(wrong.statusCode, 404);
+  assert.deepStrictEqual(JSON.parse(wrong.body), JSON.parse(missing.body));
+});
+
+test("joining takes the lowest bot seat", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});
+
+// Two people opening the link at once must not both get seat 2.
+test("losing the seat race costs a retry, not a seat", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  // The first conditional write fails as though somebody just took seat 2.
+  const res = await joinAsWithFirstSeatTaken(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 3);
+});
+
+test("re-opening the link when already seated is harmless", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }, { team: 2, sub: "bob", kind: "bot" }],
+  };
+  draft.seats[1] = { team: 2, sub: "bob", kind: "human" };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});
+
+test("a full draft says so", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+  };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /full/i);
+});

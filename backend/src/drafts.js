@@ -5,6 +5,7 @@ const {
   PutCommand,
   QueryCommand,
   DeleteCommand,
+  UpdateCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
 const {
@@ -234,6 +235,9 @@ exports.handler = async (event) => {
         currentIndex: 0,
         createdAt: Date.now(),
         version: 1,
+        // Whoever holds this can take a seat. Returned only to people already
+        // seated, so it travels the way the person sharing it chooses.
+        inviteToken: randomUUID(),
       };
 
       await ddb.send(new PutCommand({ TableName: draftsTable, Item: item }));
@@ -262,6 +266,7 @@ exports.handler = async (event) => {
         userTeam: d.userTeam || 1,
         rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
         boardId: d.boardId || null,
+        inviteToken: d.inviteToken,
         picked: d.picked || [],
         currentIndex: d.currentIndex,
         currentRound: current?.round || d.rounds,
@@ -276,6 +281,45 @@ exports.handler = async (event) => {
           player: p.player || null, // already stored
         })),
       });
+    }
+
+    // POST /drafts/{draftId}/join
+    if (method === "POST" && /\/drafts\/[^/]+\/join$/.test(path)) {
+      if (!sub) return needsAuth();
+      const { token } = event.body ? JSON.parse(event.body) : {};
+
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+      // A wrong token and a missing draft answer identically, so guessing an
+      // id learns nothing about whether it exists.
+      if (!res.Item || !token || res.Item.inviteToken !== token) return notFound();
+
+      const d = res.Item;
+      const already = seatOf(d, sub);
+      if (already) return json(200, { ok: true, team: already.team });
+
+      for (let i = 0; i < d.seats.length; i++) {
+        if (d.seats[i].kind !== "bot") continue;
+        try {
+          await ddb.send(
+            new UpdateCommand({
+              TableName: draftsTable,
+              Key: { draftId },
+              // The index, not the team: seats[i].team === i + 1.
+              UpdateExpression: `SET seats[${i}].#sub = :me, seats[${i}].kind = :human, version = version + :one`,
+              ConditionExpression: `seats[${i}].kind = :bot`,
+              ExpressionAttributeNames: { "#sub": "sub" },
+              ExpressionAttributeValues: { ":me": sub, ":human": "human", ":bot": "bot", ":one": 1 },
+            })
+          );
+          return json(200, { ok: true, team: d.seats[i].team });
+        } catch (e) {
+          // Somebody took this seat between our read and our write. That is
+          // the race this condition exists for: try the next one.
+          if (e?.name !== "ConditionalCheckFailedException") throw e;
+        }
+      }
+
+      return json(409, { error: "This draft is full — every seat is taken" });
     }
 
     // POST /drafts/{draftId}/pick
