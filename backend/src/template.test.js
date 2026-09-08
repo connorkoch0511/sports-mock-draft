@@ -161,3 +161,14 @@ test("POST /yahoo/leagues requires a signed-in user", () => {
   const route = Object.values(ev).find((e) => e.Properties.Path === "/yahoo/leagues");
   assert.strictEqual(route.Properties.Auth.Authorizer, "CognitoAuth");
 });
+
+// The fetch abort inside the handler must fire before the platform kills the
+// invocation, or the friendly timeout message can never be sent.
+test("the Yahoo function outlives its own fetch timeout", () => {
+  const tpl = loadTemplate();
+  const fnTimeout = tpl.Resources.YahooFunction.Properties.Timeout;
+  const globalTimeout = tpl.Globals.Function.Timeout;
+  assert.ok(fnTimeout > globalTimeout, "it must override the global, not inherit it");
+  // 8s per fetch, and Task 6 adds a second sequential call after the exchange.
+  assert.ok(fnTimeout >= 20, `expected room for two 8s fetches, got ${fnTimeout}`);
+});

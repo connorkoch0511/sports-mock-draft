@@ -379,6 +379,13 @@ Resources:
     Properties:
       CodeUri: src/
       Handler: yahoo.handler
+      # Above the global 10s, which the fetch timeout in yahoo.js would
+      # otherwise collide with exactly: a merely-slow Yahoo would be killed by
+      # the platform before our own abort fired, so the friendly "could not
+      # confirm that sign-in" message could never actually be sent. The
+      # headroom also covers Task 6, which adds a second call to fetch the
+      # leagues after the token exchange.
+      Timeout: 20
       Environment:
         Variables:
           YAHOO_CLIENT_ID: !Ref YahooClientId

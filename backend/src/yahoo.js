@@ -10,7 +10,12 @@ const { subOf } = require("./lib/owner");
 const { responder } = require("./lib/http");  // responder(event) -> json(status, body)
 
 const TOKEN_URL = "https://api.login.yahoo.com/oauth2/get_token";
-const FETCH_TIMEOUT_MS = 10_000;
+// Deliberately below this function's 20s Lambda timeout, and low enough that
+// two sequential calls (this exchange, then the leagues fetch Task 6 adds)
+// still finish inside it. Matching the platform timeout exactly, as this
+// first did, means the platform kills the invocation before the abort fires
+// and the caller gets a bare timeout instead of an explanation.
+const FETCH_TIMEOUT_MS = 8_000;
 
 async function exchangeCode(code, redirectUri) {
   const body = new URLSearchParams({
