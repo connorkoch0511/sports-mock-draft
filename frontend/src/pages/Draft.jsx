@@ -66,6 +66,13 @@ export default function Draft() {
   // draft the difference is somebody else's pick being taken from them.
   const onClockIsBot = seats.find((s) => s?.team === currentTeamOnClock)?.kind === "bot";
 
+  // Mirrors the server's own rule (POST /auto-pick): allowed when the seat
+  // on the clock is a bot, or when the caller holds that seat -- auto-picking
+  // your OWN turn is exactly what the button is for. Anything else is
+  // somebody else's human turn, and clicking Auto Pick there must not even
+  // reach the network, since the server now refuses it anyway.
+  const autoPickAllowed = onClockIsBot || isMyTurn;
+
   const load = async () => {
     setErr("");
     try {
@@ -178,6 +185,12 @@ export default function Draft() {
       await load();
     } catch (e) {
       setErr(mutationErrorMessage(e, "Auto-pick failed"));
+      // A failed auto-pick (e.g. the server refusing because the clock has
+      // since moved to a human) must not leave `draft` as it was: once
+      // `busy` clears, the auto-pick effect re-reads the SAME stale object
+      // and would fire this exact request again forever. Reload so the next
+      // decision is made against who is actually on the clock now.
+      await load();
     } finally {
       setBusy(false);
     }
@@ -362,7 +375,7 @@ export default function Draft() {
 
               <button
                 onClick={autoPick}
-                disabled={paused || busy || draft.completed}
+                disabled={paused || busy || draft.completed || !autoPickAllowed}
                 className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
                 title="Auto-pick for whichever team is on the clock"
               >

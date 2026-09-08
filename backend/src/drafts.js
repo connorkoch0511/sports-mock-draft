@@ -279,6 +279,13 @@ exports.handler = async (event) => {
         // Derived per request. userTeam is the CREATOR's team, which is right
         // for them and wrong for everybody who joined.
         yourTeam: seatOf(d, sub)?.team ?? null,
+        // The page only ever reads `team` and `kind` off a seat (to decide
+        // who is on the clock and whether the draft is shared) -- never
+        // `sub`. Everyone here already passed isSeated above, so handing a
+        // teammate's Cognito id to the others isn't a disclosure to a
+        // stranger, but there is no reason to ship it when nothing on the
+        // client reads it. Least data by default.
+        seats: (d.seats || []).map((s) => ({ team: s.team, kind: s.kind })),
         rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
         boardId: d.boardId || null,
         inviteToken: d.inviteToken,
@@ -446,6 +453,24 @@ exports.handler = async (event) => {
 
       const d = res.Item;
       if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+
+      // Same position as the turn check in /pick, just above: after the
+      // already-completed check, so a finished draft still says it is
+      // finished rather than that it is not your turn. Unlike /pick,
+      // auto-pick is not ONLY for your own turn -- it is also how a bot
+      // seat's pick gets made, by whichever seated human's browser happens
+      // to notice the clock has reached it. What it may never be is a way
+      // for one human to draft for another: allowed when the seat on the
+      // clock is a bot, or when the caller holds that seat. Anyone else,
+      // human or not seated at all, gets the same 409 /pick gives.
+      const onClock = teamOnClock(d);
+      const clockSeat = (d.seats || []).find((s) => s?.team === onClock);
+      const mySeat = seatOf(d, sub);
+      const clockIsBot = clockSeat?.kind === "bot";
+      const iHoldTheClock = !!mySeat && mySeat.team === onClock;
+      if (!clockIsBot && !iHoldTheClock) {
+        return json(409, { error: "Not your pick" });
+      }
 
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();

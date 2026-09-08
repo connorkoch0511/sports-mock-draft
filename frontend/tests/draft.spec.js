@@ -365,6 +365,28 @@ test.describe("Draft page", () => {
     expect(autoPicks).toBe(0);
   });
 
+  // The effect above only stops the browser from firing auto-pick on its
+  // own. Critical 2 also found the manual Auto Pick button offering the
+  // exact same click on somebody else's turn -- disabled only on
+  // paused/busy/completed, nothing about whose turn it actually is.
+  test("the Auto Pick button is disabled on another human's turn", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    // Team 2 -- another human -- is on the clock.
+    state.currentIndex = 1;
+    mockDraftApis(page, state);
+    await page.route("**/drafts/*/auto-pick", (r) => r.fulfill({ json: { ok: true } }));
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    await expect(page.getByRole("button", { name: "Auto Pick" })).toBeDisabled();
+  });
+
   test("a bot seat still advances immediately", async ({ page }) => {
     let autoPicks = 0;
     const state = makeDraftState({ currentIndex: 0 });
@@ -380,6 +402,62 @@ test.describe("Draft page", () => {
     await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await expect.poll(() => autoPicks).toBeGreaterThan(0);
+  });
+
+  // Unlike the test above, this one sets no `seats` at all -- it is exactly
+  // what a real solo draft's GET /drafts/{draftId} returns today: one human
+  // seat (the creator, team 1) and a bot in every other team, straight from
+  // makeDraftState's own default. Critical 1 was the real endpoint never
+  // sending `seats` in the first place, which the test above could not have
+  // caught -- it supplies `seats` by hand, so it would have stayed green
+  // even while production sent none. This one fails exactly the way a solo
+  // draft did in production: revert makeDraftState's default `seats` (or the
+  // mock's projection of it) and team 2 no longer reads as a bot here.
+  test("a solo draft's bot seat still auto-advances, with the response shape the real API returns", async ({ page }) => {
+    let autoPicks = 0;
+    const state = makeDraftState({ currentIndex: 1 }); // team 2, a bot, on the clock
+    mockDraftApis(page, state);
+    await page.route("**/drafts/*/auto-pick", (r) => { autoPicks += 1; return r.fulfill({ json: { ok: true } }); });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect.poll(() => autoPicks).toBeGreaterThan(0);
+  });
+
+  // Important 3: a failed auto-pick must not leave the browser deciding
+  // against stale data. Team 2 (a bot) is on the clock when the page loads,
+  // so the effect fires immediately -- but by the time the request lands,
+  // the server says otherwise (Critical 2's own guard refusing it, in a real
+  // race). Without a reload afterward, the page would keep re-firing the
+  // identical request against the same stale `draft` object forever, since
+  // nothing ever told it the clock had moved on.
+  test("a failed auto-pick reloads the draft instead of retrying against stale data", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 1 }); // team 2, a bot, on the clock
+    let autoPickCalls = 0;
+
+    await page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
+    await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+    await page.route(`${API}/drafts/${DRAFT_ID}/auto-pick`, (r) => {
+      autoPickCalls += 1;
+      if (autoPickCalls === 1) {
+        // The clock moved on between this browser's stale read and the
+        // request landing: team 1 -- a human -- is on the clock now, and the
+        // server (correctly) refuses.
+        state.currentIndex = 0;
+        return r.fulfill({ status: 409, json: { error: "Not your pick" } });
+      }
+      return r.fulfill({ json: { ok: true } });
+    });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    await expect.poll(() => autoPickCalls).toBeGreaterThan(0);
+    // Give the effect every chance to re-fire against stale data before
+    // deciding it didn't: team 1 is a human now, so a reload that saw that
+    // must have stopped it, same as if the page had never been stale.
+    await page.waitForTimeout(1500);
+    expect(autoPickCalls).toBe(1);
   });
 
   test("a shared draft shows no countdown", async ({ page }) => {
@@ -577,14 +655,20 @@ test("a joiner sees their own team as theirs, not the creator's", async ({ page 
   // pass this test even if the page fell back to rendering whichever team is
   // on the clock instead of yourTeam.
   const state = makeDraftState({ currentIndex: 4 });
-  // The creator made it and sits in team 1; we are the person who joined.
+  // The creator made it and sits in team 1; we are the person who joined and
+  // claimed team 2's seat. Team 5 -- on the clock here -- is still a bot,
+  // same as any real two-human draft with ten seats left unclaimed.
   state.userTeam = 1;
   state.yourTeam = 2;
+  state.seats = [
+    { team: 1, sub: "alice", kind: "human" },
+    { team: 2, sub: "me", kind: "human" },
+    ...state.seats.slice(2),
+  ];
   mockDraftApis(page, state);
-  // Belt-and-suspenders: no seats are set on this fixture, so onClockIsBot
-  // (Task 7) is false and nothing should auto-pick regardless of who's on
-  // the clock -- but a mocked auto-pick response is here in case that ever
-  // changes, so a regression spins harmlessly instead of hanging the test.
+  // Team 5 is a bot per the seats above, so onClockIsBot fires the moment the
+  // page loads -- mocked here so that firing is harmless instead of hanging
+  // the test on a real network call.
   await page.route("**/drafts/*/auto-pick", (r) => r.fulfill({ json: { ok: true } }));
 
   await signIn(page);

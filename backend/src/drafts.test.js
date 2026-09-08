@@ -628,6 +628,13 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     rounds: 2,
     userTeam: 2,
     yourTeam: 2,
+    // Reduced shape: team + kind only. `sub` (a teammate's Cognito id) is on
+    // the stored draft item but must not reach the response -- the page
+    // never reads it, and there is no reason to ship it once it isn't used.
+    seats: [
+      { team: 1, kind: "bot" },
+      { team: 2, kind: "human" },
+    ],
     rosterSlots: ["QB", "RB"],
     boardId: "board-1",
     picked: ["p1"],
@@ -1034,7 +1041,7 @@ test("the player pool query pages until exhausted", async () => {
     // currentIndex 0 with two picks queued keeps the completed-draft check
     // from short-circuiting before the pool load is reached.
     if (cmd?.input?.Key) {
-      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{}, {}], currentIndex: 0 } };
+      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{ team: 1 }, { team: 1 }], currentIndex: 0 } };
     }
     queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
@@ -1070,7 +1077,7 @@ test("the player pool query threads ExclusiveStartKey from the prior page's Last
   const queryStartKeys = [];
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     if (cmd?.input?.Key) {
-      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{}, {}], currentIndex: 0 } };
+      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{ team: 1 }, { team: 1 }], currentIndex: 0 } };
     }
     queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
@@ -1262,6 +1269,90 @@ test("somebody with no seat still gets 404 rather than 409", async () => {
   };
   const res = await pickAs(draft, "stranger", "p1");
   assert.strictEqual(res.statusCode, 404);
+});
+
+// Mirrors pickAs above, for /auto-pick: reads/writes the same draft, and
+// stubs a one-player pool so a scoring pick (when one is reached) is
+// deterministic.
+const AUTO_POOL_ONE = [
+  {
+    sport: "nfl", id: "p1", playerId: "p1", name: "Player One", position: "RB", team: "SF",
+    rank: { standard: 10 }, adp: { standard: 12.3 }, tier: { standard: 2 },
+  },
+];
+
+function autoPickAs(draft, sub, poolItems = AUTO_POOL_ONE) {
+  stubByTable({
+    "drafts-test": { Item: draft },
+    "players-test": { Items: poolItems },
+  });
+  return handler(
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: { sub } })
+  );
+}
+
+// The reviewer's finding: called as one seated human while a DIFFERENT human
+// held the seat on the clock, this used to return 200 and the server drafted
+// that person's pick. Team 1 (alice) is on the clock; bob, seated at team 2,
+// calls auto-pick.
+test("auto-pick as a human who does not hold the seat on the clock is refused", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    sport: "nfl", format: "standard",
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: null, player: null },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+    ],
+  };
+  const res = await autoPickAs(draft, "bob");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /not your pick/i);
+  // Refused before any pick was scored or written -- the draft the
+  // in-memory `draft` object still describes is untouched.
+  assert.strictEqual(draft.picks[0].playerId, null);
+  assert.strictEqual(draft.currentIndex, 0);
+});
+
+// The clause the fix must not lose: auto-picking your OWN turn is exactly
+// what the Auto Pick button is for, and this is the seat on the clock.
+test("auto-pick on your own turn is allowed", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    sport: "nfl", format: "standard",
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: null, player: null },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+    ],
+  };
+  const res = await autoPickAs(draft, "alice");
+  assert.strictEqual(res.statusCode, 200);
+});
+
+// The other allowed case: nobody holds the clock because it is a bot seat,
+// and any seated human's browser may take that pick.
+test("auto-pick when a bot is on the clock is allowed for any seated human", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 1, picked: [], version: 1,
+    sport: "nfl", format: "standard",
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+    ],
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: null, player: null },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+    ],
+  };
+  const res = await autoPickAs(draft, "alice");
+  assert.strictEqual(res.statusCode, 200);
 });
 
 // Drives /join to its success path: one GetCommand to read the draft, then
