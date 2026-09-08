@@ -1,8 +1,18 @@
 // backend/src/me.js
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { DynamoDBDocumentClient, QueryCommand } = require("@aws-sdk/lib-dynamodb");
+const { DynamoDBDocumentClient, QueryCommand, BatchGetCommand } = require("@aws-sdk/lib-dynamodb");
 const { responder } = require("./lib/http");
 const { subOf } = require("./lib/owner");
+const { listDraftIds } = require("./lib/members");
+
+// Mirrors sync/normalize.js's identical helper; not imported from there
+// because these two Lambdas are otherwise unrelated and shouldn't share a
+// dependency edge just to save four lines.
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -41,10 +51,28 @@ exports.handler = async (event) => {
 
   try {
     if (method === "GET" && path.endsWith("/me/drafts")) {
-      const items = await queryByOwner(process.env.DRAFTS_TABLE, sub);
+      const draftsTable = process.env.DRAFTS_TABLE;
+      // Membership, not ownership: this lists every draft the caller is
+      // seated in, including ones somebody else created and they joined.
+      const ids = await listDraftIds(ddb, process.env.DRAFT_MEMBERS_TABLE, sub);
+      // A membership row can outlive the draft it names -- deleting a draft
+      // does not clean them up, and the seat is the truth anyway. Missing ids
+      // are skipped rather than rendered as broken rows.
+      const items = [];
+      for (const group of chunk(ids, 100)) {
+        if (group.length === 0) continue;
+        const res = await ddb.send(
+          new BatchGetCommand({
+            RequestItems: { [draftsTable]: { Keys: group.map((draftId) => ({ draftId })) } },
+          })
+        );
+        items.push(...(res.Responses?.[draftsTable] || []));
+      }
+      const drafts = items.sort(byNewest);
       return json(200, {
-        drafts: items.sort(byNewest).map((d) => ({
+        drafts: drafts.map((d) => ({
           id: d.draftId,
+          draftId: d.draftId,
           teams: d.teams,
           rounds: d.rounds,
           format: d.format,

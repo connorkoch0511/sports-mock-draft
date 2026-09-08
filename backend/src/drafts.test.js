@@ -121,7 +121,10 @@ function pickAsWithConditionFailure(draft, sub, playerId) {
 test("POST /drafts seats the creator", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    put = cmd.input;
+    // A second PutCommand now writes the membership row after the draft's
+    // own; only the draft's carries seats, so that's the one this test cares
+    // about.
+    if (cmd.input?.Item?.seats) put = cmd.input;
     return {};
   });
   await handler(
@@ -143,7 +146,10 @@ test("POST /drafts seats the creator", async () => {
 test("POST /drafts with an out-of-range userTeam still seats exactly one human", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    put = cmd.input;
+    // A second PutCommand now writes the membership row after the draft's
+    // own; only the draft's carries seats, so that's the one this test cares
+    // about.
+    if (cmd.input?.Item?.seats) put = cmd.input;
     return {};
   });
   await handler(
@@ -245,7 +251,10 @@ test("POST /drafts without claims is 401", async () => {
 test("POST /drafts stores the caller's sub as ownerId", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    put = cmd.input;
+    // A second PutCommand now writes the membership row after the draft's
+    // own; only the draft's carries seats, so that's the one this test cares
+    // about.
+    if (cmd.input?.Item?.seats) put = cmd.input;
     return {};
   });
   const res = await handler(
@@ -1076,7 +1085,10 @@ test("DELETE without a draftId falls through to the catch-all", async () => {
 test("a new draft has exactly one human seat, and it is the owner", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    put = cmd.input;
+    // A second PutCommand now writes the membership row after the draft's
+    // own; only the draft's carries seats, so that's the one this test cares
+    // about.
+    if (cmd.input?.Item?.seats) put = cmd.input;
     return {};
   });
   await handler(evt("POST", "/drafts", { body: { teams: 8, rounds: 2 }, claims: ME }));

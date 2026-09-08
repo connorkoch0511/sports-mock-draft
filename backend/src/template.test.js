@@ -170,6 +170,15 @@ test("POST /drafts/{draftId}/join requires a signed-in user", () => {
   assert.strictEqual(route.Properties.Auth.Authorizer, "CognitoAuth");
 });
 
+test("the members table is keyed by person and draft", () => {
+  const tpl = loadTemplate();
+  const keys = tpl.Resources.DraftMembersTable.Properties.KeySchema;
+  assert.deepStrictEqual(keys, [
+    { AttributeName: "sub", KeyType: "HASH" },
+    { AttributeName: "draftId", KeyType: "RANGE" },
+  ]);
+});
+
 // The fetch abort inside the handler must fire before the platform kills the
 // invocation, or the friendly timeout message can never be sent.
 test("the Yahoo function outlives its own fetch timeout", () => {

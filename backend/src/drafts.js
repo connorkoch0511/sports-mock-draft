@@ -16,6 +16,7 @@ const {
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
 const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock } = require("./lib/owner");
+const { addMember } = require("./lib/members");
 const { withAdpBySource } = require("./lib/adpBySource");
 const { advanceDraft } = require("./lib/advance");
 
@@ -241,6 +242,9 @@ exports.handler = async (event) => {
       };
 
       await ddb.send(new PutCommand({ TableName: draftsTable, Item: item }));
+      // Seat first, row second: if this fails, the failure mode is a missing
+      // list entry, not a phantom one.
+      await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, id);
 
       return json(200, { draftId: id });
     }
@@ -295,7 +299,13 @@ exports.handler = async (event) => {
 
       const d = res.Item;
       const already = seatOf(d, sub);
-      if (already) return json(200, { ok: true, team: already.team });
+      if (already) {
+        // Idempotent: this is the self-healing path for a row that never got
+        // written (e.g. joined before this table existed). Cheap because a
+        // Put here just overwrites the same item with a fresh joinedAt.
+        await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
+        return json(200, { ok: true, team: already.team });
+      }
 
       for (let i = 0; i < d.seats.length; i++) {
         if (d.seats[i].kind !== "bot") continue;
@@ -311,6 +321,9 @@ exports.handler = async (event) => {
               ExpressionAttributeValues: { ":me": sub, ":human": "human", ":bot": "bot", ":one": 1 },
             })
           );
+          // Seat first, row second: if this fails, the failure mode is a
+          // missing list entry, not a phantom one.
+          await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
           return json(200, { ok: true, team: d.seats[i].team });
         } catch (e) {
           // Somebody took this seat between our read and our write. That is
