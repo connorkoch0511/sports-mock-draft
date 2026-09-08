@@ -241,7 +241,13 @@ Expected: the out-of-turn test FAILS with 200 — today's code allows it.
 
 - [ ] **Step 3: Implement**
 
-In the `/pick` handler, immediately after the existing `isSeated` check:
+In the `/pick` handler, **after** the existing "already picked" and "draft
+already completed" checks and before the player-snapshot fetch. Not
+immediately after `isSeated`, which is the obvious-looking place and is wrong:
+`teamOnClock` returns `null` for a finished draft, no real seat matches
+`null`, so every completed draft would answer "Not your pick" instead of
+"Draft already completed" — telling somebody it is not their turn when the
+draft is simply over, and sending them to look for the wrong thing:
 
 ```js
       // isSeated above answers "may you see this draft". This answers "is it
