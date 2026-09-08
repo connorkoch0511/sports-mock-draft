@@ -120,6 +120,7 @@ test("the expected mutating routes are all present", () => {
     "POST /drafts/{draftId}/auto-pick",
     "POST /drafts/{draftId}/pick",
     "POST /drafts/{draftId}/sim-to-end",
+    "POST /yahoo/leagues",
     "PUT /boards/{boardId}",
   ]);
 });
@@ -147,4 +148,16 @@ test("Cognito is no longer conditional", () => {
   for (const [name, res] of Object.entries(tpl.Resources)) {
     assert.strictEqual(res.Condition, undefined, `${name} is still conditional`);
   }
+});
+
+test("the Yahoo client secret is NoEcho", () => {
+  const tpl = loadTemplate();
+  assert.strictEqual(tpl.Parameters.YahooClientSecret.NoEcho, true);
+});
+
+test("POST /yahoo/leagues requires a signed-in user", () => {
+  const tpl = loadTemplate();
+  const ev = tpl.Resources.YahooFunction.Properties.Events;
+  const route = Object.values(ev).find((e) => e.Properties.Path === "/yahoo/leagues");
+  assert.strictEqual(route.Properties.Auth.Authorizer, "CognitoAuth");
 });
