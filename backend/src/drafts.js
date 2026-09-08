@@ -307,8 +307,9 @@ exports.handler = async (event) => {
         return json(200, { ok: true, team: already.team });
       }
 
-      for (let i = 0; i < d.seats.length; i++) {
-        if (d.seats[i].kind !== "bot") continue;
+      const seats = Array.isArray(d.seats) ? d.seats : [];
+      for (let i = 0; i < seats.length; i++) {
+        if (seats[i]?.kind !== "bot") continue;
         try {
           await ddb.send(
             new UpdateCommand({
@@ -324,11 +325,18 @@ exports.handler = async (event) => {
           // Seat first, row second: if this fails, the failure mode is a
           // missing list entry, not a phantom one.
           await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
-          return json(200, { ok: true, team: d.seats[i].team });
+          return json(200, { ok: true, team: seats[i].team });
         } catch (e) {
-          // Somebody took this seat between our read and our write. That is
-          // the race this condition exists for: try the next one.
           if (e?.name !== "ConditionalCheckFailedException") throw e;
+          // Somebody took this seat between our read and our write. Before
+          // trying the next one, check whether that somebody was US -- a
+          // double-clicked link sends two requests that both read the draft
+          // before either writes, and blindly advancing would give one person
+          // two seats. Re-read rather than trusting the snapshot from the top
+          // of this request, which is by now stale by definition.
+          const fresh = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+          const mine = seatOf(fresh.Item, sub);
+          if (mine) return json(200, { ok: true, team: mine.team });
         }
       }
 

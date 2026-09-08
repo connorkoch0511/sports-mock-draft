@@ -1215,24 +1215,59 @@ function joinAs(draft, sub, token) {
   );
 }
 
-// The seat race the whole task exists for: the first conditional write fails
-// as though somebody else's write landed on that exact seat between our read
-// and our write, and the retry must land on the next bot seat rather than
-// giving up or clobbering the seat somebody else just took.
-function joinAsWithFirstSeatTaken(draft, sub, token) {
-  let updateCalls = 0;
-  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    if (cmd.constructor.name === "GetCommand") return { Item: draft };
-    if (cmd.constructor.name === "UpdateCommand") {
-      updateCalls += 1;
-      if (updateCalls === 1) {
-        const e = new Error("The conditional request failed");
-        e.name = "ConditionalCheckFailedException";
-        throw e;
-      }
-      return {};
+// The seat race the whole task exists for: a conditional write fails exactly
+// when its ConditionExpression targets a seat index that is actually taken --
+// not "the first write, whatever it targets." Rejecting unconditionally would
+// pass even against a handler that retried the same seat forever, so the stub
+// has to model the condition, the same lesson lib/advance.js's stub needed
+// one commit earlier on this branch.
+function stubSeatWrites({ takenIndexes }) {
+  return async (cmd) => {
+    const expr = cmd?.input?.ConditionExpression || "";
+    const m = expr.match(/seats\[(\d+)\]\.kind/);
+    if (m && takenIndexes.includes(Number(m[1]))) {
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
     }
     return {};
+  };
+}
+
+// Simulates the exact race the whole task exists for: seat index 1 (team 2)
+// is taken by somebody else between our read and our write.
+function joinAsWithFirstSeatTaken(draft, sub, token) {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") return { Item: draft };
+    if (cmd.constructor.name === "UpdateCommand") return stubSeatWrites({ takenIndexes: [1] })(cmd);
+    return {}; // PutCommand (addMember) result is ignored
+  });
+  return handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
+  );
+}
+
+// The double-click: two requests from the SAME person both read the draft
+// before either writes. The first write this handler attempts fails (seat 1
+// is now taken -- by this same caller, in the scenario below), and a re-read
+// must show the caller already seated rather than letting the loop advance to
+// a second seat.
+function joinAsDoubleClicked(draft, sub, token, { seatedAt }) {
+  let getCalls = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") {
+      getCalls += 1;
+      // First read: the draft as it looked when this request started (still a
+      // bot at seatedAt). Every subsequent read (the re-read after the
+      // conditional failure): the sibling request has already landed there.
+      if (getCalls === 1) return { Item: draft };
+      const seats = draft.seats.map((s, idx) =>
+        idx === seatedAt ? { ...s, sub, kind: "human" } : s
+      );
+      return { Item: { ...draft, seats } };
+    }
+    if (cmd.constructor.name === "UpdateCommand") return stubSeatWrites({ takenIndexes: [seatedAt] })(cmd);
+    return {}; // PutCommand (addMember) result is ignored
   });
   return handler(
     evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
@@ -1296,4 +1331,48 @@ test("a full draft says so", async () => {
   const res = await joinAs(draft, "bob", "t");
   assert.strictEqual(res.statusCode, 409);
   assert.match(JSON.parse(res.body).error, /full/i);
+});
+
+// A double-clicked invite link, or a client retry after a slow response,
+// sends two requests that both read the draft before either writes. Losing
+// the race on the first seat must not send the loser on to claim a second
+// seat for themselves -- they already hold one, just not the one this
+// request's stale snapshot expected.
+test("a double-clicked join lands on the seat already held, not a second one", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  // The sibling request already seated bob at seat index 1 (team 2) by the
+  // time this request's conditional write on that same seat fails.
+  const res = await joinAsDoubleClicked(draft, "bob", "t", { seatedAt: 1 });
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});
+
+// Every other answer on this route is a 404 (a wrong token) or a 409 (a full
+// draft) -- never a 500. A draft missing its seats array entirely (corrupted
+// data, or a draft written before this field existed) must fall into that
+// same set of answers rather than throwing on `.length`.
+test("a draft with no seats array answers without a 500", async () => {
+  const draft = { draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1 };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /full/i);
+});
+
+// A null entry among otherwise-valid seats (also corrupted data) must be
+// skipped when scanning for a bot seat, not dereferenced.
+test("a null seat entry is skipped rather than crashing", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }, null, { team: 3, sub: null, kind: "bot" }],
+  };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 3);
 });
