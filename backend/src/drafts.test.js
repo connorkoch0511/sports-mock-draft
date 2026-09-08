@@ -74,6 +74,14 @@ function ownedDraft(ownerId, seatSub = ownerId) {
   };
 }
 
+// GET /drafts/{draftId} as a specific caller: stubs the single GetCommand it
+// issues and drives the handler, so tests read as "ask for this draft as
+// this person" rather than repeating the stub/evt wiring each time.
+function getDraftAs(draft, sub) {
+  stubSend({ Item: draft });
+  return handler(evt("GET", `/drafts/${draft.draftId}`, { draftId: draft.draftId, claims: { sub } }));
+}
+
 // Drives /pick all the way to its write, simulating a table where somebody
 // else's pick has already moved currentIndex on since our stale read.
 //
@@ -618,6 +626,7 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     teams: 4,
     rounds: 2,
     userTeam: 2,
+    yourTeam: 2,
     rosterSlots: ["QB", "RB"],
     boardId: "board-1",
     picked: ["p1"],
@@ -633,6 +642,22 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
       { overall: 4, round: 2, team: 1, playerId: null, player: null },
     ],
   });
+});
+
+// userTeam is fixed at creation and belongs to whoever created the draft.
+// yourTeam is derived per request from seats, so the same draft object
+// answers "team 1" for the creator and "team 2" for a joiner asking the
+// identical endpoint.
+test("yourTeam is the caller's own seat, not the creator's", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", userTeam: 1, currentIndex: 0, picks: [], picked: [],
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+  };
+  assert.strictEqual(JSON.parse((await getDraftAs(draft, "alice")).body).yourTeam, 1);
+  assert.strictEqual(JSON.parse((await getDraftAs(draft, "bob")).body).yourTeam, 2);
 });
 
 test("pick success returns { ok: true }", async () => {

@@ -443,3 +443,23 @@ test("a player can be drafted from the keyboard", async ({ page }) => {
 
   await expect(() => expect(picked).toBe("p1")).toPass();
 });
+
+test("a joiner sees their own team as theirs, not the creator's", async ({ page }) => {
+  // currentIndex: 1 puts team 2 (ours) on the clock rather than team 1 (the
+  // creator's), so isMyTurn is true from the first render and the page's
+  // existing "auto-pick for whoever isn't me" effect never fires -- that
+  // effect has its own known bug when the mocked GET never advances the
+  // team on the clock (a separate, already-tracked fix, not this test's
+  // concern), and firing it here would make this test flake on that instead
+  // of on what it's actually checking.
+  const state = makeDraftState({ currentIndex: 1 });
+  // The creator made it and sits in team 1; we are the person who joined.
+  state.userTeam = 1;
+  state.yourTeam = 2;
+  mockDraftApis(page, state);
+  await signIn(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  await expect(page.getByTestId("my-team")).toContainText("2");
+});

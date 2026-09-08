@@ -276,6 +276,9 @@ exports.handler = async (event) => {
         teams: d.teams,
         rounds: d.rounds,
         userTeam: d.userTeam || 1,
+        // Derived per request. userTeam is the CREATOR's team, which is right
+        // for them and wrong for everybody who joined.
+        yourTeam: seatOf(d, sub)?.team ?? null,
         rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
         boardId: d.boardId || null,
         inviteToken: d.inviteToken,

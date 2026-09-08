@@ -36,7 +36,11 @@ export default function Draft() {
   const tickRef = useRef(null);
 
 
-  const myTeam = draft?.userTeam || 1;
+  // yourTeam is derived per request from seats and is who's ACTUALLY looking
+  // at the page; userTeam is fixed at creation and is only right for whoever
+  // made the draft. The fallback keeps a draft created before yourTeam
+  // shipped working until its next write.
+  const myTeam = draft?.yourTeam ?? draft?.userTeam ?? 1;
   const isMyTurn = draft?.currentTeam === myTeam;
 
   const load = async () => {
@@ -294,6 +298,15 @@ export default function Draft() {
                 </Link>
               ) : null}
 
+              {/* Always visible regardless of pause state or whose turn it
+                  is -- the one place on the page that unambiguously answers
+                  "which team is mine", for a joiner as much as the creator. */}
+              <span
+                data-testid="my-team"
+                className="rounded-full border border-zinc-800 bg-zinc-950 px-3 py-1 text-xs text-zinc-200"
+              >
+                Your Team: {myTeam}
+              </span>
               <Pill>Draft: {draftId}</Pill>
               <Pill>{currentPickLabel}</Pill>
               <Pill>

@@ -28,7 +28,11 @@ const FLEX_ELIGIBLE_POSITIONS = ["RB", "WR", "TE"];
  */
 export function analyzeDraft(draft) {
   const teamCount = Number(draft?.teams) || 0;
-  const userTeam = draft?.userTeam ?? null;
+  // yourTeam is derived per request from seats and is who's actually looking
+  // at these results; userTeam is fixed at creation and is only right for
+  // whoever made the draft. The fallback keeps a draft fetched before
+  // yourTeam shipped working until its next write.
+  const userTeam = draft?.yourTeam ?? draft?.userTeam ?? null;
   const rosterSlots = Array.isArray(draft?.rosterSlots) ? draft.rosterSlots : [];
   const made = (Array.isArray(draft?.picks) ? draft.picks : []).filter(
     (p) => p && p.player
