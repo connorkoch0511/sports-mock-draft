@@ -60,8 +60,7 @@ export function makeDraftState({
     picks[idx].playerId = player.id;
     picks[idx].player = player;
   }
-  const current = picks[currentIndex] || null;
-  return {
+  const state = {
     draftId: DRAFT_ID,
     sport: "nfl",
     format,
@@ -72,12 +71,36 @@ export function makeDraftState({
     userTeam: 1,
     picked: completedPicks.map(({ player }) => player.id),
     currentIndex,
-    currentRound: current?.round ?? 15,
-    currentPick: current ? (current.overall % 12) || 12 : 12,
-    currentTeam: current?.team ?? null,
-    completed: currentIndex >= picks.length,
     picks,
   };
+  // currentRound/currentPick/currentTeam/completed are DERIVED from
+  // currentIndex, not independent facts -- a real GET always returns them in
+  // agreement. A plain copied value here would go stale the moment a test
+  // mutates `state.currentIndex` afterward to simulate the draft advancing
+  // (a natural way to move a scenario's clock forward), silently reproducing
+  // exactly the "static double that never advances" failure mode this fixture
+  // exists to avoid. Getters keep them truthful to whatever currentIndex is
+  // at read time instead.
+  Object.defineProperty(state, "currentRound", {
+    enumerable: true,
+    get() { return (picks[state.currentIndex] || null)?.round ?? 15; },
+  });
+  Object.defineProperty(state, "currentPick", {
+    enumerable: true,
+    get() {
+      const current = picks[state.currentIndex] || null;
+      return current ? (current.overall % 12) || 12 : 12;
+    },
+  });
+  Object.defineProperty(state, "currentTeam", {
+    enumerable: true,
+    get() { return (picks[state.currentIndex] || null)?.team ?? null; },
+  });
+  Object.defineProperty(state, "completed", {
+    enumerable: true,
+    get() { return state.currentIndex >= picks.length; },
+  });
+  return state;
 }
 
 export function makeCompletedDraft() {

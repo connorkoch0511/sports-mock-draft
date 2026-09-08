@@ -43,6 +43,17 @@ export default function Draft() {
   const myTeam = draft?.yourTeam ?? draft?.userTeam ?? 1;
   const isMyTurn = draft?.currentTeam === myTeam;
 
+  const seats = draft?.seats ?? [];
+  const humans = seats.filter((s) => s?.kind === "human").length;
+  // More than one person in here means the browser is no longer the authority
+  // on time. Phase 2 moves the clock to the server; until then a shared draft
+  // simply has no clock, because several browsers each running their own
+  // would fire auto-picks at one another.
+  const shared = humans > 1;
+  // "Not my team" is not the same question as "is a bot", and in a shared
+  // draft the difference is somebody else's pick being taken from them.
+  const onClockIsBot = seats.find((s) => s?.team === draft?.currentTeam)?.kind === "bot";
+
   const load = async () => {
     setErr("");
     try {
@@ -179,24 +190,30 @@ export default function Draft() {
     if (isMyTurn) setSecondsLeft(PICK_SECONDS);
   }, [hasDraft, draftKey, currentIndex, currentTeam, completed, isMyTurn]);
 
-  // Autopick for teams 2..N immediately (while not paused)
+  // Autopick only for a bot's turn. "Not mine" used to be the trigger, which
+  // is exactly right with one human and exactly wrong with two: it would
+  // take the other person's pick the instant the clock reached them.
   useEffect(() => {
     if (!draft) return;
     if (paused) return;
     if (busy) return;
     if (draft.completed) return;
 
-    if (!isMyTurn) {
+    if (onClockIsBot) {
       autoPick();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft?.currentTeam, draft?.currentIndex, draft?.completed, paused, busy, isMyTurn]);
+  }, [draft?.currentTeam, draft?.currentIndex, draft?.completed, paused, busy, onClockIsBot]);
 
-  // Run countdown only when the user's team is on the clock
+  // Run countdown only when the user's team is on the clock, and never in a
+  // shared draft -- the clock is the server's job in Phase 2, and until then
+  // several browsers each running their own would fire timeout auto-picks at
+  // one another.
   useEffect(() => {
     if (tickRef.current) clearInterval(tickRef.current);
 
     if (!hasDraft) return;
+    if (shared) return;
     if (paused) return;
     if (busy) return;
     if (completed) return;
@@ -209,11 +226,13 @@ export default function Draft() {
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
-  }, [hasDraft, currentTeam, completed, paused, busy, isMyTurn]);
+  }, [hasDraft, shared, currentTeam, completed, paused, busy, isMyTurn]);
 
-  // If the user's team runs out of time, autopick for the user's team
+  // If the user's team runs out of time, autopick for the user's team. Same
+  // reason as the countdown above: a shared draft runs no clock at all.
   useEffect(() => {
     if (!draft) return;
+    if (shared) return;
     if (paused) return;
     if (busy) return;
     if (draft.completed) return;
@@ -222,7 +241,7 @@ export default function Draft() {
       autoPick();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secondsLeft, draft?.currentTeam, draft?.completed, paused, busy, isMyTurn]);
+  }, [secondsLeft, draft?.currentTeam, draft?.completed, paused, busy, isMyTurn, shared]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -264,8 +283,21 @@ export default function Draft() {
                 {paused ? "Resume" : "Pause"}
               </button>
 
-              {isMyTurn && !draft.completed ? (
-                <Pill>⏱ {secondsLeft}s</Pill>
+              {shared ? (
+                // No clock in a shared draft (see the effects above) -- and
+                // "Auto-picking other teams…" would be a lie here, since the
+                // team waited on is another human, not a bot.
+                draft.completed ? (
+                  <Pill>✅ Completed</Pill>
+                ) : (
+                  <Pill>{isMyTurn ? "Your pick" : `Waiting on Team ${draft.currentTeam}`}</Pill>
+                )
+              ) : isMyTurn && !draft.completed ? (
+                // Pill itself doesn't forward props, so the id this test
+                // keys off of goes on a wrapper instead of changing it.
+                <span data-testid="clock">
+                  <Pill>⏱ {secondsLeft}s</Pill>
+                </span>
               ) : draft.completed ? (
                 <Pill>✅ Completed</Pill>
               ) : (

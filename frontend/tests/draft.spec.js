@@ -346,6 +346,55 @@ test.describe("Draft page", () => {
     await expect(note).toContainText("whole platform");
   });
 
+  test("the browser never picks for another human", async ({ page }) => {
+    let autoPicks = 0;
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    // Team 2 -- another human -- is on the clock.
+    state.currentIndex = 1;
+    mockDraftApis(page, state);
+    await page.route("**/drafts/*/auto-pick", (r) => { autoPicks += 1; return r.fulfill({ json: { ok: true } }); });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.waitForTimeout(2000);
+    expect(autoPicks).toBe(0);
+  });
+
+  test("a bot seat still advances immediately", async ({ page }) => {
+    let autoPicks = 0;
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+    ];
+    state.currentIndex = 1;
+    mockDraftApis(page, state);
+    await page.route("**/drafts/*/auto-pick", (r) => { autoPicks += 1; return r.fulfill({ json: { ok: true } }); });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect.poll(() => autoPicks).toBeGreaterThan(0);
+  });
+
+  test("a shared draft shows no countdown", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("clock")).toHaveCount(0);
+  });
+
 });
 
 // --- Pinning the Big Board row before it is restructured -------------------
