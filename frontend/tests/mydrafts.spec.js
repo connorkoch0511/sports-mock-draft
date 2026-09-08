@@ -99,6 +99,31 @@ test("a draft driven by one of your boards names it", async ({ page }) => {
   await expect(page.getByTestId("draft-row").first()).toContainText("My PPR Board");
 });
 
+// userTeam is the CREATOR's team, stamped on the row at creation. yourTeam
+// is derived per caller from that draft's seats -- the same distinction
+// Task 6 drew on the draft page itself. A joiner's row must show their own
+// seat, not the row's userTeam.
+test("a joiner sees their own pick number in the list, not the creator's", async ({ page }) => {
+  const joined = {
+    id: "draft-joined",
+    teams: 8,
+    rounds: 10,
+    format: "ppr",
+    userTeam: 1,
+    yourTeam: 5,
+    boardId: null,
+    completed: false,
+    createdAt: Date.now(),
+  };
+  await signIn(page);
+  await mockMyDrafts(page, [joined]);
+  await page.goto("/drafts");
+
+  const row = page.getByTestId("draft-row").first();
+  await expect(row).toContainText("Pick 5");
+  await expect(row).not.toContainText("Pick 1");
+});
+
 test("a board not on your account shows a generic label, not an id", async ({ page }) => {
   await signIn(page);
   await mockMyDrafts(page, [COMPLETED], []);

@@ -36,12 +36,24 @@ export default function Draft() {
   const tickRef = useRef(null);
 
 
+  // Derived straight from currentIndex + picks, the same way the server
+  // derives currentRound/currentPick/currentTeam in the first place, rather
+  // than trusting those transmitted fields on their own. The two agree on
+  // every real response, but polling replaces the whole draft object on a
+  // three-second timer -- if anything upstream of this page ever handed it a
+  // copy where currentIndex moved without those derived fields following (a
+  // shallow spread of a draft object does exactly this, since it flattens
+  // any getter into whatever it returned last), reading picks directly is
+  // what keeps the pick counter from freezing while the clock ticks forward.
+  const currentPickEntry = draft?.picks?.[draft?.currentIndex] ?? null;
+  const currentTeamOnClock = currentPickEntry?.team ?? draft?.currentTeam ?? null;
+
   // yourTeam is derived per request from seats and is who's ACTUALLY looking
   // at the page; userTeam is fixed at creation and is only right for whoever
   // made the draft. The fallback keeps a draft created before yourTeam
   // shipped working until its next write.
   const myTeam = draft?.yourTeam ?? draft?.userTeam ?? 1;
-  const isMyTurn = draft?.currentTeam === myTeam;
+  const isMyTurn = currentTeamOnClock === myTeam;
 
   const seats = draft?.seats ?? [];
   const humans = seats.filter((s) => s?.kind === "human").length;
@@ -52,7 +64,7 @@ export default function Draft() {
   const shared = humans > 1;
   // "Not my team" is not the same question as "is a bot", and in a shared
   // draft the difference is somebody else's pick being taken from them.
-  const onClockIsBot = seats.find((s) => s?.team === draft?.currentTeam)?.kind === "bot";
+  const onClockIsBot = seats.find((s) => s?.team === currentTeamOnClock)?.kind === "bot";
 
   const load = async () => {
     setErr("");
@@ -72,6 +84,21 @@ export default function Draft() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId]);
+
+  // Distinct from `load`: a poll only needs the draft's current state, not a
+  // fresh player pool (which never changes once a draft has started), and
+  // updates state only when `version` has actually moved -- otherwise an
+  // identical response landing three seconds later would re-render for
+  // nothing every single tick.
+  const refresh = async () => {
+    try {
+      const d = await apiGet(`/drafts/${draftId}`);
+      setDraft((prev) => (prev && prev.version === d.version ? prev : d));
+    } catch {
+      // A poll failing is not worth surfacing over whatever the page is
+      // already showing -- the next one, three seconds later, tries again.
+    }
+  };
 
   // Fetch the board exactly once per draft (keyed on the boardId string, not
   // the draft object), so refetching draft state after each pick does not
@@ -121,8 +148,13 @@ export default function Draft() {
     return m;
   }, [players]);
 
+  // currentPickEntry is null once the draft is complete (currentIndex runs
+  // past the end of picks), so the completed draft's last-known round/pick/
+  // team is what falls back to the transmitted fields here.
   const currentPickLabel = draft
-    ? `R${draft.currentRound} P${draft.currentPick} • Team ${draft.currentTeam}`
+    ? `R${currentPickEntry?.round ?? draft.currentRound} P${
+        currentPickEntry ? (currentPickEntry.overall % (draft.teams || 1)) || draft.teams : draft.currentPick
+      } • Team ${currentTeamOnClock ?? ""}`
     : "";
 
   const makePick = async (playerId) => {
@@ -178,6 +210,23 @@ export default function Draft() {
   const currentTeam = draft?.currentTeam;
   const completed = draft?.completed ?? false;
 
+  // Everyone in the draft is looking at the same row, and only the person who
+  // picked knows it changed. Three seconds is a judgement: fast enough that a
+  // pick feels immediate to everybody else, slow enough that twelve people is
+  // twenty requests a minute each rather than hundreds.
+  useEffect(() => {
+    if (!draftId || completed) return undefined;
+
+    const id = setInterval(() => {
+      // A tab nobody is looking at does not need to keep asking. Without this
+      // a forgotten tab polls until the browser is closed.
+      if (document.visibilityState === "hidden") return;
+      refresh();
+    }, 3000);
+
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, completed]);
 
   // Reset timer on new pick / when it becomes the user's team's turn
   useEffect(() => {
@@ -290,7 +339,14 @@ export default function Draft() {
                 draft.completed ? (
                   <Pill>✅ Completed</Pill>
                 ) : (
-                  <Pill>{isMyTurn ? "Your pick" : `Waiting on Team ${draft.currentTeam}`}</Pill>
+                  // Pill itself doesn't forward props, so the id this test
+                  // keys off of goes on a wrapper instead of changing it --
+                  // same pattern as the "clock" span below, and needed here
+                  // because the Big Board panel's own status line can carry
+                  // this identical sentence at the same time.
+                  <span data-testid="status-pill">
+                    <Pill>{isMyTurn ? "Your pick" : `Waiting on Team ${currentTeamOnClock}`}</Pill>
+                  </span>
                 )
               ) : isMyTurn && !draft.completed ? (
                 // Pill itself doesn't forward props, so the id this test
@@ -313,12 +369,32 @@ export default function Draft() {
                 Auto Pick
               </button>
 
+              {shared ? null : (
+                // Simulating the rest of a draft other people are sitting in
+                // takes their picks away from them; the server refuses this
+                // with 409 once a second human is seated, so the button is
+                // simply not offered rather than inviting a request that can
+                // only fail.
+                <button
+                  onClick={simToEnd}
+                  disabled={paused || busy || draft.completed}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
+                >
+                  Sim to End
+                </button>
+              )}
+
               <button
-                onClick={simToEnd}
-                disabled={paused || busy || draft.completed}
-                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
+                type="button"
+                data-testid="copy-invite"
+                onClick={() =>
+                  navigator.clipboard.writeText(
+                    `${window.location.origin}/draft/${draftId}/join?t=${draft.inviteToken}`
+                  )
+                }
+                className="rounded-2xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600"
               >
-                Sim to End
+                Copy invite link
               </button>
 
               {draft.completed ? (
@@ -340,7 +416,9 @@ export default function Draft() {
                 Your Team: {myTeam}
               </span>
               <Pill>Draft: {draftId}</Pill>
-              <Pill>{currentPickLabel}</Pill>
+              <span data-testid="current-pick">
+                <Pill>{currentPickLabel}</Pill>
+              </span>
               <Pill>
                 {draft.teams} teams • {draft.rounds} rounds
               </Pill>

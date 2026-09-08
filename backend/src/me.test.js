@@ -98,6 +98,7 @@ test("GET /me/drafts shapes each row for the list", async () => {
     members: [{ sub: "user-me", draftId: "d1" }],
     drafts: {
       d1: { draftId: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 4,
+            seats: [{ team: 4, sub: "user-me", kind: "human" }],
             boardId: null, currentIndex: 3, createdAt: 1000 },
     },
   });
@@ -105,9 +106,31 @@ test("GET /me/drafts shapes each row for the list", async () => {
   assert.deepStrictEqual(JSON.parse(res.body), {
     drafts: [
       { id: "d1", draftId: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 4,
-        boardId: null, completed: false, createdAt: 1000 },
+        yourTeam: 4, boardId: null, completed: false, createdAt: 1000 },
     ],
   });
+});
+
+// userTeam is fixed at creation and belongs to whoever created the draft.
+// yourTeam is derived per caller from seats, so the same draft row answers
+// "team 1" for the creator and "team 2" for a joiner asking the identical
+// list -- the same defect Task 6 fixed on the draft page itself, here for
+// the drafts list.
+test("a joiner sees their own seat, not the creator's team, in the list", async () => {
+  const drafts = {
+    d1: {
+      draftId: "d1", ownerId: "alice", userTeam: 1, teams: 2, rounds: 1,
+      format: "ppr", currentIndex: 0, createdAt: 1,
+      seats: [
+        { team: 1, sub: "alice", kind: "human" },
+        { team: 2, sub: "bob", kind: "human" },
+      ],
+    },
+  };
+  const asAlice = await listDraftsFor("alice", { members: [{ sub: "alice", draftId: "d1" }], drafts });
+  const asBob = await listDraftsFor("bob", { members: [{ sub: "bob", draftId: "d1" }], drafts });
+  assert.strictEqual(JSON.parse(asAlice.body).drafts[0].yourTeam, 1);
+  assert.strictEqual(JSON.parse(asBob.body).drafts[0].yourTeam, 2);
 });
 
 test("a draft whose picks are all made reports completed", async () => {

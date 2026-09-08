@@ -600,6 +600,7 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     boardId: "board-1",
     picked: ["p1"],
     currentIndex: 1,
+    version: 7,
     picks: [
       { overall: 1, round: 1, team: 1, playerId: "p1", player: { id: "p1", name: "A" } },
       { overall: 2, round: 1, team: 2, playerId: null, player: null },
@@ -631,6 +632,7 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     boardId: "board-1",
     picked: ["p1"],
     currentIndex: 1,
+    version: 7,
     currentRound: 1,
     currentPick: 2,
     currentTeam: 2,
@@ -658,6 +660,17 @@ test("yourTeam is the caller's own seat, not the creator's", async () => {
   };
   assert.strictEqual(JSON.parse((await getDraftAs(draft, "alice")).body).yourTeam, 1);
   assert.strictEqual(JSON.parse((await getDraftAs(draft, "bob")).body).yourTeam, 2);
+});
+
+// The client polls this endpoint so everyone sees everyone's picks, and only
+// re-renders when version has moved -- so GET has to carry the same version
+// a write bumps, not just report it back inside a 409.
+test("GET /drafts/{id} carries version, so a poller can tell a write happened", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picks: [], picked: [], version: 3,
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+  };
+  assert.strictEqual(JSON.parse((await getDraftAs(draft, "alice")).body).version, 3);
 });
 
 test("pick success returns { ok: true }", async () => {
@@ -953,6 +966,29 @@ test("sim-to-end success returns { ok: true, completed }", async () => {
   );
   assert.strictEqual(res.statusCode, 200);
   assert.deepStrictEqual(JSON.parse(res.body), { ok: true, completed: true });
+});
+
+// Drives /sim-to-end to its refusal path: only the draft's own GetCommand
+// should ever fire, since the human-seat check happens before any players
+// are loaded.
+function simToEndAs(draft, sub) {
+  stubByTable({ "drafts-test": { Item: draft } });
+  return handler(
+    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", claims: { sub } })
+  );
+}
+
+test("sim to end is refused once somebody else is in the draft", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], picks: [{ team: 1 }],
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+  };
+  const res = await simToEndAs(draft, "alice");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /on your own/i);
 });
 
 test("an unrouted path is 404 Not found", async () => {

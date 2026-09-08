@@ -2,6 +2,7 @@ import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home.jsx";
 import NewDraft from "./pages/NewDraft.jsx";
 import Draft from "./pages/Draft.jsx";
+import JoinDraft from "./pages/JoinDraft.jsx";
 import Results from "./pages/Results.jsx";
 import Board from "./pages/Board.jsx";
 import Boards from "./pages/Boards.jsx";
@@ -28,6 +29,7 @@ export default function App() {
               <Route path="/draft/new" element={<RequireAuth><NewDraft /></RequireAuth>} />
               <Route path="/drafts" element={<RequireAuth><MyDrafts /></RequireAuth>} />
               <Route path="/draft/:draftId" element={<RequireAuth><Draft /></RequireAuth>} />
+              <Route path="/draft/:draftId/join" element={<RequireAuth><JoinDraft /></RequireAuth>} />
               <Route path="/draft/:draftId/results" element={<RequireAuth><Results /></RequireAuth>} />
               <Route path="/board/:boardId" element={<RequireAuth><Board /></RequireAuth>} />
               <Route path="/boards" element={<RequireAuth><Boards /></RequireAuth>} />

@@ -2,7 +2,7 @@
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient, QueryCommand, BatchGetCommand } = require("@aws-sdk/lib-dynamodb");
 const { responder } = require("./lib/http");
-const { subOf } = require("./lib/owner");
+const { subOf, seatOf } = require("./lib/owner");
 const { listDraftIds } = require("./lib/members");
 
 // Mirrors sync/normalize.js's identical helper; not imported from there
@@ -87,6 +87,9 @@ exports.handler = async (event) => {
           rounds: d.rounds,
           format: d.format,
           userTeam: d.userTeam,
+          // Derived per caller, same as GET /drafts/{draftId}: userTeam is
+          // the CREATOR's team, which is wrong for everybody who joined.
+          yourTeam: seatOf(d, sub)?.team ?? null,
           boardId: d.boardId ?? null,
           // Derived rather than stored: picks is deliberately not projected
           // onto the index, and teams x rounds is the same number.

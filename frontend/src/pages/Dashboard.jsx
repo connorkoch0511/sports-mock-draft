@@ -65,7 +65,12 @@ export default function Dashboard() {
                 className="block rounded-2xl border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-sm text-zinc-200 hover:border-zinc-600"
               >
                 {FORMAT_LABEL[d.format] || d.format} · {d.teams} teams · {d.rounds} rounds
-                <span className="ml-2 text-xs text-zinc-500">Pick {d.userTeam}</span>
+                {/* yourTeam is the caller's own seat, derived per person on
+                    the server; userTeam is fixed at creation and only right
+                    for whoever made the draft. Same fallback as the draft
+                    page and My Drafts, until every row has been rewritten
+                    with yourTeam. */}
+                <span className="ml-2 text-xs text-zinc-500">Pick {d.yourTeam ?? d.userTeam}</span>
               </Link>
             </li>
           ))}

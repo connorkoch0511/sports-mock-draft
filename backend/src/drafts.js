@@ -15,7 +15,7 @@ const {
   kDefBlocked,
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
-const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock } = require("./lib/owner");
+const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
 const { addMember } = require("./lib/members");
 const { withAdpBySource } = require("./lib/adpBySource");
 const { advanceDraft } = require("./lib/advance");
@@ -283,6 +283,10 @@ exports.handler = async (event) => {
         boardId: d.boardId || null,
         inviteToken: d.inviteToken,
         picked: d.picked || [],
+        // Bumped on every write. The draft page polls this endpoint so
+        // everyone sees everyone's picks, and re-renders only when this
+        // number has moved rather than on every poll response.
+        version: d.version ?? 1,
         currentIndex: d.currentIndex,
         currentRound: current?.round || d.rounds,
         currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
@@ -490,6 +494,13 @@ exports.handler = async (event) => {
       if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
+
+      // Simulating the rest of a draft other people are sitting in takes
+      // their picks away from them.
+      if (humanSeatCount(d) > 1) {
+        return json(409, { error: "Sim to End is for drafts you are in on your own" });
+      }
+
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
       const { players, byId } = await loadPlayersForSport(playersTable, sport, format);

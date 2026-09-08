@@ -18,7 +18,12 @@ function describe(d) {
   // the exact same millisecond. This string backs both the aria-label and
   // the delete confirmation, so it is the only thing standing between a
   // careful user and deleting the wrong one.
-  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams, ${d.rounds} rounds, pick ${d.userTeam}, created ${relativeTime(d.createdAt)}`;
+  //
+  // yourTeam is the caller's own seat, derived per person; userTeam is fixed
+  // at creation and only right for whoever made the draft. The fallback
+  // keeps a draft listed before yourTeam shipped working until its next
+  // write, same as the draft page.
+  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams, ${d.rounds} rounds, pick ${d.yourTeam ?? d.userTeam}, created ${relativeTime(d.createdAt)}`;
 }
 
 function relativeTime(ts) {
@@ -141,7 +146,7 @@ export default function MyDrafts() {
                     </span>
                   </div>
                   <div className="mt-1 text-xs text-zinc-500">
-                    Pick {d.userTeam}
+                    Pick {d.yourTeam ?? d.userTeam}
                     {boardName ? ` · off ${boardName}` : ""} · {relativeTime(d.createdAt)}
                   </div>
                 </Link>

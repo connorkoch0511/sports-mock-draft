@@ -395,6 +395,82 @@ test.describe("Draft page", () => {
     await expect(page.getByTestId("clock")).toHaveCount(0);
   });
 
+  // Pins the exact copy: "Auto-picking other teams…" is false the moment a
+  // second human is seated, since the team being waited on is a person, not
+  // a bot. Nothing else in this file asserts this text, so a careless
+  // revert back to the old copy would otherwise pass every other test here.
+  test("the shared-draft status pill names whose pick it is, not bots", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 }); // team 1 on the clock
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    const pill = page.getByTestId("status-pill");
+    await expect(pill).toHaveText("Your pick");
+    await expect(page.getByText(/Auto-picking/i)).toHaveCount(0);
+
+    // Somebody else's pick, in the same shared draft.
+    state.currentIndex = 1; // team 2's turn
+    await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+    await page.reload();
+
+    await expect(pill).toHaveText("Waiting on Team 2");
+    await expect(page.getByText(/Auto-picking/i)).toHaveCount(0);
+  });
+
+  test("Sim to End is not offered once somebody else is in the draft", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sim to End" })).toHaveCount(0);
+  });
+
+  test("opening an invite link seats you and opens the draft", async ({ page }) => {
+    let joinedWith = null;
+    await page.route("**/drafts/*/join", (r) => {
+      joinedWith = r.request().postDataJSON().token;
+      return r.fulfill({ json: { ok: true, team: 2 } });
+    });
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 2;
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}/join?t=abc123`);
+
+    await expect(page).toHaveURL(new RegExp(`/draft/${DRAFT_ID}$`));
+    expect(joinedWith).toBe("abc123");
+  });
+
+  test("a picked player appears without touching anything", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.version = 1;
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    // Somebody else picks: the next poll should bring it in.
+    const moved = { ...state, version: 2, currentIndex: 1 };
+    await page.route(`**/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: moved }));
+
+    await expect.poll(async () => (await page.getByTestId("current-pick").textContent()) || "",
+      { timeout: 10000 }).toContain("2");
+  });
+
 });
 
 // --- Pinning the Big Board row before it is restructured -------------------
@@ -494,18 +570,23 @@ test("a player can be drafted from the keyboard", async ({ page }) => {
 });
 
 test("a joiner sees their own team as theirs, not the creator's", async ({ page }) => {
-  // currentIndex: 1 puts team 2 (ours) on the clock rather than team 1 (the
-  // creator's), so isMyTurn is true from the first render and the page's
-  // existing "auto-pick for whoever isn't me" effect never fires -- that
-  // effect has its own known bug when the mocked GET never advances the
-  // team on the clock (a separate, already-tracked fix, not this test's
-  // concern), and firing it here would make this test flake on that instead
-  // of on what it's actually checking.
-  const state = makeDraftState({ currentIndex: 1 });
+  // currentIndex: 4 puts team 5 -- nobody's turn but team 5's -- on the
+  // clock. Neither yourTeam (2) nor userTeam (the creator's, 1) is on the
+  // clock, so "my-team" showing 2 can only be "this is your seat", never
+  // "this is who's up" -- a fixture where the two happened to coincide could
+  // pass this test even if the page fell back to rendering whichever team is
+  // on the clock instead of yourTeam.
+  const state = makeDraftState({ currentIndex: 4 });
   // The creator made it and sits in team 1; we are the person who joined.
   state.userTeam = 1;
   state.yourTeam = 2;
   mockDraftApis(page, state);
+  // Belt-and-suspenders: no seats are set on this fixture, so onClockIsBot
+  // (Task 7) is false and nothing should auto-pick regardless of who's on
+  // the clock -- but a mocked auto-pick response is here in case that ever
+  // changes, so a regression spins harmlessly instead of hanging the test.
+  await page.route("**/drafts/*/auto-pick", (r) => r.fulfill({ json: { ok: true } }));
+
   await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();

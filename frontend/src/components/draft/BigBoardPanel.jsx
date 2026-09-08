@@ -110,6 +110,17 @@ export function BigBoardPanel({
   // from it running and finding nothing to say about a player.
   const playersWereEvaluated = advice.ranked.length > 0;
 
+  // Same distinction the page's own status pill draws: "auto-picking" is
+  // only true when the team on the clock is a bot. In a shared draft it is
+  // another person, and saying otherwise here would be the identical lie
+  // this panel's header used to tell everywhere, just in a second place.
+  const seats = draft?.seats ?? [];
+  const shared = seats.filter((s) => s?.kind === "human").length > 1;
+  // Derived from picks + currentIndex rather than trusted off draft.currentTeam
+  // on its own, for the same reason the page itself does this: the two only
+  // ever disagree when something upstream handed this panel a stale copy.
+  const currentTeamOnClock = draft?.picks?.[draft?.currentIndex]?.team ?? draft?.currentTeam ?? null;
+
   return (
       <div data-testid="panel-big-board" className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
         <div className="flex items-center justify-between">
@@ -121,6 +132,8 @@ export function BigBoardPanel({
               ? "Paused"
               : isMyTurn
               ? `You are on the clock (Team ${myTeam})`
+              : shared
+              ? `Waiting on Team ${currentTeamOnClock}`
               : "Auto-picking other teams"}
           </div>
         </div>
