@@ -15,7 +15,7 @@ const {
   kDefBlocked,
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
-const { subOf, ANON, buildSeats, isSeated } = require("./lib/owner");
+const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock } = require("./lib/owner");
 const { withAdpBySource } = require("./lib/adpBySource");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -279,12 +279,6 @@ exports.handler = async (event) => {
     }
 
     // POST /drafts/{draftId}/pick
-    //
-    // DEFERRED, and it must not stay deferred past invitations: this checks
-    // that you hold A seat, not that you hold the seat currently on the
-    // clock. With one human in a draft those are the same thing, and the
-    // ownership check this replaced was equally permissive. The moment a
-    // second person is seated, seat A can submit picks for seat B.
     if (method === "POST" && draftId && path.endsWith("/pick")) {
       if (!sub) return needsAuth();
       const body = event.body ? JSON.parse(event.body) : {};
@@ -295,8 +289,18 @@ exports.handler = async (event) => {
       if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
+
       if ((d.picked || []).includes(playerId)) return json(409, { error: "Player already picked" });
       if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+
+      // isSeated above answers "may you see this draft". This answers "is it
+      // your turn", which with one human is the same question and with two is
+      // not: without it either person can pick on the other's turn.
+      const onClock = teamOnClock(d);
+      const mySeat = seatOf(d, sub);
+      if (!mySeat || mySeat.team !== onClock) {
+        return json(409, { error: "Not your pick" });
+      }
 
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();

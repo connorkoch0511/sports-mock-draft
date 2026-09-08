@@ -1065,3 +1065,66 @@ test("humanSeatCount counts only human seats", () => {
   ])), 2);
   assert.strictEqual(humanSeatCount({}), 0);
 });
+
+// Mirrors what "the owner can pick" stubs by hand: the pick route reads the
+// draft, then the player snapshot, before writing either back.
+function pickAs(draft, sub, playerId) {
+  stubByTable({
+    "drafts-test": { Item: draft },
+    "players-test": {
+      Item: {
+        playerId,
+        id: playerId,
+        name: "Test Back",
+        position: "RB",
+        team: "SF",
+        rank: { standard: 1 },
+        adp: { standard: 1 },
+        tier: { standard: 1 },
+      },
+    },
+  });
+  return handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId }, claims: { sub } })
+  );
+}
+
+test("picking out of turn is refused", async () => {
+  // Two humans; team 1 is on the clock, and bob holds team 2.
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    picks: [{ team: 1 }, { team: 2 }],
+  };
+  const res = await pickAs(draft, "bob", "p1");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /not your pick/i);
+});
+
+test("picking on your own turn is allowed", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    picks: [{ team: 1 }, { team: 2 }],
+  };
+  const res = await pickAs(draft, "alice", "p1");
+  assert.strictEqual(res.statusCode, 200);
+});
+
+// Being in the draft is still what decides whether you can SEE it. Only
+// picking gained a second question.
+test("somebody with no seat still gets 404 rather than 409", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+    picks: [{ team: 1 }],
+  };
+  const res = await pickAs(draft, "stranger", "p1");
+  assert.strictEqual(res.statusCode, 404);
+});
