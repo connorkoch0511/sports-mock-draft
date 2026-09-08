@@ -15,13 +15,26 @@ everyone in it rather than only its creator.
 draft is a live event, everyone present, sixty seconds enforced, and whoever
 wanders off gets auto-picked from their own big board. None of that is here.
 
-That has a consequence this phase must handle rather than ignore, because
-today's clock lives in the browser: `Draft.jsx` runs a `setInterval` on
-`PICK_SECONDS = 60` and auto-picks when it reaches zero. Left alone in a
-multiplayer draft, every browser would run its own timer and fire auto-picks
-at each other. **So a draft with more than one human seat runs with no timer
-at all** until Phase 2 gives the server the authority. A solo draft is
-unchanged.
+That has two consequences this phase must handle rather than ignore, because
+the browser currently drives the whole draft forward.
+
+**The timer.** `Draft.jsx` runs a `setInterval` on `PICK_SECONDS = 60` and
+auto-picks when it reaches zero. Left alone, every browser in a shared draft
+would run its own timer and fire auto-picks at each other. **So a draft with
+more than one human seat runs with no timer at all** until Phase 2 gives the
+server the authority.
+
+**The bot loop, which is the more dangerous of the two.** A second effect
+auto-picks whenever the team on the clock is *not yours* — that is how bot
+teams take their turns today, and with one human it is exactly right. With two
+humans it is catastrophic: your browser would pick for the other person the
+moment their turn arrived, and theirs would do the same to you. The rule must
+become **auto-pick only when the seat on the clock is a `bot` seat**, not
+merely when it is not yours. This is not a deferral like the timer; it is a
+correctness fix that this phase must make.
+
+A solo draft is unchanged by either: its bot seats still advance immediately
+and its timer still runs.
 
 ## Decisions already made
 
@@ -210,6 +223,11 @@ phase, since a multi-human draft runs no timer at all.
   changes nothing.
 - **The anti-oracle rule:** a wrong invite token returns exactly what a
   non-existent draft returns, byte for byte.
+- **The browser never picks for another human:** with two human seats, the
+  seat on the clock belonging to the *other* person produces no auto-pick
+  request however long the test runs — while a bot seat in the same draft
+  still advances immediately. This is the test that separates "not my team"
+  from "is a bot", and it fails against today's code.
 - **No timer in a shared draft:** with two human seats, no countdown renders
   and no auto-pick request is sent — asserted by counting requests over a
   period longer than `PICK_SECONDS`, with the clock faked rather than waited
