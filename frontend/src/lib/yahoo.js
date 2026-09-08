@@ -34,8 +34,19 @@ export function takeStoredState() {
   }
 }
 
+// Deliberately no home-made fallback. crypto.randomUUID needs a secure
+// context, and where it is missing the honest answer is to refuse: a state
+// anyone can predict is not a CSRF guard, it only looks like one. Refusing
+// also matches what this module does when storage is unavailable.
+function newState() {
+  if (typeof crypto === "undefined" || typeof crypto.randomUUID !== "function") {
+    throw new Error("Could not start Yahoo sign-in: this browser cannot generate a secure value.");
+  }
+  return crypto.randomUUID();
+}
+
 export function beginYahooAuth(clientId, redirectUri) {
-  const state = crypto.randomUUID();
+  const state = newState();
   if (!store(state)) {
     // Refusing is the point. Sending someone to Yahoo with a state we cannot
     // check later means the callback has nothing to compare against, which is

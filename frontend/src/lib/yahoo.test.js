@@ -63,3 +63,28 @@ test("a storage that throws refuses to start the flow", () => {
   assert.throws(() => beginYahooAuth("c", "https://example.test/cb"), /could not start/i);
   assert.strictEqual(takeStoredState(), null);
 });
+
+// crypto.randomUUID needs a secure context and is not ancient. Where it is
+// missing this must refuse in the module's own words, the way a blocked
+// sessionStorage does -- and must never fall back to something predictable,
+// because a guessable state is not a guard at all.
+test("a platform without crypto.randomUUID refuses to start the flow", () => {
+  globalThis.sessionStorage = fakeSessionStorage();
+  // globalThis.crypto is getter-only in Node, so it cannot simply be assigned.
+  const original = Object.getOwnPropertyDescriptor(globalThis, "crypto");
+  const swap = (value) =>
+    Object.defineProperty(globalThis, "crypto", { value, configurable: true, writable: true });
+
+  try {
+    swap({});
+    assert.throws(() => beginYahooAuth("c", "https://example.test/cb"), /could not start/i);
+
+    swap(undefined);
+    assert.throws(() => beginYahooAuth("c", "https://example.test/cb"), /could not start/i);
+
+    // Nothing was stored, so no half-built flow is left behind.
+    assert.strictEqual(globalThis.sessionStorage.getItem(YAHOO_STATE_KEY), null);
+  } finally {
+    if (original) Object.defineProperty(globalThis, "crypto", original);
+  }
+});

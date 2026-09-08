@@ -235,6 +235,14 @@ git commit -m "feat: the Yahoo authorise url, and its CSRF guard"
 - Consumes: `takeStoredState`, `YAHOO_STATE_KEY` from `frontend/src/lib/yahoo.js` (Task 1); `apiPost` from `frontend/src/lib/api.js`.
 - Produces: the route `/yahoo/callback`, which on success navigates to `/draft/new` with `state: { yahooLeagues }` — an array of draft configs that Task 4's panel renders.
 
+**A trap this codebase has hit before.** React StrictMode double-invokes
+effects in development, and `takeStoredState()` is a ONE-TIME read: the first
+invocation consumes the state and the second finds nothing, so a perfectly
+valid callback gets rejected. Guard the read with a `useRef` so it happens
+once per mount. This project has met the same class of bug before, in
+`AuthProvider`, where StrictMode masked a real ordering fault rather than
+causing one — worth reading that file's comment.
+
 **Background the implementer needs.** `frontend/src/pages/AuthCallback.jsx` is the existing Cognito callback and the pattern to follow — read it first, including its comment about why a failure must be visible ("a blank screen after clicking Sign in is indistinguishable from the app being broken"). The same reasoning applies here.
 
 Declining at Yahoo is **not** an error: Yahoo returns with `error=access_denied` and the person simply goes back to New Draft with nothing shown. Only genuine failures show a message.
@@ -259,16 +267,23 @@ async function seedState(page, value) {
   );
 }
 
-test("a callback whose state matches imports the leagues", async ({ page }) => {
-  await page.route(`${API}/yahoo/leagues`, (r) =>
-    r.fulfill({ json: { leagues: [{ leagueName: "Dynasty", teams: 12, rounds: 15, format: "ppr", rosterSlots: [], userTeam: 3 }] } })
-  );
+// What this route owns: verifying the state, sending the code, and handing the
+// result on. RENDERING the leagues belongs to the New Draft panel, so this
+// asserts the code reached our API and the person arrived where the panel
+// lives -- not what that panel shows.
+test("a callback whose state matches sends the code and returns to New Draft", async ({ page }) => {
+  let sentCode = null;
+  await page.route(`${API}/yahoo/leagues`, (r) => {
+    sentCode = r.request().postDataJSON().code;
+    return r.fulfill({ json: { leagues: [{ leagueName: "Dynasty", teams: 12, rounds: 15, format: "ppr", rosterSlots: [], userTeam: 3 }] } });
+  });
   await seedState(page, "the-state");
   await signIn(page);
   await page.goto("/yahoo/callback?code=abc&state=the-state");
 
   await expect(page).toHaveURL(/\/draft\/new$/);
-  await expect(page.getByTestId("yahoo-leagues")).toContainText("Dynasty");
+  await expect.poll(() => sentCode).toBe("abc");
+  await expect(page.getByTestId("yahoo-error")).toHaveCount(0);
 });
 
 // The whole point of the guard: a crafted callback must not reach our API.

@@ -11,16 +11,23 @@ async function seedState(page, value) {
   );
 }
 
-test("a callback whose state matches imports the leagues", async ({ page }) => {
-  await page.route(`${API}/yahoo/leagues`, (r) =>
-    r.fulfill({ json: { leagues: [{ leagueName: "Dynasty", teams: 12, rounds: 15, format: "ppr", rosterSlots: [], userTeam: 3 }] } })
-  );
+// What this route owns: verifying the state, sending the code, and handing the
+// result on. RENDERING the leagues belongs to the New Draft panel, so this
+// asserts the code reached our API and the person arrived where the panel
+// lives -- not what that panel shows.
+test("a callback whose state matches sends the code and returns to New Draft", async ({ page }) => {
+  let sentCode = null;
+  await page.route(`${API}/yahoo/leagues`, (r) => {
+    sentCode = r.request().postDataJSON().code;
+    return r.fulfill({ json: { leagues: [{ leagueName: "Dynasty", teams: 12, rounds: 15, format: "ppr", rosterSlots: [], userTeam: 3 }] } });
+  });
   await seedState(page, "the-state");
   await signIn(page);
   await page.goto("/yahoo/callback?code=abc&state=the-state");
 
   await expect(page).toHaveURL(/\/draft\/new$/);
-  await expect(page.getByTestId("yahoo-leagues")).toContainText("Dynasty");
+  await expect.poll(() => sentCode).toBe("abc");
+  await expect(page.getByTestId("yahoo-error")).toHaveCount(0);
 });
 
 // The whole point of the guard: a crafted callback must not reach our API.
