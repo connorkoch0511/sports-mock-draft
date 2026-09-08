@@ -84,6 +84,11 @@ UpdateExpression:      SET seats[2].#sub = :me, seats[2].kind = :human
 ConditionExpression:   seats[2].kind = :bot
 ```
 
+The `2` is the **array index**, not the team number. `seats[i].team === i + 1`
+as built today, and the update path has to address the index — so seat for
+team 3 is `seats[2]`. Getting this off by one hands somebody the wrong team,
+silently, which is exactly the class of bug this phase exists to prevent.
+
 A `ConditionalCheckFailedException` means somebody else took it; the handler
 retries with the next bot seat, and returns "this draft is full" when there
 are none. Losing that race costs a retry, not a seat.
@@ -118,6 +123,19 @@ show what actually happened rather than guessing. This is the fix for the
 silent-loss defect above, and it is the reason the turn check alone is not
 enough: two browsers can agree it is the same person's turn and still race if
 that person double-clicks.
+
+### Which team is mine
+
+`userTeam` on the draft item is the **creator's** team, set at creation. The
+draft page reads it today to decide which team is yours, which is correct
+while the creator is the only human and wrong for everybody else the moment
+somebody joins — a joiner would see the creator's roster highlighted as their
+own, and the clock pointing at the wrong seat.
+
+So `GET /drafts/{draftId}` returns **`yourTeam`**, derived per request from
+`seats` by matching the caller's `sub`, and `null` for nobody seated. The
+frontend uses `yourTeam` and stops reading `userTeam`. The stored field keeps
+its meaning — who created it and where they sit — and is left alone.
 
 ### Seeing each other's picks
 
@@ -192,8 +210,13 @@ phase, since a multi-human draft runs no timer at all.
   changes nothing.
 - **The anti-oracle rule:** a wrong invite token returns exactly what a
   non-existent draft returns, byte for byte.
-- **No timer in a shared draft:** a draft with two human seats runs no
-  countdown and fires no auto-pick, however long the test waits.
+- **No timer in a shared draft:** with two human seats, no countdown renders
+  and no auto-pick request is sent — asserted by counting requests over a
+  period longer than `PICK_SECONDS`, with the clock faked rather than waited
+  out, so the test is not a 60-second test.
+- **`yourTeam` is per person:** the same draft read by the creator and by a
+  joiner returns different `yourTeam` values, each matching that person's
+  seat.
 - **Membership listing:** a draft you joined appears in your list; one you
   were never seated in does not; and a membership row without a seat produces
   a list entry that 404s rather than opening.
