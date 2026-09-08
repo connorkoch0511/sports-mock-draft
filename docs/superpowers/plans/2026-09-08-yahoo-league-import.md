@@ -829,7 +829,15 @@ git commit -m "feat: an Import from Yahoo panel beside Sleeper's"
 
 ### Task 5: Capture the real shapes, and extend this plan
 
-**BLOCKED until the Yahoo app exists.** See *Prerequisite* above.
+**BLOCKED until Yahoo grants Fantasy Sports API access.** The app itself now
+exists, and the OAuth flow was proven end to end against the live service — a
+real token was issued. The fantasy endpoint refuses it with
+`401 additional_authorization_required`, because that permission is no longer
+offered on the app create form and is granted only by application. Applied 8
+September 2026. See *What we learned by trying* in the spec.
+
+Do not attempt this task, or write the tasks after it, until approval lands.
+There is nothing to capture without it.
 
 **Files:**
 - Create: `backend/src/__fixtures__/yahoo-leagues.json`

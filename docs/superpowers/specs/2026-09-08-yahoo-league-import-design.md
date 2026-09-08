@@ -1,6 +1,8 @@
 # Yahoo league import — design
 
-**Status:** approved 8 September 2026. Implementation not started.
+**Status:** approved 8 September 2026. Tasks 1-4 built, reviewed and green.
+**BLOCKED on Yahoo granting Fantasy Sports API access** — applied 8 September
+2026. See *What we learned by trying* below before doing anything else here.
 
 ## Goal
 
@@ -36,6 +38,51 @@ and it was chosen with the alternatives in front of us.
 - **Rosters, keepers, or a finished draft's results.** This imports league
   *settings* only, exactly as the Sleeper import does.
 - **Any change to the Sleeper import**, beyond the copy fix noted below.
+
+## What we learned by trying — 8 September 2026
+
+The spec below was written without being able to verify anything, because
+Yahoo's league endpoints need credentials. We then got credentials and tried
+it. Recording what actually happened, since it is the most valuable thing on
+this page:
+
+**1. Yahoo no longer offers a Fantasy Sports permission when you create an
+app.** The create form at `developer.yahoo.com/apps/create/` lists exactly two
+API permissions: *OpenID Connect Permissions* (email, profile) and *TW
+Auction*. There is nothing fantasy-related to tick.
+
+**2. The OAuth flow itself works perfectly.** A real app was registered as a
+confidential client, and a full authorise → callback → token exchange
+returned HTTP 200 with `access_token`, `id_token`, `refresh_token` and
+`expires_in`. So everything Tasks 1-4 build is correct and proven end to end
+against the live service — the browser half, the state guard, and the code
+exchange all do exactly what they should.
+
+**3. The fantasy API refuses that token**, which is the thing that blocks this:
+
+```
+GET https://fantasysports.yahooapis.com/fantasy/v2/users;use_login=1/games;game_keys=nfl/leagues?format=json
+401  {"error":{"description":"Please provide valid credentials.
+     OAuth oauth_problem=\"additional_authorization_required\",
+     realm=\"yahooapis.com\""}}
+```
+
+`additional_authorization_required` means the app is not authorised for the
+fantasy realm. The token is fine; the app lacks the entitlement.
+
+**4. Access is granted by application**, at `sports.yahoo.com/developer/access/`.
+The form asks for the product, the data required and the intended user base,
+and explicitly accommodates *"personal or single league use"*. Access is
+read-only by default. Yahoo reviews each application, and warns that
+insufficiently detailed submissions are closed without correspondence.
+Applied 8 September 2026; awaiting a decision.
+
+**Not a precedent, though it looks like one:** the EdgeStat project reads
+`site.api.espn.com/apis/site/v2/sports/…/scoreboard` and `/summary` with no
+authentication at all. That is ESPN's *public* scoreboard and game-summary
+data — scores, schedules, events. It is a different class of thing from a
+person's private fantasy league, which is why it needs no credentials and this
+does. The same distinction will apply when ESPN is considered.
 
 ## Prerequisite, and only Connor can do it
 
