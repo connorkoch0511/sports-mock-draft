@@ -314,7 +314,33 @@ test("a pick that lost the race is refused, not silently dropped", async () => {
 });
 ```
 
-`pickAsWithConditionFailure` stubs the `UpdateCommand` send to reject with an error whose `name` is `"ConditionalCheckFailedException"`, the way the AWS SDK reports it.
+`pickAsWithConditionFailure` stubs the send so it rejects **the way DynamoDB
+actually would** — only when the command carries a `ConditionExpression` and
+its `:expected` does not match a simulated server-side `currentIndex`:
+
+```js
+// Rejecting every UpdateCommand unconditionally would make this a test that
+// cannot fail: with the ConditionExpression deleted from advance.js the stub
+// would still reject, the handler would still answer 409, and the guard's own
+// test would stay green with the guard gone. The stub has to model the
+// condition, not the outcome.
+function stubConditionalWrite({ serverIndex }) {
+  return async (cmd) => {
+    const expr = cmd?.input?.ConditionExpression;
+    const expected = cmd?.input?.ExpressionAttributeValues?.[":expected"];
+    if (expr && expected !== serverIndex) {
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
+    }
+    return {};
+  };
+}
+```
+
+The `GetCommand` that `advanceDraft` issues after a failed condition must
+still return the draft, so stub by command type rather than rejecting
+everything.
 
 - [ ] **Step 2: Run and watch it fail**
 
