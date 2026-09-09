@@ -150,6 +150,50 @@ function pickBestForTeam(draft, teamNum, players) {
   return best;
 }
 
+// Shared by /auto-pick ("draft for me, on purpose") and /expire ("the clock
+// ran out"). The two differ only in what they check before calling this --
+// authorization in one, the deadline in the other -- and keeping the picking
+// itself in one place is what stops those two paths drifting into picking
+// differently.
+async function autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json }) {
+  const sport = (d.sport || "nfl").toLowerCase();
+  const format = (d.format || "standard").toLowerCase();
+  const { players, byId } = await loadPlayersForSport(playersTable, sport, format);
+
+  const teamNum = d.picks[d.currentIndex]?.team;
+  d.__counts = getRosterCounts(d, teamNum, byId);
+
+  const best = pickBestForTeam(d, teamNum, players);
+  if (!best) return json(409, { error: "No players left" });
+
+  d.picks[d.currentIndex].playerId = best.id;
+  d.picks[d.currentIndex].player = {
+    id: best.id,
+    name: best.name,
+    position: best.position,
+    team: best.team,
+    rank: best.rank,
+    adp: best.adp,
+    ...withAdpBySource(best.adpBySource),
+    tier: best.tier,
+  };
+
+  const expectedIndex = d.currentIndex;
+  d.picked = [best.id, ...(d.picked || [])];
+  d.currentIndex = d.currentIndex + 1;
+
+  try {
+    await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
+  } catch (e) {
+    if (e?.name === "RaceLost") {
+      return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
+    }
+    throw e;
+  }
+
+  return json(200, { ok: true, picked: best });
+}
+
 function buildSnakeOrder(teams, rounds) {
   const picks = [];
   let overall = 1;
@@ -494,44 +538,46 @@ exports.handler = async (event) => {
         return json(409, { error: "Not your pick" });
       }
 
-      const sport = (d.sport || "nfl").toLowerCase();
-      const format = (d.format || "standard").toLowerCase();
-      const { players, byId } = await loadPlayersForSport(playersTable, sport, format);
+      return await autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json });
+    }
 
-      const teamNum = d.picks[d.currentIndex]?.team;
-      d.__counts = getRosterCounts(d, teamNum, byId);
+    // POST /drafts/{draftId}/expire
+    //
+    // The clock, enforced. A browser calling this is making a request, not
+    // asserting a fact: the deadline is compared against the SERVER's clock,
+    // so no browser can shorten anyone's turn by lying about the time.
+    //
+    // Deliberately takes no argument naming who to pick for, and does not
+    // care that a human asked -- an EventBridge schedule calling this on a
+    // timer with no browser open is the same call.
+    if (method === "POST" && draftId && path.endsWith("/expire")) {
+      if (!sub) return needsAuth();
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+      if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
-      const best = pickBestForTeam(d, teamNum, players);
-      if (!best) return json(409, { error: "No players left" });
+      const d = res.Item;
+      // Before the two checks below, for the reason Phase 1 learned the hard
+      // way: a guard ordered ahead of the completed check makes a finished
+      // draft report the wrong thing about itself.
+      if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
 
-      d.picks[d.currentIndex].playerId = best.id;
-      d.picks[d.currentIndex].player = {
-        id: best.id,
-        name: best.name,
-        position: best.position,
-        team: best.team,
-        rank: best.rank,
-        adp: best.adp,
-        ...withAdpBySource(best.adpBySource),
-        tier: best.tier,
-      };
-
-      // Captured before the mutation below moves it.
-      const expectedIndex = d.currentIndex;
-
-      d.picked = [best.id, ...(d.picked || [])];
-      d.currentIndex = d.currentIndex + 1;
-
-      try {
-        await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
-      } catch (e) {
-        if (e?.name === "RaceLost") {
-          return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
-        }
-        throw e;
+      if (d.pausedAt) {
+        return json(409, { error: "Draft is paused", currentIndex: d.currentIndex, version: d.version ?? 1 });
       }
 
-      return json(200, { ok: true, picked: best });
+      // Strictly greater: a deadline exactly reached has not passed yet.
+      if (!(d.pickDeadline != null && Date.now() > d.pickDeadline)) {
+        return json(409, {
+          error: "Clock has not expired",
+          currentIndex: d.currentIndex,
+          version: d.version ?? 1,
+        });
+      }
+
+      // Exactly one pick, no matter how far past the deadline we are. Forty
+      // minutes late and forty seconds late do the identical thing: the draft
+      // paused because nobody was watching, and nobody was skipped.
+      return await autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json });
     }
 
     // POST /drafts/{draftId}/sim-to-end

@@ -311,6 +311,14 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuth
+        ExpireDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/expire
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         SimToEnd:
           Type: HttpApi
           Properties:

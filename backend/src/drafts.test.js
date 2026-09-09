@@ -1415,6 +1415,81 @@ test("auto-pick when a bot is on the clock is allowed for any seated human", asy
   assert.strictEqual(res.statusCode, 200);
 });
 
+// POST /drafts/{draftId}/expire -- the server enforces its own clock. A
+// browser calling this is making a request, not asserting a fact: only the
+// server's Date.now() against the stored pickDeadline decides anything.
+const EXPIRED = Date.now() - 1000;
+const FUTURE = Date.now() + 60000;
+
+function clockDraft(deadline, extra = {}) {
+  return { ...ownedDraft(ME.sub), pickDeadline: deadline, ...extra };
+}
+
+test("expire refuses while the clock still has time", async () => {
+  stubSend({ Item: clockDraft(FUTURE) });
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /not expired/i);
+});
+
+test("expire makes exactly one pick once the deadline has passed", async () => {
+  const d = clockDraft(EXPIRED);
+  let updates = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const t = cmd?.input?.TableName;
+    if (t === "drafts-test" && cmd.input.UpdateExpression) { updates += 1; return {}; }
+    if (t === "drafts-test") return { Item: d };
+    return { Items: [
+      { sport: "nfl", id: "p1", name: "A", position: "RB", team: "SF", rank: 1 },
+      { sport: "nfl", id: "p2", name: "B", position: "WR", team: "KC", rank: 2 },
+    ] };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(updates, 1, "one expired deadline is one pick, never a catch-up loop");
+});
+
+test("expire refuses on a paused draft however long it has sat", async () => {
+  stubSend({ Item: clockDraft(Date.now() - 3600000, { pausedAt: Date.now() - 3600000 }) });
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /paused/i);
+});
+
+test("expire says a completed draft is completed, not that the clock is unexpired", async () => {
+  const d = clockDraft(EXPIRED);
+  d.currentIndex = d.picks.length;
+  stubSend({ Item: d });
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /completed/i);
+});
+
+test("an unseated caller cannot expire anyone's clock", async () => {
+  stubSend({ Item: clockDraft(EXPIRED) });
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: THEM }));
+  assert.equal(res.statusCode, 404, "404, never 403 -- see Global Constraints");
+});
+
+test("two browsers shouting 'time is up' produce one pick", async () => {
+  const d = clockDraft(EXPIRED);
+  let firstWrite = true;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const t = cmd?.input?.TableName;
+    if (t === "drafts-test" && cmd.input.UpdateExpression) {
+      if (firstWrite) { firstWrite = false; return {}; }
+      const e = new Error("conditional"); e.name = "ConditionalCheckFailedException"; throw e;
+    }
+    if (t === "drafts-test") return { Item: { ...d, currentIndex: 1, version: 2 } };
+    return { Items: [{ sport: "nfl", id: "p1", name: "A", position: "RB", team: "SF", rank: 1 }] };
+  });
+  const one = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  const two = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(one.statusCode, 200);
+  assert.equal(two.statusCode, 409);
+  assert.equal(JSON.parse(two.body).currentIndex, 1, "the loser is told where the draft actually is");
+});
+
 // Drives /join to its success path: one GetCommand to read the draft, then
 // (usually) one UpdateCommand to claim a bot seat.
 function joinAs(draft, sub, token) {
