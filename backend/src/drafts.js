@@ -19,6 +19,7 @@ const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount }
 const { addMember } = require("./lib/members");
 const { withAdpBySource } = require("./lib/adpBySource");
 const { advanceDraft, PICK_MS } = require("./lib/advance");
+const { consensusRank, loadBoardRank } = require("./lib/boardRank");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -104,7 +105,7 @@ function getRosterCounts(draft, teamNum, playerById) {
   return counts;
 }
 
-function pickBestForTeam(draft, teamNum, players) {
+function pickBestForTeam(draft, teamNum, players, rankOf = consensusRank) {
   const pickedSet = new Set(draft.picked || []);
   const counts = draft.__counts || { QB: 0, RB: 0, WR: 0, TE: 0, K: 0, DEF: 0 };
   const roster = parseRosterSlots(
@@ -122,8 +123,9 @@ function pickBestForTeam(draft, teamNum, players) {
     if (!p?.id) continue;
     if (pickedSet.has(p.id)) continue;
 
-    // Rank dominates (lower rank = better)
-    const base = p.rank != null ? (100000 - Number(p.rank)) : 0;
+    // Rank dominates (lower rank = better). Which ranking is the caller's
+    // choice: consensus by default, the seat's own board when it has one.
+    const base = 100000 - rankOf(p);
 
     // Roster need: starters first, then FLEX, then nothing — bench is
     // best-available. Clamped to 1 so "needed at all" is what scores, not
@@ -770,3 +772,6 @@ exports.handler = async (event) => {
     return json(500, { error: e.message || "Server error" });
   }
 };
+
+// Exported for tests only -- not part of the HTTP surface.
+module.exports.pickBestForTeam = pickBestForTeam;

@@ -1975,3 +1975,16 @@ test("a membership write that throws still reports a successful join", async () 
   assert.strictEqual(res.statusCode, 200);
   assert.strictEqual(JSON.parse(res.body).team, 2);
 });
+
+test("pickBestForTeam takes its ranking from the rankOf it is given", async () => {
+  const { pickBestForTeam } = require("./drafts");
+  const players = [
+    { id: "p1", name: "Consensus One", position: "RB", rank: 1 },
+    { id: "p2", name: "My Guy", position: "RB", rank: 200 },
+  ];
+  const draft = { picked: [], picks: [{ team: 1 }], currentIndex: 0, rosterSlots: ["RB"] };
+  const dflt = pickBestForTeam(draft, 1, players);
+  assert.equal(dflt.id, "p1", "default is still consensus rank");
+  const mine = pickBestForTeam(draft, 1, players, (p) => (p.id === "p2" ? 0 : 500));
+  assert.equal(mine.id, "p2", "my board decides who");
+});
