@@ -66,9 +66,11 @@ as part of the same conditional write** that moves `currentIndex` — the two
 can then never disagree, and a lost race cannot leave a deadline belonging to
 a pick that has already been made.
 
-`GET /drafts/{draftId}` gains `pickDeadline`, `pausedAt`, `pausedBy`, and
-**`now`** (the server's current epoch ms), alongside the `seats`, `yourTeam`
-and `version` Phase 1 added.
+`GET /drafts/{draftId}` gains `pickDeadline`, `pausedAt`, `pausedBy`,
+**`now`** (the server's current epoch ms), and **`yourBoardId`** (the caller's
+own seat's board), alongside the `seats`, `yourTeam` and `version` Phase 1
+added. The per-seat `boardId` is not exposed for other people's seats, for the
+same least-data reason `sub` is not.
 
 ## Clock semantics
 
@@ -99,6 +101,14 @@ which is the path Phase 1 already built and tested.
 `/expire` takes no argument naming who to pick for, and does not care that a
 human asked. A scheduler calling it on a timer with no browser open is the
 same call.
+
+### `POST /drafts/{draftId}/seat-board`
+
+Body `{ boardId: string | null }`. Sets `seats[i].boardId` for the caller's
+own seat, conditional on `seats[i].sub` still being the caller, so it can
+never write to someone else's seat. A non-null `boardId` is verified to be a
+board the caller owns before it is stored — a seat must not be pointed at
+rankings its holder does not own. Unseated caller → 404.
 
 ### `POST /drafts/{draftId}/pause`
 
@@ -166,9 +176,21 @@ seat cannot be pointed at someone else's rankings.
 - Pause becomes a button posting to `/pause`; paused state and `pausedBy` are
   read from the draft, replacing the local `paused` state.
 
-`frontend/src/pages/JoinDraft.jsx`: a board picker listing the joiner's own
-boards, defaulting to "No board — use consensus rankings", so joining stays
-one click for anyone who does not care.
+**The board picker lives on the draft page, not the join screen.**
+`JoinDraft.jsx` is untouched: it claims the seat the instant the link opens,
+with no UI, and putting a chooser in front of that would leave the seat
+unclaimed while the person deliberates — which is exactly when a friend
+clicking the same link takes the last one. Instead the draft page carries a
+small "Auto-pick from: [board ▾]" control for your own seat, listing your
+boards from the existing `fetchMyBoards()` (`GET /me/boards`, items shaped
+`{ id, name, format, season, updatedAt }`) plus "Consensus rankings".
+
+That placement is better on its own terms, not just safer: the choice can be
+changed mid-draft, and the draft's creator gets the same control instead of
+being frozen to whatever board they picked at creation.
+
+A joiner who never touches it falls through the chain to `draft.boardId`,
+which is the behaviour the fallback already specifies.
 
 ## Testing
 
@@ -182,6 +204,8 @@ Backend:
 - A seat's board drives that seat's pick; roster logic still applies.
 - A deleted board falls back to consensus without erroring.
 - An unseated caller gets 404, not 403.
+- `/seat-board` writes only the caller's own seat, refuses a board the caller
+  does not own, and accepts null to mean consensus.
 - A completed draft says it is completed, not that the clock has not expired.
 - A creation sets `pickDeadline`, and an ordinary `/pick` re-arms it.
 
@@ -191,6 +215,8 @@ Frontend:
 - Skew correction is applied.
 - `/expire` fires at zero.
 - A paused draft shows no countdown.
+- The board picker lists the user's boards, shows the seat's current choice,
+  and persists a change.
 
 Playwright: two browsers in one shared draft; one lets the clock run out; both
 end up seeing the same board.
