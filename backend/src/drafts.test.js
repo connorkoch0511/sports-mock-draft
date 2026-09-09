@@ -272,6 +272,23 @@ test("POST /drafts stores the caller's sub as ownerId", async () => {
   assert.strictEqual(put.Item.ownerId, "user-me");
 });
 
+test("creating a draft puts pick 1 on the clock", async () => {
+  let written = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    // A second PutCommand writes the membership row after the draft's own,
+    // and it also carries a `draftId` attribute -- only the draft's item
+    // carries `seats`, so that's what disambiguates it (same trick as
+    // "POST /drafts stores the caller's sub as ownerId" above).
+    if (cmd?.input?.Item?.seats) written = cmd.input.Item;
+    return {};
+  });
+  const before = Date.now();
+  const res = await handler(evt("POST", "/drafts", { body: { teams: 2, rounds: 2 }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.ok(written.pickDeadline >= before + 60000, "deadline is at least 60s out");
+  assert.ok(written.pickDeadline <= Date.now() + 60000, "and no further");
+});
+
 for (const [name, path] of [
   ["pick", "/drafts/d1/pick"],
   ["auto-pick", "/drafts/d1/auto-pick"],
@@ -350,6 +367,25 @@ test("the owner can pick", async () => {
     })
   );
   assert.strictEqual(res.statusCode, 200);
+});
+
+test("a pick re-arms the clock in the same conditional write", async () => {
+  const d = ownedDraft(ME.sub);
+  let update = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const t = cmd?.input?.TableName;
+    if (t === "drafts-test" && cmd.input.UpdateExpression) { update = cmd.input; return {}; }
+    if (t === "drafts-test") return { Item: d };
+    // /pick looks up the player with a GetCommand (getPlayerSnapshot), not a
+    // Query -- unlike auto-pick/sim-to-end, which page through the whole
+    // pool. That command reads `.Item`, singular.
+    return { Item: { sport: "nfl", id: "p1", name: "A", position: "RB", team: "SF", rank: 1 } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.match(update.UpdateExpression, /pickDeadline = :d/);
+  assert.match(update.ConditionExpression, /currentIndex = :expected/);
+  assert.ok(update.ExpressionAttributeValues[":d"] > Date.now(), "deadline is in the future");
 });
 
 // The defect this task exists for: two picks from the same currentIndex.
@@ -618,6 +654,11 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
   assert.ok(res.headers["Access-Control-Allow-Origin"]);
   assert.strictEqual(res.headers["Vary"], "Accept-Encoding");
   const body = JSON.parse(res.body);
+  // `now` is the server's wall clock, not a stored value -- checked
+  // separately, then stripped so the rest of the shape can still be
+  // compared field-for-field below.
+  assert.ok(Math.abs(body.now - Date.now()) < 5000, "now is the server's clock");
+  delete body.now;
   // Full top-level key set, so a field silently added or dropped in the
   // refactor fails this test.
   assert.deepStrictEqual(body, {
@@ -642,6 +683,12 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     picked: ["p1"],
     currentIndex: 1,
     version: 7,
+    // Draft predates the clock: absent on the stored item, reported as null
+    // rather than undefined so the page can tell "no deadline" from "not
+    // sent".
+    pickDeadline: null,
+    pausedAt: null,
+    pausedBy: null,
     currentRound: 1,
     currentPick: 2,
     currentTeam: 2,
@@ -680,6 +727,17 @@ test("GET /drafts/{id} carries version, so a poller can tell a write happened", 
     seats: [{ team: 1, sub: "alice", kind: "human" }],
   };
   assert.strictEqual(JSON.parse((await getDraftAs(draft, "alice")).body).version, 3);
+});
+
+test("GET returns the clock fields the page needs", async () => {
+  const d = { ...ownedDraft(ME.sub), pickDeadline: 1750000000000, pausedAt: 1749999000000, pausedBy: ME.sub };
+  stubSend({ Item: d });
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  const body = JSON.parse(res.body);
+  assert.equal(body.pickDeadline, 1750000000000);
+  assert.equal(body.pausedAt, 1749999000000);
+  assert.equal(body.pausedBy, ME.sub);
+  assert.ok(Math.abs(body.now - Date.now()) < 5000, "now is the server's clock");
 });
 
 test("pick success returns { ok: true }", async () => {

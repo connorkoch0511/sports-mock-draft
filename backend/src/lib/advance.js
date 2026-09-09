@@ -10,6 +10,11 @@
 
 const { UpdateCommand, GetCommand } = require("@aws-sdk/lib-dynamodb");
 
+// The one definition of how long a pick may take. The browser renders a
+// countdown but decides nothing; this is the number the server enforces.
+const PICK_SECONDS = 60;
+const PICK_MS = PICK_SECONDS * 1000;
+
 class RaceLost extends Error {
   constructor(currentIndex, version) {
     super("Somebody just picked");
@@ -19,28 +24,34 @@ class RaceLost extends Error {
   }
 }
 
-async function advanceDraft({ ddb, table, draftId, draft, expectedIndex }) {
+async function advanceDraft({ ddb, table, draftId, draft, expectedIndex, now = Date.now() }) {
+  // Written here rather than by the callers, and inside the SAME conditional
+  // write that moves currentIndex, so the two can never disagree. A separate
+  // update would leave a window in which the deadline belongs to a pick that
+  // has already been made -- and the loser of a race would arm a clock for
+  // somebody else's turn.
+  const deadline = now + PICK_MS;
   try {
     await ddb.send(
       new UpdateCommand({
         TableName: table,
         Key: { draftId },
         UpdateExpression:
-          "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
+          "SET picks = :p, picked = :k, currentIndex = :i, pickDeadline = :d, version = if_not_exists(version, :z) + :one",
         ConditionExpression: "currentIndex = :expected",
         ExpressionAttributeValues: {
           ":p": draft.picks, ":k": draft.picked, ":i": draft.currentIndex,
+          ":d": deadline,
           ":z": 0, ":one": 1, ":expected": expectedIndex,
         },
       })
     );
   } catch (e) {
     if (e?.name !== "ConditionalCheckFailedException") throw e;
-    // Read back so the caller can tell the browser where the draft actually
-    // is, rather than leaving it to guess and poll.
-    const now = await ddb.send(new GetCommand({ TableName: table, Key: { draftId } }));
-    throw new RaceLost(now.Item?.currentIndex ?? null, now.Item?.version ?? null);
+    const now2 = await ddb.send(new GetCommand({ TableName: table, Key: { draftId } }));
+    throw new RaceLost(now2.Item?.currentIndex ?? null, now2.Item?.version ?? null);
   }
+  return deadline;
 }
 
-module.exports = { advanceDraft, RaceLost };
+module.exports = { advanceDraft, RaceLost, PICK_SECONDS, PICK_MS };

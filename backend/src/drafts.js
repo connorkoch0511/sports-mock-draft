@@ -18,7 +18,7 @@ const { responder } = require("./lib/http");
 const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
 const { addMember } = require("./lib/members");
 const { withAdpBySource } = require("./lib/adpBySource");
-const { advanceDraft } = require("./lib/advance");
+const { advanceDraft, PICK_MS } = require("./lib/advance");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -235,6 +235,9 @@ exports.handler = async (event) => {
         picked: [],
         currentIndex: 0,
         createdAt: Date.now(),
+        // Pick 1 is on the clock from the moment the page opens. Every later
+        // deadline is written by advanceDraft, inside the conditional write.
+        pickDeadline: Date.now() + PICK_MS,
         version: 1,
         // Whoever holds this can take a seat. Returned only to people already
         // seated, so it travels the way the person sharing it chooses.
@@ -294,6 +297,13 @@ exports.handler = async (event) => {
         // everyone sees everyone's picks, and re-renders only when this
         // number has moved rather than on every poll response.
         version: d.version ?? 1,
+        pickDeadline: d.pickDeadline ?? null,
+        pausedAt: d.pausedAt ?? null,
+        pausedBy: d.pausedBy ?? null,
+        // The page corrects for clock skew against this. Without it a laptop
+        // running two minutes fast sees every timer already expired and
+        // hammers /expire.
+        now: Date.now(),
         currentIndex: d.currentIndex,
         currentRound: current?.round || d.rounds,
         currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
