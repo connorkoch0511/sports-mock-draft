@@ -178,6 +178,7 @@ async function autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json 
     tier: best.tier,
   };
 
+  // Captured before the mutation below moves it.
   const expectedIndex = d.currentIndex;
   d.picked = [best.id, ...(d.picked || [])];
   d.currentIndex = d.currentIndex + 1;
