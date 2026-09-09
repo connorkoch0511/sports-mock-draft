@@ -54,7 +54,24 @@ exports.handler = async (event) => {
       const draftsTable = process.env.DRAFTS_TABLE;
       // Membership, not ownership: this lists every draft the caller is
       // seated in, including ones somebody else created and they joined.
-      const ids = await listDraftIds(ddb, process.env.DRAFT_MEMBERS_TABLE, sub);
+      //
+      // TRANSITIONAL: unioned below with the surviving byOwner GSI. Membership
+      // rows are written in exactly two places, both new -- draft creation and
+      // joining -- and nothing backfills one for a draft that predates both.
+      // Query the members table alone and every draft anyone already has
+      // vanishes from every list the moment this ships: `{"drafts":[]}` for
+      // everyone, over data that is still there, with no self-healing path
+      // back in (those drafts predate inviteToken, so /join 404s, and
+      // GET /drafts/{id} writes no row either). A draft you own appears
+      // because you own it; a draft you joined appears because you have a
+      // row. Once every existing draft has a membership row (a one-time
+      // backfill), the union can be removed and the members table can
+      // actually become the single source of truth its own comment claims.
+      const [memberIds, ownedRows] = await Promise.all([
+        listDraftIds(ddb, process.env.DRAFT_MEMBERS_TABLE, sub),
+        queryByOwner(draftsTable, sub),
+      ]);
+      const ids = [...new Set([...memberIds, ...ownedRows.map((r) => r.draftId)])];
       // A membership row can outlive the draft it names -- deleting a draft
       // does not clean them up, and the seat is the truth anyway. Missing ids
       // are skipped rather than rendered as broken rows.
@@ -69,7 +86,23 @@ exports.handler = async (event) => {
         // is a worse one.
         for (let attempt = 0; attempt < 3 && keys.length > 0; attempt++) {
           const res = await ddb.send(
-            new BatchGetCommand({ RequestItems: { [draftsTable]: { Keys: keys } } })
+            new BatchGetCommand({
+              RequestItems: {
+                [draftsTable]: {
+                  Keys: keys,
+                  // Only the fields actually mapped into the response below --
+                  // `picks` most of all, the whole draft board. template.yaml's
+                  // byOwner GSI projection excludes it for exactly this reason
+                  // ("would make every list read as expensive as loading the
+                  // draft itself"), but that comment describes a protection
+                  // this BatchGet -- keyed straight off the base table -- never
+                  // actually provided until this ProjectionExpression existed.
+                  ProjectionExpression:
+                    "draftId, ownerId, teams, rounds, #fmt, userTeam, seats, boardId, currentIndex, createdAt",
+                  ExpressionAttributeNames: { "#fmt": "format" },
+                },
+              },
+            })
           );
           items.push(...(res.Responses?.[draftsTable] || []));
           keys = res.UnprocessedKeys?.[draftsTable]?.Keys || [];
@@ -83,6 +116,7 @@ exports.handler = async (event) => {
         drafts: drafts.map((d) => ({
           id: d.draftId,
           draftId: d.draftId,
+          ownerId: d.ownerId,
           teams: d.teams,
           rounds: d.rounds,
           format: d.format,

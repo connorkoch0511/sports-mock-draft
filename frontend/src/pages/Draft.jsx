@@ -48,10 +48,14 @@ export default function Draft() {
   const currentPickEntry = draft?.picks?.[draft?.currentIndex] ?? null;
   const currentTeamOnClock = currentPickEntry?.team ?? draft?.currentTeam ?? null;
 
-  // yourTeam is derived per request from seats and is who's ACTUALLY looking
-  // at the page; userTeam is fixed at creation and is only right for whoever
-  // made the draft. The fallback keeps a draft created before yourTeam
-  // shipped working until its next write.
+  // yourTeam is derived fresh on every request from seats and is never
+  // stored, so no write could ever populate it -- this fallback isn't about
+  // "until the next write". It covers two real cases instead: a draft whose
+  // `seats` array is missing altogether (data from before that field
+  // existed, where userTeam is genuinely correct since those drafts only
+  // ever had one human), and a stale membership row -- seated once, not any
+  // more -- where falling back to userTeam quietly shows the CREATOR's team
+  // instead of yours.
   const myTeam = draft?.yourTeam ?? draft?.userTeam ?? 1;
   const isMyTurn = currentTeamOnClock === myTeam;
 
@@ -171,6 +175,14 @@ export default function Draft() {
       await apiPost(`/drafts/${draftId}/pick`, { playerId });
       await load();
     } catch (e) {
+      // A refused pick (most commonly: somebody else just picked, on a
+      // device you happen to share this draft with) means the page's copy
+      // is already wrong the instant the request fails. Reload FIRST so the
+      // board, rosters and pick log reflect what's actually true now, then
+      // set the message explaining why this particular pick didn't land --
+      // reversed, load()'s own setErr("") at its top would erase the very
+      // message this catch is about to show.
+      await load();
       setErr(mutationErrorMessage(e, "Pick failed"));
     } finally {
       setBusy(false);
@@ -186,10 +198,15 @@ export default function Draft() {
     } catch (e) {
       setErr(mutationErrorMessage(e, "Auto-pick failed"));
       // A failed auto-pick (e.g. the server refusing because the clock has
-      // since moved to a human) must not leave `draft` as it was: once
-      // `busy` clears, the auto-pick effect re-reads the SAME stale object
-      // and would fire this exact request again forever. Reload so the next
-      // decision is made against who is actually on the clock now.
+      // since moved to a human) must not leave `draft` as it was: the effect
+      // below re-fires whenever the clock still looks like a bot's, and
+      // reloading is what lets it see the clock actually moved, so it stops
+      // once reality agrees the picture changed. This does NOT bound the
+      // retries against a call that keeps failing for some other reason:
+      // `busy` is itself one of that effect's dependencies, so toggling it
+      // off re-triggers the effect regardless of whether anything else
+      // changed, and a persistently failing server gets asked again with no
+      // limit.
       await load();
     } finally {
       setBusy(false);
@@ -312,7 +329,14 @@ export default function Draft() {
     };
   }, []);
 
-  if (err) return <div className="p-6 text-red-200">{err}</div>;
+  // `err` alone used to blank the whole page for ANY failure, including a
+  // refused pick -- the one case the design explicitly promises stays on the
+  // board ("Somebody just picked -- here is the board now"). The genuine
+  // "never loaded at all" case is the only one that still replaces the page:
+  // that's exactly when `draft` is still null. Once a draft has loaded, a
+  // later error (a rejected pick, a poll hiccup) is shown as a banner over
+  // the board it's about, never in place of it.
+  if (!draft && err) return <div className="p-6 text-red-200">{err}</div>;
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
 
   const canManualPick = !paused && !busy && !draft.completed && isMyTurn;
@@ -327,6 +351,12 @@ export default function Draft() {
 
       {/* Content */}
       <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full xl:h-full flex flex-col gap-4">
+        {err && (
+          <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
+            {err}
+          </div>
+        )}
+
         {/* Top bar */}
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

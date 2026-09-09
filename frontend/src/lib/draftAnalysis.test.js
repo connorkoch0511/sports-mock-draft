@@ -86,7 +86,7 @@ test("yourTeam decides who 'you' are, not userTeam -- userTeam is only the creat
   assert.strictEqual(out.you.valueCaptured, 28, "should score the joiner's own team, not the creator's");
 });
 
-test("with no yourTeam, userTeam is still the fallback -- a draft from before yourTeam shipped keeps working", () => {
+test("with no yourTeam, userTeam is the fallback because seats predate the field, not because a write is pending", () => {
   const d = draftWith([pick(1, 1, player("a", { adp: 5.5 }))], { userTeam: 1 });
   const out = analyzeDraft(d);
 

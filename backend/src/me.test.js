@@ -82,15 +82,51 @@ function listDraftsFor(sub, { members, drafts }) {
   return handler(getEvent("/me/drafts", { sub }));
 }
 
+// The listing now queries the members table AND the byOwner GSI (see the
+// FIX 1 test below for why), both as QueryCommands -- so this collects every
+// one seen rather than trusting a single captured `input`, which the union
+// would make a race between two concurrent calls.
 test("GET /me/drafts queries membership rows for the caller", async () => {
-  let input = null;
+  const seen = [];
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    if (cmd instanceof QueryCommand) input = cmd.input;
+    if (cmd instanceof QueryCommand) seen.push(cmd.input);
     return { Items: [] };
   });
   await handler(getEvent("/me/drafts", ME));
-  assert.strictEqual(input.TableName, "draft-members-test");
-  assert.strictEqual(input.ExpressionAttributeValues[":me"], "user-me");
+  const membership = seen.find((i) => i.TableName === "draft-members-test");
+  assert.ok(membership, "the members table is queried");
+  assert.strictEqual(membership.ExpressionAttributeValues[":me"], "user-me");
+});
+
+// FIX 1: membership rows are written in exactly two places, both new --
+// draft creation and joining -- and nothing backfills one for a draft that
+// predates both. Querying the members table alone would make every draft
+// anyone already has vanish from their list the moment this ships. The
+// union with the byOwner GSI is what carries a draft like this one through:
+// owned, but with no row in the members table at all.
+test("a draft you own with no membership row still appears in your list", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", teams: 12, rounds: 15, format: "ppr",
+    userTeam: 1, currentIndex: 0, createdAt: 1,
+  };
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd instanceof QueryCommand) {
+      if (cmd.input.TableName === "draft-members-test") return { Items: [] };
+      if (cmd.input.IndexName === "byOwner") return { Items: [draft] };
+      return { Items: [] };
+    }
+    if (cmd instanceof BatchGetCommand) {
+      const table = process.env.DRAFTS_TABLE;
+      const keys = cmd.input.RequestItems[table].Keys;
+      return {
+        Responses: { [table]: keys.map(({ draftId }) => (draftId === "d1" ? draft : null)).filter(Boolean) },
+      };
+    }
+    return {};
+  });
+  const res = await handler(getEvent("/me/drafts", { sub: "alice" }));
+  assert.strictEqual(res.statusCode, 200);
+  assert.deepStrictEqual(JSON.parse(res.body).drafts.map((d) => d.draftId), ["d1"]);
 });
 
 test("GET /me/drafts shapes each row for the list", async () => {

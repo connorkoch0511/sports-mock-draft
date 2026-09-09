@@ -20,8 +20,15 @@ const API = "http://localhost:9999";
 // which wins because Playwright matches the most-recently-added handler
 // first.
 
+// signIn(page) defaults to sub "user-me" -- these two fixtures represent
+// drafts the signed-in user created, so Delete is expected on both. A row
+// for a draft somebody else owns needs its own fixture (see the
+// FIX 6 test below) rather than one of these with ownerId overridden, since
+// most of the tests here reuse IN_PROGRESS/COMPLETED for things that have
+// nothing to do with ownership.
 const IN_PROGRESS = {
   id: "draft-in-progress",
+  ownerId: "user-me",
   teams: 12,
   rounds: 15,
   format: "ppr",
@@ -33,6 +40,7 @@ const IN_PROGRESS = {
 
 const COMPLETED = {
   id: "draft-completed",
+  ownerId: "user-me",
   teams: 10,
   rounds: 12,
   format: "standard",
@@ -260,6 +268,35 @@ test("a failed delete leaves the row listed and says so", async ({ page }) => {
   await expect(page.getByTestId("my-drafts-error")).toBeVisible();
 });
 
+// FIX 6: delete is owner-only on the server (a conditional delete on
+// ownerId) -- a non-owner's DELETE 404s, and the client treats a 404 as
+// "already gone" and silently reloads, leaving the row exactly where it was.
+// Offering the button at all on a draft you joined means a frightening
+// confirmation ("this cannot be undone, and anyone you shared it with will
+// lose access"), then nothing happens, with no explanation. It must not be
+// offered there in the first place.
+test("delete is not offered on a draft you joined but do not own", async ({ page }) => {
+  const joinedNotOwned = {
+    id: "draft-joined-only",
+    ownerId: "someone-else",
+    teams: 8,
+    rounds: 10,
+    format: "ppr",
+    userTeam: 1,
+    yourTeam: 3,
+    boardId: null,
+    completed: false,
+    createdAt: Date.now(),
+  };
+  await signIn(page); // sub defaults to "user-me", not "someone-else"
+  await mockMyDrafts(page, [joinedNotOwned]);
+  await page.goto("/drafts");
+
+  const row = page.getByTestId("draft-row").first();
+  await expect(row).toBeVisible();
+  await expect(row.getByTestId("delete-draft")).toHaveCount(0);
+});
+
 test("relative time floors rather than rounds", async ({ page }) => {
   // 90 minutes is the case that actually differs: Math.round(90/60) is 2,
   // so the old code said "2h ago" for an hour-and-a-half-old draft.
@@ -303,6 +340,7 @@ test("two same-shape drafts (same format and team count) get distinct aria-label
   // getByLabel(...) matched two elements instead of one.
   const twinA = {
     id: "twin-a",
+    ownerId: "user-me",
     teams: 12,
     rounds: 15,
     format: "ppr",
@@ -313,6 +351,7 @@ test("two same-shape drafts (same format and team count) get distinct aria-label
   };
   const twinB = {
     id: "twin-b",
+    ownerId: "user-me",
     teams: 12,
     rounds: 12,
     format: "ppr",
@@ -384,7 +423,7 @@ test("a draft created through the New Draft flow appears in My Drafts with delet
     route.fulfill({
       json: {
         drafts: created
-          ? [{ id: NEW_ID, teams: 12, rounds: 15, format: "standard", userTeam: 1, boardId: null, completed: false, createdAt: Date.now() }]
+          ? [{ id: NEW_ID, ownerId: "user-me", teams: 12, rounds: 15, format: "standard", userTeam: 1, boardId: null, completed: false, createdAt: Date.now() }]
           : [],
       },
     })

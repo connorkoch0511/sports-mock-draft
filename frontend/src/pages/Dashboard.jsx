@@ -65,11 +65,13 @@ export default function Dashboard() {
                 className="block rounded-2xl border border-zinc-800 bg-zinc-950/60 px-4 py-3 text-sm text-zinc-200 hover:border-zinc-600"
               >
                 {FORMAT_LABEL[d.format] || d.format} · {d.teams} teams · {d.rounds} rounds
-                {/* yourTeam is the caller's own seat, derived per person on
-                    the server; userTeam is fixed at creation and only right
-                    for whoever made the draft. Same fallback as the draft
-                    page and My Drafts, until every row has been rewritten
-                    with yourTeam. */}
+                {/* yourTeam is derived fresh per caller from seats on every
+                    request and is never stored -- this fallback isn't about
+                    waiting for a write. Same two real cases as the draft
+                    page and My Drafts: a draft whose seats predate the field
+                    (userTeam is genuinely correct there) and a stale
+                    membership row, where it quietly shows the CREATOR's
+                    team instead of yours. */}
                 <span className="ml-2 text-xs text-zinc-500">Pick {d.yourTeam ?? d.userTeam}</span>
               </Link>
             </li>

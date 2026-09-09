@@ -49,12 +49,20 @@ function buildSnakePicks(teams, rounds) {
 
 export const DRAFT_ID = "test-draft-abc123";
 
+export const INVITE_TOKEN = "test-invite-token-xyz";
+
 export function makeDraftState({
   currentIndex = 0,
   completedPicks = [],
   boardId = null,
   format = "standard",
   userTeam = 1,
+  // Every real GET /drafts/{draftId} carries an inviteToken -- the copy-invite
+  // button on the draft page reads it straight off this state. A fixture that
+  // never set it is exactly how that button went untested for as long as it
+  // did: every mock served `undefined`, the button still rendered a link, and
+  // nobody noticed it read "?t=undefined".
+  inviteToken = INVITE_TOKEN,
   // The real GET /drafts/{draftId} always carries a `seats` list -- one
   // human (the creator) and a bot in every other team -- and the page reads
   // it to decide whose turn is a bot's to take. Defaulting it here the same
@@ -87,6 +95,7 @@ export function makeDraftState({
     // fixture representing the creator's own view, that's just their team.
     yourTeam: userTeam,
     seats,
+    inviteToken,
     picked: completedPicks.map(({ player }) => player.id),
     currentIndex,
     picks,

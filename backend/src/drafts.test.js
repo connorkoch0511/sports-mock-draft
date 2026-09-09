@@ -598,6 +598,7 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     userTeam: 2,
     rosterSlots: ["QB", "RB"],
     boardId: "board-1",
+    inviteToken: "invite-abc123",
     picked: ["p1"],
     currentIndex: 1,
     version: 7,
@@ -637,6 +638,7 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     ],
     rosterSlots: ["QB", "RB"],
     boardId: "board-1",
+    inviteToken: "invite-abc123",
     picked: ["p1"],
     currentIndex: 1,
     version: 7,
@@ -1502,6 +1504,56 @@ test("a double-clicked join lands on the seat already held, not a second one", a
   // The sibling request already seated bob at seat index 1 (team 2) by the
   // time this request's conditional write on that same seat fails.
   const res = await joinAsDoubleClicked(draft, "bob", "t", { seatedAt: 1 });
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});
+
+// The re-read after a failed conditional write must be strongly consistent:
+// this stub only shows the sibling request's just-committed seat when the
+// GetCommand asks for ConsistentRead, and otherwise keeps serving the
+// pre-write snapshot -- modeling the real gap between a conditional write
+// (always strongly consistent) and DynamoDB's default read (eventually
+// consistent). `joinAsDoubleClicked` above cannot see this: its stub always
+// returns the updated draft on re-read, which is what a strongly consistent
+// read looks like, not what the default one can still return.
+function joinAsDoubleClickedStaleReread(draft, sub, token, { seatedAt }) {
+  let getCalls = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") {
+      getCalls += 1;
+      if (getCalls === 1) return { Item: draft }; // initial read: still a bot
+      if (cmd.input.ConsistentRead) {
+        const seats = draft.seats.map((s, idx) =>
+          idx === seatedAt ? { ...s, sub, kind: "human" } : s
+        );
+        return { Item: { ...draft, seats } };
+      }
+      // Eventually consistent: still hasn't caught up to the sibling
+      // request's write.
+      return { Item: draft };
+    }
+    if (cmd.constructor.name === "UpdateCommand") return stubSeatWrites({ takenIndexes: [seatedAt] })(cmd);
+    return {}; // PutCommand (addMember) result is ignored
+  });
+  return handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
+  );
+}
+
+test("the seat re-read after a failed write is strongly consistent, not the eventually-consistent default", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  // Same double-click as above, but the re-read is modeled as eventually
+  // consistent unless ConsistentRead is actually requested. Without that
+  // flag on the handler's re-read, this must land bob a SECOND seat (team 3)
+  // instead of the one (team 2) the sibling request already gave him.
+  const res = await joinAsDoubleClickedStaleReread(draft, "bob", "t", { seatedAt: 1 });
   assert.strictEqual(res.statusCode, 200);
   assert.strictEqual(JSON.parse(res.body).team, 2);
 });

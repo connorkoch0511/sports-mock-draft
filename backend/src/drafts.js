@@ -374,7 +374,19 @@ exports.handler = async (event) => {
           // before either writes, and blindly advancing would give one person
           // two seats. Re-read rather than trusting the snapshot from the top
           // of this request, which is by now stale by definition.
-          const fresh = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+          //
+          // ConsistentRead is required here, not optional: this read exists
+          // specifically to check the outcome of a write that JUST happened
+          // (the sibling request's conditional write, which succeeded where
+          // ours failed). DynamoDB's default read is eventually consistent,
+          // but a conditional write is always strongly consistent -- so the
+          // default read here could still see the pre-write snapshot and
+          // conclude we hold no seat, sending this request on to claim a
+          // second one. Without this flag that race reopens the exact door
+          // the seat-race fix above was written to close.
+          const fresh = await ddb.send(
+            new GetCommand({ TableName: draftsTable, Key: { draftId }, ConsistentRead: true })
+          );
           const mine = seatOf(fresh.Item, sub);
           if (mine) return json(200, { ok: true, team: mine.team });
         }

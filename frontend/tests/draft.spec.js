@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
-import { MOCK_PLAYERS, DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js";
+import { MOCK_PLAYERS, DRAFT_ID, INVITE_TOKEN, makeDraftState, mockDraftApis } from "./fixtures.js";
 import { signIn } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +21,27 @@ test.describe("Draft page", () => {
     await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Draft Board" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Team Rosters" })).toBeVisible();
+  });
+
+  // FIX 3: the button reads draft.inviteToken straight off state -- a fixture
+  // that never set it (every mock then serving `undefined`) is exactly how
+  // this went untested, and a dropped inviteToken field would otherwise ship
+  // an invite link the server 404s on (`?t=undefined`) with every other test
+  // here still green.
+  test("the copy-invite button copies a link carrying the real invite token", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    await page.getByTestId("copy-invite").click();
+
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain(`/draft/${DRAFT_ID}/join?t=${INVITE_TOKEN}`);
+    expect(copied).not.toContain("undefined");
   });
 
   test("big board shows player names from API", async ({ page }) => {
