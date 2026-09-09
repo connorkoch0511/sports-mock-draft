@@ -262,6 +262,7 @@ Resources:
           DRAFTS_TABLE: !Ref DraftsTable
           PLAYERS_TABLE: !Ref PlayersTable
           DRAFT_MEMBERS_TABLE: !Ref DraftMembersTable
+          BOARDS_TABLE: !Ref BoardsTable
           ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
       Policies:
         - DynamoDBCrudPolicy:
@@ -270,6 +271,8 @@ Resources:
             TableName: !Ref PlayersTable
         - DynamoDBCrudPolicy:
             TableName: !Ref DraftMembersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BoardsTable
       Events:
         CreateDraft:
           Type: HttpApi

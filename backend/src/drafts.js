@@ -138,8 +138,14 @@ function pickBestForTeam(draft, teamNum, players, rankOf = consensusRank) {
     const kDefPenalty =
       blockKDef && (p.position === "K" || p.position === "DEF") ? -20000 : 0;
 
-    // Small tie-breaker (stable)
-    const tiebreak = (p.name || "").length;
+    // Small tie-breaker (stable). Scaled well below 1 -- the smallest
+    // possible gap between two distinct ranks -- so it only ever settles a
+    // genuine tie and can never flip a real ranking decision. A big board's
+    // `order` array ranks players by consecutive position (0, 1, 2, ...), so
+    // two adjacent players can be as little as 1 rank apart; an unscaled,
+    // name-length tiebreak of that same magnitude was overriding exactly
+    // those close calls.
+    const tiebreak = (p.name || "").length * 0.0001;
 
     const score = base + needs + kDefPenalty + tiebreak;
 
@@ -152,12 +158,28 @@ function pickBestForTeam(draft, teamNum, players, rankOf = consensusRank) {
   return best;
 }
 
+/**
+ * Which board drives this team's auto-pick: the seat's own, else the draft's,
+ * else none (consensus).
+ *
+ * `undefined` and `null` mean different things here and the distinction is
+ * the whole point. An absent boardId is a seat that has never chosen, and
+ * inherits. An explicit null is a seat that chose "Consensus rankings" -- a
+ * decision, which must NOT then be overridden by the creator's board. `??`
+ * cannot tell those apart, so this asks whether the property is present.
+ */
+function boardIdForTeam(draft, teamNum) {
+  const seat = (draft?.seats || []).find((s) => s?.team === teamNum);
+  if (seat && Object.prototype.hasOwnProperty.call(seat, "boardId")) return seat.boardId;
+  return draft?.boardId ?? null;
+}
+
 // Shared by /auto-pick ("draft for me, on purpose") and /expire ("the clock
 // ran out"). The two differ only in what they check before calling this --
 // authorization in one, the deadline in the other -- and keeping the picking
 // itself in one place is what stops those two paths drifting into picking
 // differently.
-async function autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json }) {
+async function autoPickAndAdvance({ d, draftId, playersTable, draftsTable, boardsTable, json }) {
   const sport = (d.sport || "nfl").toLowerCase();
   const format = (d.format || "standard").toLowerCase();
   const { players, byId } = await loadPlayersForSport(playersTable, sport, format);
@@ -165,7 +187,10 @@ async function autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json 
   const teamNum = d.picks[d.currentIndex]?.team;
   d.__counts = getRosterCounts(d, teamNum, byId);
 
-  const best = pickBestForTeam(d, teamNum, players);
+  const rankOf =
+    (await loadBoardRank({ ddb, boardsTable, boardId: boardIdForTeam(d, teamNum) })) || consensusRank;
+
+  const best = pickBestForTeam(d, teamNum, players, rankOf);
   if (!best) return json(409, { error: "No players left" });
 
   d.picks[d.currentIndex].playerId = best.id;
@@ -217,6 +242,7 @@ function buildSnakeOrder(teams, rounds) {
 exports.handler = async (event) => {
   const draftsTable = process.env.DRAFTS_TABLE;
   const playersTable = process.env.PLAYERS_TABLE; // ADD this env var in template (see below)
+  const boardsTable = process.env.BOARDS_TABLE;
 
   const method = event.requestContext?.http?.method;
   const path = event.rawPath || event.requestContext?.http?.path || event.path || "";
@@ -541,7 +567,7 @@ exports.handler = async (event) => {
         return json(409, { error: "Not your pick" });
       }
 
-      return await autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json });
+      return await autoPickAndAdvance({ d, draftId, playersTable, draftsTable, boardsTable, json });
     }
 
     // POST /drafts/{draftId}/expire
@@ -580,7 +606,7 @@ exports.handler = async (event) => {
       // Exactly one pick, no matter how far past the deadline we are. Forty
       // minutes late and forty seconds late do the identical thing: the draft
       // paused because nobody was watching, and nobody was skipped.
-      return await autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json });
+      return await autoPickAndAdvance({ d, draftId, playersTable, draftsTable, boardsTable, json });
     }
 
     // POST /drafts/{draftId}/pause  { paused: boolean }
@@ -775,3 +801,4 @@ exports.handler = async (event) => {
 
 // Exported for tests only -- not part of the HTTP surface.
 module.exports.pickBestForTeam = pickBestForTeam;
+module.exports.boardIdForTeam = boardIdForTeam;

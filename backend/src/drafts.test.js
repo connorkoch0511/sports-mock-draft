@@ -6,6 +6,7 @@ const { handler } = require("./drafts");
 
 process.env.DRAFTS_TABLE = "drafts-test";
 process.env.PLAYERS_TABLE = "players-test";
+process.env.BOARDS_TABLE = "boards-test";
 
 // `claims` is exactly the shape API Gateway's JWT authorizer puts on the
 // event, which is the boundary this code actually depends on -- Cognito
@@ -1488,6 +1489,85 @@ test("two browsers shouting 'time is up' produce one pick", async () => {
   assert.equal(one.statusCode, 200);
   assert.equal(two.statusCode, 409);
   assert.equal(JSON.parse(two.body).currentIndex, 1, "the loser is told where the draft actually is");
+});
+
+// The clock drafts from the board of the team it lands on: the seat's own
+// board if it has chosen one, else the draft creator's, else consensus.
+// `undefined` vs explicit `null` on seats[i].boardId is the whole point --
+// see boardIdForTeam in drafts.js.
+function boardDraft(seatBoard, draftBoard) {
+  const d = ownedDraft(ME.sub);
+  d.boardId = draftBoard;
+  if (seatBoard !== undefined) d.seats[0].boardId = seatBoard;
+  d.pickDeadline = Date.now() - 1000;
+  return d;
+}
+
+const POOL = { Items: [
+  { sport: "nfl", id: "p1", name: "Consensus One", position: "RB", team: "SF", rank: 1 },
+  { sport: "nfl", id: "p2", name: "My Guy", position: "RB", team: "KC", rank: 200 },
+] };
+
+function stubWithBoard(draft, boardItem) {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const t = cmd?.input?.TableName;
+    if (t === "drafts-test" && cmd.input.UpdateExpression) return {};
+    if (t === "drafts-test") return { Item: draft };
+    if (t === "boards-test") return boardItem === null ? {} : { Item: boardItem };
+    return POOL;
+  });
+}
+
+test("the clock drafts from the seat's own board", async () => {
+  stubWithBoard(boardDraft("b-mine", "b-creator"), { boardId: "b-mine", order: ["p2", "p1"] });
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(JSON.parse(res.body).picked.id, "p2");
+});
+
+test("a seat with no board of its own inherits the draft's", async () => {
+  stubWithBoard(boardDraft(undefined, "b-creator"), { boardId: "b-creator", order: ["p2", "p1"] });
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(JSON.parse(res.body).picked.id, "p2", "falls through to the draft's board");
+});
+
+test("a seat that explicitly chose consensus does NOT inherit the draft's board", async () => {
+  // null means "I picked Consensus rankings", which is a decision, not an
+  // absence -- it must not fall through to the creator's board.
+  stubWithBoard(boardDraft(null, "b-creator"), { boardId: "b-creator", order: ["p2", "p1"] });
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(JSON.parse(res.body).picked.id, "p1");
+});
+
+test("a deleted board falls back to consensus instead of stalling the clock", async () => {
+  stubWithBoard(boardDraft("b-gone", null), null);
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(JSON.parse(res.body).picked.id, "p1");
+});
+
+test("roster needs still apply on top of the board's order", async () => {
+  const d = boardDraft("b-mine", null);
+  d.rosterSlots = ["QB", "RB"];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const t = cmd?.input?.TableName;
+    if (t === "drafts-test" && cmd.input.UpdateExpression) return {};
+    if (t === "drafts-test") return { Item: d };
+    if (t === "boards-test") return { Item: { boardId: "b-mine", order: ["rb1", "rb2", "qb1"] } };
+    return { Items: [
+      { sport: "nfl", id: "rb1", name: "RB One", position: "RB", team: "SF", rank: 1 },
+      { sport: "nfl", id: "rb2", name: "RB Two", position: "RB", team: "KC", rank: 2 },
+      { sport: "nfl", id: "qb1", name: "QB One", position: "QB", team: "BUF", rank: 3 },
+    ] };
+  });
+  // rb1 is already on the roster, so the empty QB slot outweighs rb2's higher
+  // board position -- your rankings decide who, roster shape decides when.
+  d.picks[0].playerId = "rb1";
+  d.picks[0].player = { id: "rb1", position: "RB" };
+  d.picked = ["rb1"];
+  d.currentIndex = 1;
+  d.picks[1].team = 1;
+  const res = await handler(evt("POST", "/drafts/d1/expire", { draftId: "d1", claims: ME }));
+  assert.equal(JSON.parse(res.body).picked.id, "qb1");
 });
 
 // POST /drafts/{draftId}/pause -- pause has to live on the server, or a
