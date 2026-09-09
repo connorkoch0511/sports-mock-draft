@@ -680,6 +680,9 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     ],
     rosterSlots: ["QB", "RB"],
     boardId: "board-1",
+    // No seat-level boardId on this fixture, so the effective board for
+    // team 2 falls back to the draft's own -- see boardIdForTeam.
+    yourBoardId: "board-1",
     inviteToken: "invite-abc123",
     picked: ["p1"],
     currentIndex: 1,
@@ -2067,4 +2070,54 @@ test("pickBestForTeam takes its ranking from the rankOf it is given", async () =
   assert.equal(dflt.id, "p1", "default is still consensus rank");
   const mine = pickBestForTeam(draft, 1, players, (p) => (p.id === "p2" ? 0 : 500));
   assert.equal(mine.id, "p2", "my board decides who");
+});
+
+test("setting your seat's board writes only your seat", async () => {
+  let update = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const t = cmd?.input?.TableName;
+    if (t === "drafts-test" && cmd.input.UpdateExpression) { update = cmd.input; return {}; }
+    if (t === "drafts-test") return { Item: ownedDraft(ME.sub) };
+    return { Item: { boardId: "b1", ownerId: ME.sub } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/seat-board", { draftId: "d1", body: { boardId: "b1" }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.match(update.UpdateExpression, /seats\[0\]\.boardId = :b/);
+  assert.match(update.ConditionExpression, /seats\[0\]\.#sub = :me/);
+  assert.equal(update.ExpressionAttributeValues[":b"], "b1");
+});
+
+test("a seat cannot be pointed at somebody else's board", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const t = cmd?.input?.TableName;
+    if (t === "drafts-test") return { Item: ownedDraft(ME.sub) };
+    return { Item: { boardId: "b1", ownerId: THEM.sub } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/seat-board", { draftId: "d1", body: { boardId: "b1" }, claims: ME }));
+  assert.equal(res.statusCode, 400);
+});
+
+test("null means consensus, and is stored rather than ignored", async () => {
+  let update = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression) { update = cmd.input; return {}; }
+    return { Item: ownedDraft(ME.sub) };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/seat-board", { draftId: "d1", body: { boardId: null }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(update.ExpressionAttributeValues[":b"], null);
+});
+
+test("an unseated caller gets 404, not 403", async () => {
+  stubSend({ Item: ownedDraft(ME.sub) });
+  const res = await handler(evt("POST", "/drafts/d1/seat-board", { draftId: "d1", body: { boardId: null }, claims: THEM }));
+  assert.equal(res.statusCode, 404);
+});
+
+test("GET reports the effective board for your seat", async () => {
+  const d = ownedDraft(ME.sub);
+  d.boardId = "b-creator";
+  stubSend({ Item: d });
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.equal(JSON.parse(res.body).yourBoardId, "b-creator");
 });

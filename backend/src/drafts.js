@@ -15,7 +15,7 @@ const {
   kDefBlocked,
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
-const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
+const { subOf, ANON, canMutate, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
 const { addMember } = require("./lib/members");
 const { withAdpBySource } = require("./lib/adpBySource");
 const { advanceDraft, PICK_MS } = require("./lib/advance");
@@ -364,6 +364,11 @@ exports.handler = async (event) => {
         seats: (d.seats || []).map((s) => ({ team: s.team, kind: s.kind })),
         rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
         boardId: d.boardId || null,
+        // The board that would actually drive YOUR auto-pick, already
+        // resolved -- the page shows a choice, not a three-state puzzle.
+        // Other seats' boards are not exposed, for the same least-data
+        // reason their `sub` is not.
+        yourBoardId: boardIdForTeam(d, seatOf(d, sub)?.team ?? null),
         inviteToken: d.inviteToken,
         picked: d.picked || [],
         // Bumped on every write. The draft page polls this endpoint so
@@ -703,6 +708,51 @@ exports.handler = async (event) => {
         return await reportCurrent();
       }
       return json(200, { ok: true, pausedAt: null, pausedBy: null, pickDeadline: extended });
+    }
+
+    // POST /drafts/{draftId}/seat-board  { boardId: string | null }
+    //
+    // Which rankings the clock uses when it drafts for you. Lives here rather
+    // than on the join screen because joining claims the seat instantly, with
+    // no UI -- a chooser in front of that would leave the seat unclaimed while
+    // somebody deliberates, which is exactly when a friend clicking the same
+    // link takes the last one.
+    if (method === "POST" && draftId && path.endsWith("/seat-board")) {
+      if (!sub) return needsAuth();
+      const body = event.body ? JSON.parse(event.body) : {};
+      const raw = typeof body.boardId === "string" ? body.boardId.trim() : "";
+      const boardId = raw.length > 0 && raw.length <= 64 ? raw : null;
+
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+      if (!res.Item || !isSeated(res.Item, sub)) return notFound();
+
+      const d = res.Item;
+      const i = (d.seats || []).findIndex((s) => s?.kind === "human" && s?.sub === sub);
+      if (i < 0) return notFound();
+
+      // A seat must not be pointed at rankings its holder does not own --
+      // otherwise anyone in the draft could have the clock draft for them out
+      // of a board they merely know the id of.
+      if (boardId) {
+        const b = await ddb.send(new GetCommand({ TableName: boardsTable, Key: { boardId } }));
+        if (!b.Item || !canMutate(b.Item, sub)) return json(400, { error: "That board isn't yours" });
+      }
+
+      await ddb.send(
+        new UpdateCommand({
+          TableName: draftsTable,
+          Key: { draftId },
+          // Always writes the attribute, null included: once touched, this
+          // seat's choice is authoritative and stops inheriting the draft's
+          // board. See boardIdForTeam.
+          UpdateExpression: `SET seats[${i}].boardId = :b, version = if_not_exists(version, :z) + :one`,
+          ConditionExpression: `seats[${i}].#sub = :me`,
+          ExpressionAttributeNames: { "#sub": "sub" },
+          ExpressionAttributeValues: { ":b": boardId, ":me": sub, ":z": 0, ":one": 1 },
+        })
+      );
+
+      return json(200, { ok: true, boardId });
     }
 
     // POST /drafts/{draftId}/sim-to-end

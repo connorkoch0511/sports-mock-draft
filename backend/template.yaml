@@ -330,6 +330,14 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuth
+        SeatBoard:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/seat-board
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         SimToEnd:
           Type: HttpApi
           Properties:
