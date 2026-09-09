@@ -117,7 +117,9 @@ test.describe("Draft page", () => {
 
     await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
-    await page.getByRole("button", { name: "Pause" }).click();
+    // Do NOT pause -- pause (now server-driven, Task 8) replaces the
+    // countdown with a "Paused" pill, which is exactly what this test must
+    // not see.
 
     // Anchored on the clock glyph. A bare /\d+s/ also matches copy like
     // "Starts 1st on the consensus board", which is a different thing on the
@@ -265,6 +267,15 @@ test.describe("Draft page", () => {
     );
     page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: pool } }));
     page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+    // Pause is server state as of Task 8, and this screenshot's own title
+    // promises "paused" -- the click below needs a real route to land on,
+    // not just local state, for that to still be true of what ships.
+    page.route(`${API}/drafts/${DRAFT_ID}/pause`, (r) => {
+      const { paused } = JSON.parse(r.request().postData() || "{}");
+      state.pausedAt = paused ? Date.now() : null;
+      state.pausedBy = paused ? "me" : null;
+      return r.fulfill({ json: { ok: true, pausedAt: state.pausedAt, pausedBy: state.pausedBy, pickDeadline: state.pickDeadline } });
+    });
 
     // Signed in: the shipped screenshot shows the normal, capable session,
     // not the "sign in to make picks" banner a signed-out visitor would see.
@@ -614,6 +625,65 @@ test.describe("Draft page", () => {
     expect(expires).toBe(0);
   });
 
+  // Task 8: pause is the draft's state, not this browser's. Before this
+  // change, clicking Pause only flipped local React state -- it never told
+  // the server, so it neither froze the countdown for anyone else nor
+  // stopped THIS browser's own expire effect once the deadline it's still
+  // watching passed.
+  test("pausing posts to the server rather than stopping one browser", async ({ page }) => {
+    const state = makeDraftState({});
+    mockDraftApis(page, state);
+    let posted = null;
+    await page.route(`${API}/drafts/${DRAFT_ID}/pause`, async (r) => {
+      posted = JSON.parse(r.request().postData() || "{}");
+      state.pausedAt = Date.now();
+      state.pausedBy = "me";
+      return r.fulfill({ json: { ok: true, pausedAt: state.pausedAt, pausedBy: state.pausedBy, pickDeadline: state.pickDeadline } });
+    });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+    await expect.poll(() => posted?.paused).toBe(true);
+    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+  });
+
+  test("a draft somebody else paused shows as paused here", async ({ page }) => {
+    const state = makeDraftState({ pausedAt: Date.now(), pausedBy: "them" });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+    await expect(page.getByTestId("pick-countdown")).toHaveCount(0);
+  });
+
+  // Proves the hole Task 7 left open is actually closed: a deadline that
+  // passes WHILE PAUSED must never reach /expire. Before this task's fix,
+  // clicking Pause never reached the server at all, so the browser's own
+  // expire effect kept watching the real (server) deadline and fired right
+  // on schedule regardless of what the button said.
+  test("a deadline that passes while paused never calls /expire", async ({ page }) => {
+    const state = makeDraftState({ pickDeadline: Date.now() + 1500 });
+    mockDraftApis(page, state);
+
+    let expires = 0;
+    await page.route(`${API}/drafts/${DRAFT_ID}/expire`, (r) => {
+      expires += 1;
+      return r.fulfill({ status: 409, json: { error: "Clock has not expired" } });
+    });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+
+    // The original deadline (1.5s out) is long past by the time this
+    // resolves; a still-broken Pause would have already fired /expire.
+    await page.waitForTimeout(3000);
+    expect(expires).toBe(0);
+  });
+
   test("Sim to End is not offered once somebody else is in the draft", async ({ page }) => {
     const state = makeDraftState({ currentIndex: 0 });
     state.yourTeam = 1;
@@ -709,6 +779,16 @@ test("the Draft button is disabled when picking is not allowed", async ({ page }
   const state = makeDraftState({ currentIndex: 0 });
   page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
   page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+  // Pause is server state as of Task 8 -- the click below now has to reach
+  // an actual route rather than only flipping local state, so this test
+  // (unlike most of its neighbors) needs its own /pause handler instead of
+  // borrowing mockDraftApis's.
+  page.route(`${API}/drafts/${DRAFT_ID}/pause`, (r) => {
+    const { paused } = JSON.parse(r.request().postData() || "{}");
+    state.pausedAt = paused ? Date.now() : null;
+    state.pausedBy = paused ? "me" : null;
+    return r.fulfill({ json: { ok: true, pausedAt: state.pausedAt, pausedBy: state.pausedBy, pickDeadline: state.pickDeadline } });
+  });
 
   let calls = 0;
   page.route(`${API}/drafts/${DRAFT_ID}/pick`, (r) => {

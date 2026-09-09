@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
+import { useAuth } from "../lib/authContext.js";
 import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
@@ -25,6 +26,7 @@ function mutationErrorMessage(e, fallback) {
 
 export default function Draft() {
   const { draftId } = useParams();
+  const { sub } = useAuth();
   const [draft, setDraft] = useState(null);
   const [players, setPlayers] = useState([]);
   const [err, setErr] = useState("");
@@ -34,7 +36,15 @@ export default function Draft() {
   const [boardMeta, setBoardMeta] = useState(null);
 
   // Timer + pause
-  const [paused, setPaused] = useState(false);
+  // Pause is the draft's state, not this browser's. A pause that stopped only
+  // one person's clock would be worse than none: everyone else keeps ticking,
+  // and the person who paused gets auto-picked while they think. Declared
+  // this early (rather than beside `deadline` below, which is equally
+  // server-derived) because the autopick effect further down reads it inside
+  // a dependency array, which evaluates at the point that line runs -- a
+  // `const` declared later in the same render would still be in its temporal
+  // dead zone there.
+  const paused = draft?.pausedAt != null;
   const [secondsLeft, setSecondsLeft] = useState(PICK_SECONDS);
   const tickRef = useRef(null);
   // How far ahead the server's clock is of this browser's. Measured fresh on
@@ -223,6 +233,23 @@ export default function Draft() {
     }
   };
 
+  // Any seated human may stop or restart the clock -- no owner-only check,
+  // deliberately: these are people who were sent an invite link. Resume
+  // preserves the remaining time server-side (see backend/src/drafts.js),
+  // so `load()` afterward is what picks up the extended deadline rather
+  // than a fresh minute.
+  const togglePause = async () => {
+    setBusy(true);
+    try {
+      await apiPost(`/drafts/${draftId}/pause`, { paused: !paused });
+      await load();
+    } catch (e) {
+      setErr(mutationErrorMessage(e, "Could not pause the draft"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const simToEnd = async () => {
     setBusy(true);
     setErr("");
@@ -262,11 +289,10 @@ export default function Draft() {
   // of suppressed.
   const hasDraft = draft != null;
   const completed = draft?.completed ?? false;
-  // The deadline the server is enforcing, and whether the server has stopped
-  // the clock. Both come straight off `draft` -- neither is ever computed
-  // locally -- because the server is the only party allowed to decide either.
+  // The deadline the server is enforcing. Comes straight off `draft` --
+  // never computed locally -- because the server is the only party allowed
+  // to decide it. (`paused` is the same kind of value, declared above.)
   const deadline = draft?.pickDeadline ?? null;
-  const serverPaused = draft?.pausedAt != null;
 
   // Everyone in the draft is looking at the same row, and only the person who
   // picked knows it changed. Three seconds is a judgement: fast enough that a
@@ -312,7 +338,7 @@ export default function Draft() {
   useEffect(() => {
     if (tickRef.current) clearInterval(tickRef.current);
 
-    if (!hasDraft || completed || serverPaused) {
+    if (!hasDraft || completed || paused) {
       setSecondsLeft(0);
       return undefined;
     }
@@ -324,7 +350,7 @@ export default function Draft() {
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
-  }, [hasDraft, deadline, completed, serverPaused]);
+  }, [hasDraft, deadline, completed, paused]);
 
   // The clock, enforced. Whoever's browser notices zero first calls
   // /expire -- not /auto-pick, which keeps its own meaning (the manual
@@ -343,7 +369,7 @@ export default function Draft() {
   // out. Recomputing the remaining time fresh from `deadline` and the
   // skew here sidesteps that render ordering entirely.
   useEffect(() => {
-    if (!hasDraft || serverPaused || busy || completed) return undefined;
+    if (!hasDraft || paused || busy || completed) return undefined;
     if (deadline == null) return undefined;
 
     const seatIndex = seats.findIndex((s) => s?.team === myTeam);
@@ -351,7 +377,7 @@ export default function Draft() {
     const t = setTimeout(expire, Math.max(0, msLeft) + expireDelayMs(seatIndex));
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasDraft, deadline, serverPaused, busy, completed]);
+  }, [hasDraft, deadline, paused, busy, completed]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -371,6 +397,12 @@ export default function Draft() {
   if (!draft) return <div className="p-6 text-zinc-300">Loading…</div>;
 
   const canManualPick = !paused && !busy && !draft.completed && isMyTurn;
+  // pausedBy is the raw sub of whoever paused it -- there is no name to show
+  // (the client is never handed one for another seat, see GET's own
+  // comment), but "somebody who isn't you" is still worth saying so the
+  // person looking at a frozen clock doesn't wonder if their own browser is
+  // broken.
+  const pausedByOther = paused && draft.pausedBy != null && draft.pausedBy !== sub;
 
   return (
     <div className="relative min-h-full xl:h-full w-full overflow-x-hidden">
@@ -400,14 +432,27 @@ export default function Draft() {
 
             <div className="flex flex-wrap gap-2 items-center justify-start lg:justify-end">
               <button
-                onClick={() => setPaused((p) => !p)}
-                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600"
+                onClick={togglePause}
+                disabled={busy}
+                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
               >
                 {paused ? "Resume" : "Pause"}
               </button>
 
+              {pausedByOther && (
+                <span data-testid="paused-by" className="text-xs text-zinc-400">
+                  Paused by someone else
+                </span>
+              )}
+
               {draft.completed ? (
                 <Pill>✅ Completed</Pill>
+              ) : paused ? (
+                // Checked ahead of isMyTurn: a paused draft has nobody
+                // actually "on the clock" -- everyone is stopped, including
+                // whoever's turn it nominally is -- so the countdown itself
+                // must not render while paused, for anyone.
+                <Pill>⏸ Paused</Pill>
               ) : isMyTurn ? (
                 // Pill itself doesn't forward props, so the id this test
                 // keys off of goes on a wrapper instead of changing it. The

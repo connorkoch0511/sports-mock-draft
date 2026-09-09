@@ -40,6 +40,19 @@ const POOL = MOCK_PLAYERS.map((p) => {
 function mockPool(page, draftState) {
   page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: POOL } }));
   page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: draftState }));
+  // Pause is server state as of Task 8. Every test in this file clicks
+  // Pause purely to disable manual picking while it inspects the advice
+  // card/drill-down -- none of them care about pause itself -- but the
+  // click now has to land somewhere real or the resulting "Failed to
+  // fetch" banner (and the countdown ticking forever, since pausedAt never
+  // moves) destabilizes the page layout underneath the very rows these
+  // tests are about to click.
+  page.route(`${API}/drafts/${DRAFT_ID}/pause`, (r) => {
+    const { paused } = JSON.parse(r.request().postData() || "{}");
+    draftState.pausedAt = paused ? Date.now() : null;
+    draftState.pausedBy = paused ? "me" : null;
+    return r.fulfill({ json: { ok: true, pausedAt: draftState.pausedAt, pausedBy: draftState.pausedBy, pickDeadline: draftState.pickDeadline } });
+  });
 }
 
 function rowFor(page, name) {
