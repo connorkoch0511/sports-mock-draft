@@ -60,6 +60,12 @@ And one new field per seat: `seats[i].boardId` (string or null).
 Resume sets `pickDeadline += (now - pausedAt)` and clears `pausedAt`, so a
 pause preserves the *remaining* time rather than granting a fresh minute.
 
+`pickDeadline` is first set when the draft is created, so pick 1 is on the
+clock from the moment the page opens. Thereafter **`lib/advance.js` writes it
+as part of the same conditional write** that moves `currentIndex` — the two
+can then never disagree, and a lost race cannot leave a deadline belonging to
+a pick that has already been made.
+
 `GET /drafts/{draftId}` gains `pickDeadline`, `pausedAt`, `pausedBy`, and
 **`now`** (the server's current epoch ms), alongside the `seats`, `yourTeam`
 and `version` Phase 1 added.
@@ -73,10 +79,14 @@ A browser reporting "time is up" is making a request, not asserting a fact.
 ### `POST /drafts/{draftId}/expire`
 
 1. Caller must be seated, else **404** — anti-oracle, as everywhere else.
-2. `pausedAt` set → **409**, with current state attached.
-3. `Date.now() <= pickDeadline` → **409**. The caller's clock was wrong, or
+2. `currentIndex >= picks.length` → **409** "Draft already completed". This
+   check comes *before* the two below, for the reason Phase 1 learned the hard
+   way: ordering a new guard ahead of the completed check makes a finished
+   draft report the wrong thing about itself.
+3. `pausedAt` set → **409**, with current state attached.
+4. `Date.now() <= pickDeadline` → **409**. The caller's clock was wrong, or
    someone else got there first.
-4. Otherwise: make **exactly one** auto-pick for the seat on the clock,
+5. Otherwise: make **exactly one** auto-pick for the seat on the clock,
    advance via `lib/advance.js`, set `pickDeadline = now + 60_000`.
 
 Forty minutes past the deadline and forty seconds past it do the identical
@@ -172,6 +182,8 @@ Backend:
 - A seat's board drives that seat's pick; roster logic still applies.
 - A deleted board falls back to consensus without erroring.
 - An unseated caller gets 404, not 403.
+- A completed draft says it is completed, not that the clock has not expired.
+- A creation sets `pickDeadline`, and an ordinary `/pick` re-arms it.
 
 Frontend:
 
