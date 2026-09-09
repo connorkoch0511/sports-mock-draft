@@ -581,6 +581,60 @@ exports.handler = async (event) => {
       return await autoPickAndAdvance({ d, draftId, playersTable, draftsTable, json });
     }
 
+    // POST /drafts/{draftId}/pause  { paused: boolean }
+    //
+    // Any seated human may stop or restart the clock, and the page names who
+    // did. Griefable in principle; these are people who were sent an invite
+    // link.
+    if (method === "POST" && draftId && path.endsWith("/pause")) {
+      if (!sub) return needsAuth();
+      const body = event.body ? JSON.parse(event.body) : {};
+      const wantPaused = body.paused === true;
+
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+      if (!res.Item || !isSeated(res.Item, sub)) return notFound();
+
+      const d = res.Item;
+      if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+
+      const now = Date.now();
+
+      if (wantPaused) {
+        // Idempotent: a second pause must not overwrite the first one's
+        // timestamp, or the elapsed time it is holding is lost and resume
+        // hands back the wrong remainder.
+        if (d.pausedAt) return json(200, { ok: true, pausedAt: d.pausedAt, pausedBy: d.pausedBy ?? null });
+        await ddb.send(
+          new UpdateCommand({
+            TableName: draftsTable,
+            Key: { draftId },
+            UpdateExpression: "SET pausedAt = :n, pausedBy = :me, version = if_not_exists(version, :z) + :one",
+            ConditionExpression: "attribute_not_exists(pausedAt)",
+            ExpressionAttributeValues: { ":n": now, ":me": sub, ":z": 0, ":one": 1 },
+          })
+        );
+        return json(200, { ok: true, pausedAt: now, pausedBy: sub });
+      }
+
+      if (!d.pausedAt) return json(200, { ok: true, pausedAt: null, pickDeadline: d.pickDeadline ?? null });
+
+      // Push the deadline forward by exactly as long as we were stopped, so a
+      // pause preserves the REMAINING time rather than granting a fresh
+      // minute -- otherwise pausing at four seconds left is a free reset.
+      const extended = (d.pickDeadline ?? now) + (now - d.pausedAt);
+      await ddb.send(
+        new UpdateCommand({
+          TableName: draftsTable,
+          Key: { draftId },
+          UpdateExpression:
+            "SET pickDeadline = :d, version = if_not_exists(version, :z) + :one REMOVE pausedAt, pausedBy",
+          ConditionExpression: "pausedAt = :was",
+          ExpressionAttributeValues: { ":d": extended, ":was": d.pausedAt, ":z": 0, ":one": 1 },
+        })
+      );
+      return json(200, { ok: true, pausedAt: null, pickDeadline: extended });
+    }
+
     // POST /drafts/{draftId}/sim-to-end
     if (method === "POST" && draftId && path.endsWith("/sim-to-end")) {
       if (!sub) return needsAuth();

@@ -319,6 +319,14 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuth
+        PauseDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/pause
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         SimToEnd:
           Type: HttpApi
           Properties:

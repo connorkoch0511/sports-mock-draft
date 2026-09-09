@@ -120,6 +120,7 @@ test("the expected mutating routes are all present", () => {
     "POST /drafts/{draftId}/auto-pick",
     "POST /drafts/{draftId}/expire",
     "POST /drafts/{draftId}/join",
+    "POST /drafts/{draftId}/pause",
     "POST /drafts/{draftId}/pick",
     "POST /drafts/{draftId}/sim-to-end",
     "POST /yahoo/leagues",

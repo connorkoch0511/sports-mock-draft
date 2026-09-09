@@ -1490,6 +1490,78 @@ test("two browsers shouting 'time is up' produce one pick", async () => {
   assert.equal(JSON.parse(two.body).currentIndex, 1, "the loser is told where the draft actually is");
 });
 
+// POST /drafts/{draftId}/pause -- pause has to live on the server, or a
+// pause that stopped only one person's clock is worse than none: everyone
+// else keeps ticking and the person who paused gets auto-picked while they
+// think.
+test("pausing records who stopped it", async () => {
+  let update = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression) { update = cmd.input; return {}; }
+    return { Item: { ...ownedDraft(ME.sub), pickDeadline: Date.now() + 30000 } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: true }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(update.ExpressionAttributeValues[":me"], ME.sub);
+  assert.match(update.UpdateExpression, /pausedAt = :n/);
+});
+
+test("resuming gives back the time that was left, not a fresh minute", async () => {
+  const pausedAt = Date.now() - 600000; // paused ten minutes ago
+  const pickDeadline = pausedAt + 10000; // with ten seconds on the clock
+  let update = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression) { update = cmd.input; return {}; }
+    return { Item: { ...ownedDraft(ME.sub), pickDeadline, pausedAt, pausedBy: ME.sub } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: false }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  const restored = update.ExpressionAttributeValues[":d"] - Date.now();
+  assert.ok(restored > 5000 && restored < 15000, `about ten seconds left, got ${restored}ms`);
+  assert.match(update.UpdateExpression, /REMOVE pausedAt, pausedBy/);
+});
+
+test("an unseated caller cannot pause someone else's draft", async () => {
+  stubSend({ Item: ownedDraft(ME.sub) });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: true }, claims: THEM }));
+  assert.equal(res.statusCode, 404, "404, never 403 -- see Global Constraints");
+});
+
+test("pausing an already-paused draft does not reset the timestamp", async () => {
+  const pausedAt = Date.now() - 5000;
+  let updateCalled = false;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression) { updateCalled = true; return {}; }
+    return { Item: { ...ownedDraft(ME.sub), pickDeadline: Date.now() + 30000, pausedAt, pausedBy: THEM.sub } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: true }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(updateCalled, false, "a second pause must not overwrite the first one's timestamp");
+  const parsed = JSON.parse(res.body);
+  assert.equal(parsed.pausedAt, pausedAt);
+  assert.equal(parsed.pausedBy, THEM.sub);
+});
+
+test("resuming a draft that is not paused is a no-op success", async () => {
+  let updateCalled = false;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression) { updateCalled = true; return {}; }
+    return { Item: { ...ownedDraft(ME.sub), pickDeadline: Date.now() + 30000 } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: false }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  assert.equal(updateCalled, false, "resuming an unpaused draft must not write anything");
+});
+
+test("a completed draft cannot be paused", async () => {
+  const d = { ...ownedDraft(ME.sub), pickDeadline: Date.now() + 30000 };
+  d.currentIndex = d.picks.length;
+  stubSend({ Item: d });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: true }, claims: ME }));
+  assert.equal(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /completed/i);
+});
+
 // Drives /join to its success path: one GetCommand to read the draft, then
 // (usually) one UpdateCommand to claim a bot seat.
 function joinAs(draft, sub, token) {
