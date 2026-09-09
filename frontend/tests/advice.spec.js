@@ -4,6 +4,7 @@ import {
   DRAFT_ID,
   makeDraftState,
   makeCompletedDraft,
+  pauseRoute,
 } from "./fixtures.js";
 import { signIn } from "./auth.js";
 
@@ -47,12 +48,7 @@ function mockPool(page, draftState) {
   // fetch" banner (and the countdown ticking forever, since pausedAt never
   // moves) destabilizes the page layout underneath the very rows these
   // tests are about to click.
-  page.route(`${API}/drafts/${DRAFT_ID}/pause`, (r) => {
-    const { paused } = JSON.parse(r.request().postData() || "{}");
-    draftState.pausedAt = paused ? Date.now() : null;
-    draftState.pausedBy = paused ? "me" : null;
-    return r.fulfill({ json: { ok: true, pausedAt: draftState.pausedAt, pausedBy: draftState.pausedBy, pickDeadline: draftState.pickDeadline } });
-  });
+  page.route(`${API}/drafts/${DRAFT_ID}/pause`, pauseRoute(draftState));
 }
 
 function rowFor(page, name) {

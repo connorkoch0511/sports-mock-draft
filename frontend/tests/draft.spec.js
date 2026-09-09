@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
-import { MOCK_PLAYERS, DRAFT_ID, INVITE_TOKEN, makeDraftState, mockDraftApis } from "./fixtures.js";
+import { MOCK_PLAYERS, DRAFT_ID, INVITE_TOKEN, makeDraftState, mockDraftApis, pauseRoute } from "./fixtures.js";
 import { signIn } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -270,12 +270,7 @@ test.describe("Draft page", () => {
     // Pause is server state as of Task 8, and this screenshot's own title
     // promises "paused" -- the click below needs a real route to land on,
     // not just local state, for that to still be true of what ships.
-    page.route(`${API}/drafts/${DRAFT_ID}/pause`, (r) => {
-      const { paused } = JSON.parse(r.request().postData() || "{}");
-      state.pausedAt = paused ? Date.now() : null;
-      state.pausedBy = paused ? "me" : null;
-      return r.fulfill({ json: { ok: true, pausedAt: state.pausedAt, pausedBy: state.pausedBy, pickDeadline: state.pickDeadline } });
-    });
+    page.route(`${API}/drafts/${DRAFT_ID}/pause`, pauseRoute(state));
 
     // Signed in: the shipped screenshot shows the normal, capable session,
     // not the "sign in to make picks" banner a signed-out visitor would see.
@@ -658,6 +653,38 @@ test.describe("Draft page", () => {
     await expect(page.getByTestId("pick-countdown")).toHaveCount(0);
   });
 
+  // pausedByOther is only ever true when pausedBy names somebody who isn't
+  // you -- pausing your OWN draft must never render the "somebody else"
+  // note. pauseRoute's default `by` ("user-me") matches signIn()'s default
+  // sub, so this is a genuine self-pause through the real POST /pause path,
+  // not a fixture that happens to dodge the comparison.
+  test("pausing your own draft does not say someone else paused it", async ({ page }) => {
+    const state = makeDraftState({});
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+    await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
+
+    await expect(page.getByTestId("paused-by")).toHaveCount(0);
+  });
+
+  // The other half of pausedByOther: pausedBy naming a DIFFERENT sub than
+  // the signed-in one must render the note. Falsifiable against the
+  // production logic -- inverting pausedByOther's `!==` to `===` turns this
+  // red (see task-8-report.md for the recorded RED run).
+  test("a draft paused by someone else names it as paused by someone else", async ({ page }) => {
+    const state = makeDraftState({ pausedAt: Date.now(), pausedBy: "them" });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    await expect(page.getByTestId("paused-by")).toBeVisible();
+    await expect(page.getByTestId("paused-by")).toHaveText("Paused by someone else");
+  });
+
   // Proves the hole Task 7 left open is actually closed: a deadline that
   // passes WHILE PAUSED must never reach /expire. Before this task's fix,
   // clicking Pause never reached the server at all, so the browser's own
@@ -783,12 +810,7 @@ test("the Draft button is disabled when picking is not allowed", async ({ page }
   // an actual route rather than only flipping local state, so this test
   // (unlike most of its neighbors) needs its own /pause handler instead of
   // borrowing mockDraftApis's.
-  page.route(`${API}/drafts/${DRAFT_ID}/pause`, (r) => {
-    const { paused } = JSON.parse(r.request().postData() || "{}");
-    state.pausedAt = paused ? Date.now() : null;
-    state.pausedBy = paused ? "me" : null;
-    return r.fulfill({ json: { ok: true, pausedAt: state.pausedAt, pausedBy: state.pausedBy, pickDeadline: state.pickDeadline } });
-  });
+  page.route(`${API}/drafts/${DRAFT_ID}/pause`, pauseRoute(state));
 
   let calls = 0;
   page.route(`${API}/drafts/${DRAFT_ID}/pick`, (r) => {

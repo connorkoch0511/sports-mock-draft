@@ -270,6 +270,33 @@ function toDraftResponse(state) {
   };
 }
 
+// The stateful POST /pause handler, hand-copied often enough (mockDraftApis
+// below, plus three specs that build their draft route by hand instead of
+// borrowing mockDraftApis) that a drifted copy was only a matter of time.
+// Pausing stamps pausedAt/pausedBy; resuming clears both and -- as the real
+// endpoint does -- hands out a fresh pickDeadline, since a resumed draft
+// gets a full turn again rather than picking up mid-countdown.
+//
+// `by` defaults to "user-me": the same default `sub` signIn() writes into
+// the signed-in session (see auth.js), so a test that signs in with the
+// default identity and pauses through this route sees a SELF-pause, not a
+// mismatched one that renders "Paused by someone else" to the person who
+// just clicked Pause. A test exercising someone else's pause passes a
+// different `by`, or (as "a draft somebody else paused shows as paused
+// here" does) sets pausedBy directly on the fixture instead of pausing
+// through this route at all.
+export function pauseRoute(state, { by = "user-me" } = {}) {
+  return async (r) => {
+    const { paused } = JSON.parse(r.request().postData() || "{}");
+    state.pausedAt = paused ? Date.now() : null;
+    state.pausedBy = paused ? by : null;
+    if (!paused) state.pickDeadline = Date.now() + 60000;
+    return r.fulfill({
+      json: { ok: true, pausedAt: state.pausedAt, pausedBy: state.pausedBy, pickDeadline: state.pickDeadline },
+    });
+  };
+}
+
 export function mockDraftApis(page, draftState) {
   page.route(`${API_BASE}/players*`, async (route) => {
     await route.fulfill({ json: { players: MOCK_PLAYERS } });
@@ -295,13 +322,7 @@ export function mockDraftApis(page, draftState) {
   // Pause is server state as of Phase 2. The GET route above must serve the
   // draft as it is NOW, so mutate the object the GET closes over rather than
   // answering ok and forgetting.
-  page.route(`${API_BASE}/drafts/${DRAFT_ID}/pause`, async (r) => {
-    const { paused } = JSON.parse(r.request().postData() || "{}");
-    draftState.pausedAt = paused ? Date.now() : null;
-    draftState.pausedBy = paused ? "me" : null;
-    if (!paused) draftState.pickDeadline = Date.now() + 60000;
-    return r.fulfill({ json: { ok: true, pausedAt: draftState.pausedAt } });
-  });
+  page.route(`${API_BASE}/drafts/${DRAFT_ID}/pause`, pauseRoute(draftState));
 
   page.route(`${API_BASE}/drafts/${DRAFT_ID}/expire`, (r) =>
     r.fulfill({ status: 409, json: { error: "Clock has not expired" } })
