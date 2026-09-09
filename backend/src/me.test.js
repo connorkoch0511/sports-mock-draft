@@ -133,16 +133,22 @@ test("GET /me/drafts shapes each row for the list", async () => {
   const res = await listDraftsFor("user-me", {
     members: [{ sub: "user-me", draftId: "d1" }],
     drafts: {
-      d1: { draftId: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 4,
-            seats: [{ team: 4, sub: "user-me", kind: "human" }],
+      d1: { draftId: "d1", ownerId: "user-me", teams: 12, rounds: 15, format: "ppr",
+            userTeam: 4, seats: [{ team: 4, sub: "user-me", kind: "human" }],
             boardId: null, currentIndex: 3, createdAt: 1000 },
     },
   });
   assert.strictEqual(res.statusCode, 200);
   assert.deepStrictEqual(JSON.parse(res.body), {
     drafts: [
-      { id: "d1", draftId: "d1", teams: 12, rounds: 15, format: "ppr", userTeam: 4,
-        yourTeam: 4, boardId: null, completed: false, createdAt: 1000 },
+      // ownerId is here on purpose, not incidentally: MyDrafts shows the
+      // Delete control only when it matches the signed-in user, so dropping
+      // it from this response would quietly remove Delete for everybody. The
+      // fixture above has to set it, or this pin cannot see it going missing
+      // -- which is exactly how the same omission hid inviteToken.
+      { id: "d1", draftId: "d1", ownerId: "user-me", teams: 12, rounds: 15,
+        format: "ppr", userTeam: 4, yourTeam: 4, boardId: null,
+        completed: false, createdAt: 1000 },
     ],
   });
 });
