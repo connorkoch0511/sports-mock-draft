@@ -1562,6 +1562,143 @@ test("a completed draft cannot be paused", async () => {
   assert.match(JSON.parse(res.body).error, /completed/i);
 });
 
+// Two people clicking Pause (or Resume) at once is a realistic scenario for
+// a shared draft, not a theoretical one. The loser's conditional write fails
+// with ConditionalCheckFailedException -- and that failure means the draft
+// is already in a real, definite state, just not the one this stale read
+// expected. It must never reach the handler's outermost catch, which would
+// answer with a raw AWS message under a 500.
+test("racing to pause returns the winner's state, not a 500", async () => {
+  const winnerPausedAt = Date.now() - 1000;
+  const gets = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "UpdateCommand") {
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
+    }
+    gets.push(cmd.input);
+    // First GetCommand is this request's own read, before anyone had paused.
+    // Second is the re-read after losing the race, which sees the winner's
+    // write -- ConsistentRead, for the same reason /join's re-read needs it:
+    // this GET exists specifically to observe a write that JUST happened.
+    if (gets.length === 1) {
+      return { Item: { ...ownedDraft(ME.sub), pickDeadline: Date.now() + 30000 } };
+    }
+    return {
+      Item: {
+        ...ownedDraft(ME.sub),
+        pickDeadline: Date.now() + 30000,
+        pausedAt: winnerPausedAt,
+        pausedBy: THEM.sub,
+      },
+    };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: true }, claims: ME }));
+  assert.equal(res.statusCode, 200, "ordinary contention is not a 500");
+  const body = JSON.parse(res.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.pausedAt, winnerPausedAt);
+  assert.equal(body.pausedBy, THEM.sub);
+  assert.equal(typeof body.pickDeadline, "number");
+  assert.equal(gets.length, 2, "lost the race, so re-read once to learn who won");
+  assert.equal(gets[1].ConsistentRead, true, "the re-read must be strongly consistent");
+});
+
+test("racing to resume returns the winner's state, not a 500", async () => {
+  const pausedAt = Date.now() - 600000; // paused ten minutes ago
+  const pickDeadline = pausedAt + 10000; // with ten seconds on the clock
+  const gets = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "UpdateCommand") {
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
+    }
+    gets.push(cmd.input);
+    if (gets.length === 1) {
+      return { Item: { ...ownedDraft(ME.sub), pickDeadline, pausedAt, pausedBy: ME.sub } };
+    }
+    // Somebody else's resume already landed: pausedAt/pausedBy are gone and
+    // the deadline has already been pushed forward.
+    return { Item: { ...ownedDraft(ME.sub), pickDeadline: pickDeadline + 5000 } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: false }, claims: ME }));
+  assert.equal(res.statusCode, 200, "ordinary contention is not a 500");
+  const body = JSON.parse(res.body);
+  assert.equal(body.ok, true);
+  assert.equal(body.pausedAt, null);
+  assert.equal(body.pausedBy, null);
+  assert.equal(body.pickDeadline, pickDeadline + 5000);
+  assert.equal(gets.length, 2, "lost the race, so re-read once to learn who won");
+  assert.equal(gets[1].ConsistentRead, true, "the re-read must be strongly consistent");
+});
+
+// The frontend task consumes this endpoint and reads one field set. All four
+// exit paths -- pausing fresh, pausing an already-paused draft, resuming for
+// real, and resuming a draft that isn't paused -- must return exactly
+// { ok, pausedAt, pausedBy, pickDeadline }, with pausedAt/pausedBy null when
+// the draft is not paused.
+function assertUniformPauseShape(body) {
+  assert.deepEqual(
+    Object.keys(body).sort(),
+    ["ok", "pausedAt", "pausedBy", "pickDeadline"].sort()
+  );
+}
+
+test("pausing fresh returns the full, uniform shape", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression) return {};
+    return { Item: { ...ownedDraft(ME.sub), pickDeadline: Date.now() + 30000 } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: true }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assertUniformPauseShape(body);
+  assert.equal(body.pausedBy, ME.sub);
+  assert.equal(typeof body.pausedAt, "number");
+  assert.equal(typeof body.pickDeadline, "number");
+});
+
+test("pausing an already-paused draft returns the full, uniform shape", async () => {
+  const pausedAt = Date.now() - 5000;
+  stubSend({ Item: { ...ownedDraft(ME.sub), pickDeadline: Date.now() + 30000, pausedAt, pausedBy: THEM.sub } });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: true }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assertUniformPauseShape(body);
+  assert.equal(body.pausedAt, pausedAt);
+  assert.equal(body.pausedBy, THEM.sub);
+});
+
+test("resuming for real returns the full, uniform shape with paused fields null", async () => {
+  const pausedAt = Date.now() - 600000;
+  const pickDeadline = pausedAt + 10000;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression) return {};
+    return { Item: { ...ownedDraft(ME.sub), pickDeadline, pausedAt, pausedBy: ME.sub } };
+  });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: false }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assertUniformPauseShape(body);
+  assert.equal(body.pausedAt, null);
+  assert.equal(body.pausedBy, null);
+  assert.equal(typeof body.pickDeadline, "number");
+});
+
+test("resuming a draft that is not paused returns the full, uniform shape", async () => {
+  const pickDeadline = Date.now() + 30000;
+  stubSend({ Item: { ...ownedDraft(ME.sub), pickDeadline } });
+  const res = await handler(evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: false }, claims: ME }));
+  assert.equal(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assertUniformPauseShape(body);
+  assert.equal(body.pausedAt, null);
+  assert.equal(body.pausedBy, null);
+  assert.equal(body.pickDeadline, pickDeadline);
+});
+
 // Drives /join to its success path: one GetCommand to read the draft, then
 // (usually) one UpdateCommand to claim a bot seat.
 function joinAs(draft, sub, token) {

@@ -599,40 +599,82 @@ exports.handler = async (event) => {
 
       const now = Date.now();
 
+      // The loser of a pause/resume race lost only because somebody else's
+      // write landed first -- the draft is already in a real, definite
+      // state, just not the one this request's stale read expected. That is
+      // "somebody already paused it" or "somebody already resumed it", never
+      // "something is broken", so a re-read (ConsistentRead, for the same
+      // reason /join needs it above: this GET exists specifically to observe
+      // the write that just beat us) reported as success is the honest
+      // answer -- not a 500 with a raw AWS message, and not a 409 either,
+      // since the caller's request (stop the clock / restart the clock) has
+      // effectively already been satisfied by the winner.
+      const reportCurrent = async () => {
+        const fresh = await ddb.send(
+          new GetCommand({ TableName: draftsTable, Key: { draftId }, ConsistentRead: true })
+        );
+        const item = fresh.Item || {};
+        return json(200, {
+          ok: true,
+          pausedAt: item.pausedAt ?? null,
+          pausedBy: item.pausedBy ?? null,
+          pickDeadline: item.pickDeadline ?? null,
+        });
+      };
+
       if (wantPaused) {
         // Idempotent: a second pause must not overwrite the first one's
         // timestamp, or the elapsed time it is holding is lost and resume
         // hands back the wrong remainder.
-        if (d.pausedAt) return json(200, { ok: true, pausedAt: d.pausedAt, pausedBy: d.pausedBy ?? null });
-        await ddb.send(
-          new UpdateCommand({
-            TableName: draftsTable,
-            Key: { draftId },
-            UpdateExpression: "SET pausedAt = :n, pausedBy = :me, version = if_not_exists(version, :z) + :one",
-            ConditionExpression: "attribute_not_exists(pausedAt)",
-            ExpressionAttributeValues: { ":n": now, ":me": sub, ":z": 0, ":one": 1 },
-          })
-        );
-        return json(200, { ok: true, pausedAt: now, pausedBy: sub });
+        if (d.pausedAt) {
+          return json(200, {
+            ok: true,
+            pausedAt: d.pausedAt,
+            pausedBy: d.pausedBy ?? null,
+            pickDeadline: d.pickDeadline ?? null,
+          });
+        }
+        try {
+          await ddb.send(
+            new UpdateCommand({
+              TableName: draftsTable,
+              Key: { draftId },
+              UpdateExpression: "SET pausedAt = :n, pausedBy = :me, version = if_not_exists(version, :z) + :one",
+              ConditionExpression: "attribute_not_exists(pausedAt)",
+              ExpressionAttributeValues: { ":n": now, ":me": sub, ":z": 0, ":one": 1 },
+            })
+          );
+        } catch (e) {
+          if (e?.name !== "ConditionalCheckFailedException") throw e;
+          return await reportCurrent();
+        }
+        return json(200, { ok: true, pausedAt: now, pausedBy: sub, pickDeadline: d.pickDeadline ?? null });
       }
 
-      if (!d.pausedAt) return json(200, { ok: true, pausedAt: null, pickDeadline: d.pickDeadline ?? null });
+      if (!d.pausedAt) {
+        return json(200, { ok: true, pausedAt: null, pausedBy: null, pickDeadline: d.pickDeadline ?? null });
+      }
 
       // Push the deadline forward by exactly as long as we were stopped, so a
       // pause preserves the REMAINING time rather than granting a fresh
       // minute -- otherwise pausing at four seconds left is a free reset.
       const extended = (d.pickDeadline ?? now) + (now - d.pausedAt);
-      await ddb.send(
-        new UpdateCommand({
-          TableName: draftsTable,
-          Key: { draftId },
-          UpdateExpression:
-            "SET pickDeadline = :d, version = if_not_exists(version, :z) + :one REMOVE pausedAt, pausedBy",
-          ConditionExpression: "pausedAt = :was",
-          ExpressionAttributeValues: { ":d": extended, ":was": d.pausedAt, ":z": 0, ":one": 1 },
-        })
-      );
-      return json(200, { ok: true, pausedAt: null, pickDeadline: extended });
+      try {
+        await ddb.send(
+          new UpdateCommand({
+            TableName: draftsTable,
+            Key: { draftId },
+            UpdateExpression:
+              "SET pickDeadline = :d, version = if_not_exists(version, :z) + :one REMOVE pausedAt, pausedBy",
+            ConditionExpression: "pausedAt = :was",
+            ExpressionAttributeValues: { ":d": extended, ":was": d.pausedAt, ":z": 0, ":one": 1 },
+          })
+        );
+      } catch (e) {
+        if (e?.name !== "ConditionalCheckFailedException") throw e;
+        return await reportCurrent();
+      }
+      return json(200, { ok: true, pausedAt: null, pausedBy: null, pickDeadline: extended });
     }
 
     // POST /drafts/{draftId}/sim-to-end
