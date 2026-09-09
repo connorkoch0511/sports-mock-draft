@@ -565,6 +565,39 @@ test.describe("Draft page", () => {
     expect(autoPicks).toBe(0);
   });
 
+  // Regression test for a render race the implementer found and fixed: the
+  // expire effect originally scheduled off the polled `secondsLeft` display
+  // state, which is still its stale initial value (0) in the very commit
+  // where `draft` first resolves from null -- both effects run in that same
+  // commit, so the expire effect saw 0 and fired /expire immediately, against
+  // a deadline a full minute away. This reproduced on essentially every draft
+  // load. A future deadline is what discriminates the fix from the bug: the
+  // buggy version fires the spurious call on mount regardless of the
+  // deadline, so it must stay non-zero here through several 3-second
+  // background polls, not just through the first tick.
+  test("a comfortably future deadline never calls /expire, across several background polls", async ({ page }) => {
+    const state = makeDraftState({ pickDeadline: Date.now() + 60000 });
+    mockDraftApis(page, state);
+
+    let expires = 0;
+    // Registered after mockDraftApis, so it wins over the fixture's own
+    // always-409 /expire route -- this test needs to COUNT calls, not just
+    // let them 409 silently.
+    await page.route(`${API}/drafts/${DRAFT_ID}/expire`, (r) => {
+      expires += 1;
+      return r.fulfill({ status: 409, json: { error: "Clock has not expired" } });
+    });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("pick-countdown")).toBeVisible();
+
+    // Long enough for the page to settle after mount (where the race fired)
+    // and for several of the 3-second background polls to land.
+    await page.waitForTimeout(10000);
+    expect(expires).toBe(0);
+  });
+
   test("a draft with no stored deadline still renders, and asks nothing of the server", async ({ page }) => {
     // Rows created before this shipped carry no pickDeadline.
     const state = makeDraftState({ pickDeadline: null });

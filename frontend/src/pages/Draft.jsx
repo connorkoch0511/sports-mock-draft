@@ -109,6 +109,11 @@ export default function Draft() {
   const refresh = async () => {
     try {
       const d = await apiGet(`/drafts/${draftId}`);
+      // Every poll response carries a fresh server `now`, same as `load()`'s
+      // own read -- recalibrating here too is nearly free and keeps a
+      // long-running draft page's countdown accurate against clock drift,
+      // not just the value measured once at mount.
+      skewRef.current = skewFrom(d.now);
       setDraft((prev) => (prev && prev.version === d.version ? prev : d));
     } catch {
       // A poll failing is not worth surfacing over whatever the page is
