@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { usePageTitle } from "../lib/usePageTitle";
 import { fetchMyDrafts, fetchMyBoards } from "../lib/me";
 import { apiDelete } from "../lib/api";
+import { useAuth } from "../lib/authContext.js";
 
 const FORMAT_LABEL = {
   standard: "Standard",
@@ -18,7 +19,15 @@ function describe(d) {
   // the exact same millisecond. This string backs both the aria-label and
   // the delete confirmation, so it is the only thing standing between a
   // careful user and deleting the wrong one.
-  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams, ${d.rounds} rounds, pick ${d.userTeam}, created ${relativeTime(d.createdAt)}`;
+  //
+  // yourTeam is derived fresh per caller from seats on every request and is
+  // never stored, so no write could ever populate it -- this fallback isn't
+  // about "until the next write". It covers two real cases, same as the
+  // draft page: a draft whose `seats` predate the field entirely (userTeam
+  // is genuinely correct there, since those drafts only ever had one
+  // human), and a stale membership row, where it quietly shows the
+  // CREATOR's team instead of yours.
+  return `${FORMAT_LABEL[d.format] || d.format}, ${d.teams} teams, ${d.rounds} rounds, pick ${d.yourTeam ?? d.userTeam}, created ${relativeTime(d.createdAt)}`;
 }
 
 function relativeTime(ts) {
@@ -32,6 +41,7 @@ function relativeTime(ts) {
 }
 
 export default function MyDrafts() {
+  const { sub } = useAuth();
   const [drafts, setDrafts] = useState(null);
   const [boards, setBoards] = useState([]);
   const [err, setErr] = useState("");
@@ -141,7 +151,7 @@ export default function MyDrafts() {
                     </span>
                   </div>
                   <div className="mt-1 text-xs text-zinc-500">
-                    Pick {d.userTeam}
+                    Pick {d.yourTeam ?? d.userTeam}
                     {boardName ? ` · off ${boardName}` : ""} · {relativeTime(d.createdAt)}
                   </div>
                 </Link>
@@ -155,16 +165,24 @@ export default function MyDrafts() {
                     Analysis
                   </Link>
                 )}
-                <button
-                  type="button"
-                  onClick={() => remove(d)}
-                  data-testid="delete-draft"
-                  aria-label={`Delete ${describe(d)} draft`}
-                  title="Deletes the draft for everyone. Anyone you shared it with will lose access."
-                  className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
-                >
-                  Delete
-                </button>
+                {/* Delete is owner-only on the server (a conditional delete
+                    on ownerId), which answers a non-owner's request with the
+                    same 404 as "already gone" -- so offering the button on a
+                    draft you joined would show the scary confirmation, then
+                    do nothing, with no explanation why. `/me/drafts` returns
+                    `ownerId`; only show the control when it is actually us. */}
+                {d.ownerId === sub && (
+                  <button
+                    type="button"
+                    onClick={() => remove(d)}
+                    data-testid="delete-draft"
+                    aria-label={`Delete ${describe(d)} draft`}
+                    title="Deletes the draft for everyone. Anyone you shared it with will lose access."
+                    className="rounded-2xl border border-zinc-800 px-3 py-3 text-xs text-zinc-500 hover:border-rose-900/60 hover:text-rose-300"
+                  >
+                    Delete
+                  </button>
+                )}
               </li>
             );
           })}

@@ -25,7 +25,11 @@ test("selected slot is sent when creating a draft", async ({ page }) => {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ...makeDraftState(), userTeam: 7 }),
+      // Passed in rather than spread on afterward: makeDraftState derives
+      // both `userTeam` and `yourTeam` (and defaults `seats`) from this one
+      // argument, and overriding just `userTeam` on the returned object
+      // would leave `yourTeam` disagreeing with it.
+      body: JSON.stringify(makeDraftState({ userTeam: 7 })),
     })
   );
   await page.route("**/players*", (route) =>
@@ -54,7 +58,10 @@ test("random slot disables the selector", async ({ page }) => {
 });
 
 test("the clock belongs to the user's slot, not Team 1", async ({ page }) => {
-  const state = { ...makeDraftState({ currentIndex: 6 }), userTeam: 7 };
+  // Same reason as the test above: userTeam must come from makeDraftState's
+  // own argument, not a post-hoc override, so yourTeam (and the default
+  // seats) agree with it.
+  const state = makeDraftState({ currentIndex: 6, userTeam: 7 });
   await page.route(`**/drafts/${DRAFT_ID}`, (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(state) })
   );

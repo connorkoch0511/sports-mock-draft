@@ -28,7 +28,13 @@ const FLEX_ELIGIBLE_POSITIONS = ["RB", "WR", "TE"];
  */
 export function analyzeDraft(draft) {
   const teamCount = Number(draft?.teams) || 0;
-  const userTeam = draft?.userTeam ?? null;
+  // yourTeam is derived fresh per request from seats and is never stored, so
+  // no write could ever populate it -- this fallback isn't about waiting for
+  // one. It covers two real cases: a draft whose `seats` predate the field
+  // entirely (userTeam is genuinely correct there, since those drafts only
+  // ever had one human), and a stale membership row, where it quietly
+  // scores the CREATOR's team instead of yours.
+  const userTeam = draft?.yourTeam ?? draft?.userTeam ?? null;
   const rosterSlots = Array.isArray(draft?.rosterSlots) ? draft.rosterSlots : [];
   const made = (Array.isArray(draft?.picks) ? draft.picks : []).filter(
     (p) => p && p.player

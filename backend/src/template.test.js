@@ -118,6 +118,7 @@ test("the expected mutating routes are all present", () => {
     "POST /boards",
     "POST /drafts",
     "POST /drafts/{draftId}/auto-pick",
+    "POST /drafts/{draftId}/join",
     "POST /drafts/{draftId}/pick",
     "POST /drafts/{draftId}/sim-to-end",
     "POST /yahoo/leagues",
@@ -160,6 +161,22 @@ test("POST /yahoo/leagues requires a signed-in user", () => {
   const ev = tpl.Resources.YahooFunction.Properties.Events;
   const route = Object.values(ev).find((e) => e.Properties.Path === "/yahoo/leagues");
   assert.strictEqual(route.Properties.Auth.Authorizer, "CognitoAuth");
+});
+
+test("POST /drafts/{draftId}/join requires a signed-in user", () => {
+  const tpl = loadTemplate();
+  const ev = tpl.Resources.DraftsFunction.Properties.Events;
+  const route = Object.values(ev).find((e) => e.Properties.Path === "/drafts/{draftId}/join");
+  assert.strictEqual(route.Properties.Auth.Authorizer, "CognitoAuth");
+});
+
+test("the members table is keyed by person and draft", () => {
+  const tpl = loadTemplate();
+  const keys = tpl.Resources.DraftMembersTable.Properties.KeySchema;
+  assert.deepStrictEqual(keys, [
+    { AttributeName: "sub", KeyType: "HASH" },
+    { AttributeName: "draftId", KeyType: "RANGE" },
+  ]);
 });
 
 // The fetch abort inside the handler must fire before the platform kills the

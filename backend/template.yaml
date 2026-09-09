@@ -144,6 +144,24 @@ Resources:
               - boardId
               - currentIndex
               - createdAt
+  # seats already says who is in a draft, but seats is a list and a DynamoDB
+  # index cannot be built on a list, so membership gets its own rows here.
+  # The seat is still the truth -- GET /drafts/{draftId} gates on isSeated and
+  # never on this table -- so a row here is a cache used only for listing.
+  DraftMembersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sub
+          AttributeType: S
+        - AttributeName: draftId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sub
+          KeyType: HASH
+        - AttributeName: draftId
+          KeyType: RANGE
   PlayersTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -243,12 +261,15 @@ Resources:
         Variables:
           DRAFTS_TABLE: !Ref DraftsTable
           PLAYERS_TABLE: !Ref PlayersTable
+          DRAFT_MEMBERS_TABLE: !Ref DraftMembersTable
           ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DraftsTable
         - DynamoDBReadPolicy:
             TableName: !Ref PlayersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DraftMembersTable
       Events:
         CreateDraft:
           Type: HttpApi
@@ -264,6 +285,14 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}
             Method: GET
+            Auth:
+              Authorizer: CognitoAuth
+        JoinDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/join
+            Method: POST
             Auth:
               Authorizer: CognitoAuth
         Pick:
@@ -411,12 +440,15 @@ Resources:
         Variables:
           DRAFTS_TABLE: !Ref DraftsTable
           BOARDS_TABLE: !Ref BoardsTable
+          DRAFT_MEMBERS_TABLE: !Ref DraftMembersTable
           ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref DraftsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref BoardsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref DraftMembersTable
       Events:
         MyDrafts:
           Type: HttpApi

@@ -74,10 +74,65 @@ function ownedDraft(ownerId, seatSub = ownerId) {
   };
 }
 
+// GET /drafts/{draftId} as a specific caller: stubs the single GetCommand it
+// issues and drives the handler, so tests read as "ask for this draft as
+// this person" rather than repeating the stub/evt wiring each time.
+function getDraftAs(draft, sub) {
+  stubSend({ Item: draft });
+  return handler(evt("GET", `/drafts/${draft.draftId}`, { draftId: draft.draftId, claims: { sub } }));
+}
+
+// Drives /pick all the way to its write, simulating a table where somebody
+// else's pick has already moved currentIndex on since our stale read.
+//
+// This does not just make the UpdateCommand reject unconditionally -- a stub
+// that rejects no matter what the command contains would still "pass" this
+// test even if advance.js's ConditionExpression were deleted, since nothing
+// here would notice. Instead this behaves the way DynamoDB actually does:
+// it inspects the write's own ConditionExpression and only fails the request
+// when one is present and does not hold against the server's index. Remove
+// the guard from advance.js and this stub lets the write through, same as a
+// real, unconditional UpdateCommand would -- which is exactly the silent
+// overwrite this task exists to prevent, and exactly what should turn this
+// test from green to red.
+function pickAsWithConditionFailure(draft, sub, playerId) {
+  const serverCurrentIndex = draft.currentIndex + 1;
+  let draftGets = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "UpdateCommand") {
+      const expected = cmd.input.ExpressionAttributeValues?.[":expected"];
+      if (cmd.input.ConditionExpression && expected !== serverCurrentIndex) {
+        const e = new Error("The conditional request failed");
+        e.name = "ConditionalCheckFailedException";
+        throw e;
+      }
+      return {};
+    }
+    if (cmd?.input?.TableName === "players-test") {
+      return {
+        Item: {
+          playerId, id: playerId, name: "Test Back", position: "RB", team: "SF",
+          rank: { standard: 1 }, adp: { standard: 1 }, tier: { standard: 1 },
+        },
+      };
+    }
+    draftGets += 1;
+    if (draftGets === 1) return { Item: draft };
+    // Somebody else's pick landed between our read and our write.
+    return { Item: { ...draft, currentIndex: serverCurrentIndex, version: (draft.version || 0) + 1 } };
+  });
+  return handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId }, claims: { sub } })
+  );
+}
+
 test("POST /drafts seats the creator", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    put = cmd.input;
+    // A second PutCommand now writes the membership row after the draft's
+    // own; only the draft's carries seats, so that's the one this test cares
+    // about.
+    if (cmd.input?.Item?.seats) put = cmd.input;
     return {};
   });
   await handler(
@@ -99,7 +154,10 @@ test("POST /drafts seats the creator", async () => {
 test("POST /drafts with an out-of-range userTeam still seats exactly one human", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    put = cmd.input;
+    // A second PutCommand now writes the membership row after the draft's
+    // own; only the draft's carries seats, so that's the one this test cares
+    // about.
+    if (cmd.input?.Item?.seats) put = cmd.input;
     return {};
   });
   await handler(
@@ -201,7 +259,10 @@ test("POST /drafts without claims is 401", async () => {
 test("POST /drafts stores the caller's sub as ownerId", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    put = cmd.input;
+    // A second PutCommand now writes the membership row after the draft's
+    // own; only the draft's carries seats, so that's the one this test cares
+    // about.
+    if (cmd.input?.Item?.seats) put = cmd.input;
     return {};
   });
   const res = await handler(
@@ -289,6 +350,24 @@ test("the owner can pick", async () => {
     })
   );
   assert.strictEqual(res.statusCode, 200);
+});
+
+// The defect this task exists for: two picks from the same currentIndex.
+// Today both succeed and one is silently overwritten.
+test("a pick that lost the race is refused, not silently dropped", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+    picks: [{ team: 1 }, { team: 1 }],
+  };
+  // The second write fails its condition, as DynamoDB would when another
+  // request has already moved currentIndex on.
+  const res = await pickAsWithConditionFailure(draft, "alice", "p1");
+  assert.strictEqual(res.statusCode, 409);
+  const body = JSON.parse(res.body);
+  assert.match(body.error, /somebody just picked/i);
+  // The client needs to know where the draft actually is now.
+  assert.ok(Number.isInteger(body.currentIndex));
 });
 
 // Superseded: sharing a link no longer grants access on its own. This task
@@ -519,8 +598,10 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     userTeam: 2,
     rosterSlots: ["QB", "RB"],
     boardId: "board-1",
+    inviteToken: "invite-abc123",
     picked: ["p1"],
     currentIndex: 1,
+    version: 7,
     picks: [
       { overall: 1, round: 1, team: 1, playerId: "p1", player: { id: "p1", name: "A" } },
       { overall: 2, round: 1, team: 2, playerId: null, player: null },
@@ -547,10 +628,20 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     teams: 4,
     rounds: 2,
     userTeam: 2,
+    yourTeam: 2,
+    // Reduced shape: team + kind only. `sub` (a teammate's Cognito id) is on
+    // the stored draft item but must not reach the response -- the page
+    // never reads it, and there is no reason to ship it once it isn't used.
+    seats: [
+      { team: 1, kind: "bot" },
+      { team: 2, kind: "human" },
+    ],
     rosterSlots: ["QB", "RB"],
     boardId: "board-1",
+    inviteToken: "invite-abc123",
     picked: ["p1"],
     currentIndex: 1,
+    version: 7,
     currentRound: 1,
     currentPick: 2,
     currentTeam: 2,
@@ -562,6 +653,33 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
       { overall: 4, round: 2, team: 1, playerId: null, player: null },
     ],
   });
+});
+
+// userTeam is fixed at creation and belongs to whoever created the draft.
+// yourTeam is derived per request from seats, so the same draft object
+// answers "team 1" for the creator and "team 2" for a joiner asking the
+// identical endpoint.
+test("yourTeam is the caller's own seat, not the creator's", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", userTeam: 1, currentIndex: 0, picks: [], picked: [],
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+  };
+  assert.strictEqual(JSON.parse((await getDraftAs(draft, "alice")).body).yourTeam, 1);
+  assert.strictEqual(JSON.parse((await getDraftAs(draft, "bob")).body).yourTeam, 2);
+});
+
+// The client polls this endpoint so everyone sees everyone's picks, and only
+// re-renders when version has moved -- so GET has to carry the same version
+// a write bumps, not just report it back inside a 409.
+test("GET /drafts/{id} carries version, so a poller can tell a write happened", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picks: [], picked: [], version: 3,
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+  };
+  assert.strictEqual(JSON.parse((await getDraftAs(draft, "alice")).body).version, 3);
 });
 
 test("pick success returns { ok: true }", async () => {
@@ -859,6 +977,29 @@ test("sim-to-end success returns { ok: true, completed }", async () => {
   assert.deepStrictEqual(JSON.parse(res.body), { ok: true, completed: true });
 });
 
+// Drives /sim-to-end to its refusal path: only the draft's own GetCommand
+// should ever fire, since the human-seat check happens before any players
+// are loaded.
+function simToEndAs(draft, sub) {
+  stubByTable({ "drafts-test": { Item: draft } });
+  return handler(
+    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", claims: { sub } })
+  );
+}
+
+test("sim to end is refused once somebody else is in the draft", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], picks: [{ team: 1 }],
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+  };
+  const res = await simToEndAs(draft, "alice");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /on your own/i);
+});
+
 test("an unrouted path is 404 Not found", async () => {
   // PATCH is not a method any branch handles (unlike DELETE, which is now
   // routed), so it still exercises the catch-all.
@@ -902,7 +1043,7 @@ test("the player pool query pages until exhausted", async () => {
     // currentIndex 0 with two picks queued keeps the completed-draft check
     // from short-circuiting before the pool load is reached.
     if (cmd?.input?.Key) {
-      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{}, {}], currentIndex: 0 } };
+      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{ team: 1 }, { team: 1 }], currentIndex: 0 } };
     }
     queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
@@ -938,7 +1079,7 @@ test("the player pool query threads ExclusiveStartKey from the prior page's Last
   const queryStartKeys = [];
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     if (cmd?.input?.Key) {
-      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{}, {}], currentIndex: 0 } };
+      return { Item: { draftId: "d1", ownerId: "user-me", seats: [{ team: 1, sub: "user-me", kind: "human" }], picked: [], picks: [{ team: 1 }, { team: 1 }], currentIndex: 0 } };
     }
     queryStartKeys.push(cmd?.input?.ExclusiveStartKey);
     const page = pages[queries] || { Items: [] };
@@ -1014,11 +1155,481 @@ test("DELETE without a draftId falls through to the catch-all", async () => {
 test("a new draft has exactly one human seat, and it is the owner", async () => {
   let put = null;
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
-    put = cmd.input;
+    // A second PutCommand now writes the membership row after the draft's
+    // own; only the draft's carries seats, so that's the one this test cares
+    // about.
+    if (cmd.input?.Item?.seats) put = cmd.input;
     return {};
   });
   await handler(evt("POST", "/drafts", { body: { teams: 8, rounds: 2 }, claims: ME }));
   const humans = put.Item.seats.filter((s) => s.kind === "human");
   assert.strictEqual(humans.length, 1);
   assert.strictEqual(humans[0].sub, put.Item.ownerId);
+});
+
+const { seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
+
+const draftWith = (seats, currentIndex = 0, picks = [{ team: 1 }, { team: 2 }]) =>
+  ({ seats, currentIndex, picks });
+
+test("seatOf finds the seat a person holds", () => {
+  const d = draftWith([
+    { team: 1, sub: "alice", kind: "human" },
+    { team: 2, sub: null, kind: "bot" },
+  ]);
+  assert.strictEqual(seatOf(d, "alice").team, 1);
+  assert.strictEqual(seatOf(d, "bob"), null);
+});
+
+// A bot seat has sub null, and a signed-out caller has no sub. Neither may
+// match the other, or a signed-out request would hold every bot seat.
+test("a null sub matches no seat, including bot seats", () => {
+  const d = draftWith([{ team: 1, sub: null, kind: "bot" }]);
+  assert.strictEqual(seatOf(d, null), null);
+  assert.strictEqual(seatOf(d, undefined), null);
+  assert.strictEqual(seatOf(d, ""), null);
+});
+
+test("teamOnClock reads the pick the draft is on", () => {
+  assert.strictEqual(teamOnClock(draftWith([], 0)), 1);
+  assert.strictEqual(teamOnClock(draftWith([], 1)), 2);
+});
+
+test("a finished or malformed draft has nobody on the clock", () => {
+  assert.strictEqual(teamOnClock(draftWith([], 2)), null);
+  assert.strictEqual(teamOnClock({ picks: [], currentIndex: 0 }), null);
+  assert.strictEqual(teamOnClock({}), null);
+});
+
+test("humanSeatCount counts only human seats", () => {
+  assert.strictEqual(humanSeatCount(draftWith([
+    { team: 1, sub: "a", kind: "human" },
+    { team: 2, sub: "b", kind: "human" },
+    { team: 3, sub: null, kind: "bot" },
+  ])), 2);
+  assert.strictEqual(humanSeatCount({}), 0);
+});
+
+// Mirrors what "the owner can pick" stubs by hand: the pick route reads the
+// draft, then the player snapshot, before writing either back.
+function pickAs(draft, sub, playerId) {
+  stubByTable({
+    "drafts-test": { Item: draft },
+    "players-test": {
+      Item: {
+        playerId,
+        id: playerId,
+        name: "Test Back",
+        position: "RB",
+        team: "SF",
+        rank: { standard: 1 },
+        adp: { standard: 1 },
+        tier: { standard: 1 },
+      },
+    },
+  });
+  return handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId }, claims: { sub } })
+  );
+}
+
+test("picking out of turn is refused", async () => {
+  // Two humans; team 1 is on the clock, and bob holds team 2.
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    picks: [{ team: 1 }, { team: 2 }],
+  };
+  const res = await pickAs(draft, "bob", "p1");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /not your pick/i);
+});
+
+test("picking on your own turn is allowed", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    picks: [{ team: 1 }, { team: 2 }],
+  };
+  const res = await pickAs(draft, "alice", "p1");
+  assert.strictEqual(res.statusCode, 200);
+});
+
+// Being in the draft is still what decides whether you can SEE it. Only
+// picking gained a second question.
+test("somebody with no seat still gets 404 rather than 409", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+    picks: [{ team: 1 }],
+  };
+  const res = await pickAs(draft, "stranger", "p1");
+  assert.strictEqual(res.statusCode, 404);
+});
+
+// Mirrors pickAs above, for /auto-pick: reads/writes the same draft, and
+// stubs a one-player pool so a scoring pick (when one is reached) is
+// deterministic.
+const AUTO_POOL_ONE = [
+  {
+    sport: "nfl", id: "p1", playerId: "p1", name: "Player One", position: "RB", team: "SF",
+    rank: { standard: 10 }, adp: { standard: 12.3 }, tier: { standard: 2 },
+  },
+];
+
+function autoPickAs(draft, sub, poolItems = AUTO_POOL_ONE) {
+  stubByTable({
+    "drafts-test": { Item: draft },
+    "players-test": { Items: poolItems },
+  });
+  return handler(
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: { sub } })
+  );
+}
+
+// The reviewer's finding: called as one seated human while a DIFFERENT human
+// held the seat on the clock, this used to return 200 and the server drafted
+// that person's pick. Team 1 (alice) is on the clock; bob, seated at team 2,
+// calls auto-pick.
+test("auto-pick as a human who does not hold the seat on the clock is refused", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    sport: "nfl", format: "standard",
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: null, player: null },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+    ],
+  };
+  const res = await autoPickAs(draft, "bob");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /not your pick/i);
+  // Refused before any pick was scored or written -- the draft the
+  // in-memory `draft` object still describes is untouched.
+  assert.strictEqual(draft.picks[0].playerId, null);
+  assert.strictEqual(draft.currentIndex, 0);
+});
+
+// The clause the fix must not lose: auto-picking your OWN turn is exactly
+// what the Auto Pick button is for, and this is the seat on the clock.
+test("auto-pick on your own turn is allowed", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 0, picked: [], version: 1,
+    sport: "nfl", format: "standard",
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: null, player: null },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+    ],
+  };
+  const res = await autoPickAs(draft, "alice");
+  assert.strictEqual(res.statusCode, 200);
+});
+
+// The other allowed case: nobody holds the clock because it is a bot seat,
+// and any seated human's browser may take that pick.
+test("auto-pick when a bot is on the clock is allowed for any seated human", async () => {
+  const draft = {
+    draftId: "d1", ownerId: "alice", currentIndex: 1, picked: [], version: 1,
+    sport: "nfl", format: "standard",
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+    ],
+    picks: [
+      { overall: 1, round: 1, team: 1, playerId: null, player: null },
+      { overall: 2, round: 1, team: 2, playerId: null, player: null },
+    ],
+  };
+  const res = await autoPickAs(draft, "alice");
+  assert.strictEqual(res.statusCode, 200);
+});
+
+// Drives /join to its success path: one GetCommand to read the draft, then
+// (usually) one UpdateCommand to claim a bot seat.
+function joinAs(draft, sub, token) {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") return { Item: draft };
+    return {}; // UpdateCommand result is ignored
+  });
+  return handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
+  );
+}
+
+// The seat race the whole task exists for: a conditional write fails exactly
+// when its ConditionExpression targets a seat index that is actually taken --
+// not "the first write, whatever it targets." Rejecting unconditionally would
+// pass even against a handler that retried the same seat forever, so the stub
+// has to model the condition, the same lesson lib/advance.js's stub needed
+// one commit earlier on this branch.
+function stubSeatWrites({ takenIndexes }) {
+  return async (cmd) => {
+    const expr = cmd?.input?.ConditionExpression || "";
+    const m = expr.match(/seats\[(\d+)\]\.kind/);
+    if (m && takenIndexes.includes(Number(m[1]))) {
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
+    }
+    return {};
+  };
+}
+
+// Simulates the exact race the whole task exists for: seat index 1 (team 2)
+// is taken by somebody else between our read and our write.
+function joinAsWithFirstSeatTaken(draft, sub, token) {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") return { Item: draft };
+    if (cmd.constructor.name === "UpdateCommand") return stubSeatWrites({ takenIndexes: [1] })(cmd);
+    return {}; // PutCommand (addMember) result is ignored
+  });
+  return handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
+  );
+}
+
+// The double-click: two requests from the SAME person both read the draft
+// before either writes. The first write this handler attempts fails (seat 1
+// is now taken -- by this same caller, in the scenario below), and a re-read
+// must show the caller already seated rather than letting the loop advance to
+// a second seat.
+function joinAsDoubleClicked(draft, sub, token, { seatedAt }) {
+  let getCalls = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") {
+      getCalls += 1;
+      // First read: the draft as it looked when this request started (still a
+      // bot at seatedAt). Every subsequent read (the re-read after the
+      // conditional failure): the sibling request has already landed there.
+      if (getCalls === 1) return { Item: draft };
+      const seats = draft.seats.map((s, idx) =>
+        idx === seatedAt ? { ...s, sub, kind: "human" } : s
+      );
+      return { Item: { ...draft, seats } };
+    }
+    if (cmd.constructor.name === "UpdateCommand") return stubSeatWrites({ takenIndexes: [seatedAt] })(cmd);
+    return {}; // PutCommand (addMember) result is ignored
+  });
+  return handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
+  );
+}
+
+test("a wrong invite token is indistinguishable from a missing draft", async () => {
+  const draft = { draftId: "d1", inviteToken: "real", seats: [{ team: 1, sub: "alice", kind: "human" }] };
+  const wrong = await joinAs(draft, "bob", "guessed");
+  const missing = await joinAs(null, "bob", "anything");
+  assert.strictEqual(wrong.statusCode, 404);
+  assert.deepStrictEqual(JSON.parse(wrong.body), JSON.parse(missing.body));
+});
+
+test("joining takes the lowest bot seat", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});
+
+// Two people opening the link at once must not both get seat 2.
+test("losing the seat race costs a retry, not a seat", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  // The first conditional write fails as though somebody just took seat 2.
+  const res = await joinAsWithFirstSeatTaken(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 3);
+});
+
+test("re-opening the link when already seated is harmless", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }, { team: 2, sub: "bob", kind: "bot" }],
+  };
+  draft.seats[1] = { team: 2, sub: "bob", kind: "human" };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});
+
+test("a full draft says so", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+  };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /full/i);
+});
+
+// A double-clicked invite link, or a client retry after a slow response,
+// sends two requests that both read the draft before either writes. Losing
+// the race on the first seat must not send the loser on to claim a second
+// seat for themselves -- they already hold one, just not the one this
+// request's stale snapshot expected.
+test("a double-clicked join lands on the seat already held, not a second one", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  // The sibling request already seated bob at seat index 1 (team 2) by the
+  // time this request's conditional write on that same seat fails.
+  const res = await joinAsDoubleClicked(draft, "bob", "t", { seatedAt: 1 });
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});
+
+// The re-read after a failed conditional write must be strongly consistent:
+// this stub only shows the sibling request's just-committed seat when the
+// GetCommand asks for ConsistentRead, and otherwise keeps serving the
+// pre-write snapshot -- modeling the real gap between a conditional write
+// (always strongly consistent) and DynamoDB's default read (eventually
+// consistent). `joinAsDoubleClicked` above cannot see this: its stub always
+// returns the updated draft on re-read, which is what a strongly consistent
+// read looks like, not what the default one can still return.
+function joinAsDoubleClickedStaleReread(draft, sub, token, { seatedAt }) {
+  let getCalls = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") {
+      getCalls += 1;
+      if (getCalls === 1) return { Item: draft }; // initial read: still a bot
+      if (cmd.input.ConsistentRead) {
+        const seats = draft.seats.map((s, idx) =>
+          idx === seatedAt ? { ...s, sub, kind: "human" } : s
+        );
+        return { Item: { ...draft, seats } };
+      }
+      // Eventually consistent: still hasn't caught up to the sibling
+      // request's write.
+      return { Item: draft };
+    }
+    if (cmd.constructor.name === "UpdateCommand") return stubSeatWrites({ takenIndexes: [seatedAt] })(cmd);
+    return {}; // PutCommand (addMember) result is ignored
+  });
+  return handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token }, claims: { sub } })
+  );
+}
+
+test("the seat re-read after a failed write is strongly consistent, not the eventually-consistent default", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+      { team: 3, sub: null, kind: "bot" },
+    ],
+  };
+  // Same double-click as above, but the re-read is modeled as eventually
+  // consistent unless ConsistentRead is actually requested. Without that
+  // flag on the handler's re-read, this must land bob a SECOND seat (team 3)
+  // instead of the one (team 2) the sibling request already gave him.
+  const res = await joinAsDoubleClickedStaleReread(draft, "bob", "t", { seatedAt: 1 });
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
+});
+
+// Every other answer on this route is a 404 (a wrong token) or a 409 (a full
+// draft) -- never a 500. A draft missing its seats array entirely (corrupted
+// data, or a draft written before this field existed) must fall into that
+// same set of answers rather than throwing on `.length`.
+test("a draft with no seats array answers without a 500", async () => {
+  const draft = { draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1 };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 409);
+  assert.match(JSON.parse(res.body).error, /full/i);
+});
+
+// A null entry among otherwise-valid seats (also corrupted data) must be
+// skipped when scanning for a bot seat, not dereferenced.
+test("a null seat entry is skipped rather than crashing", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [{ team: 1, sub: "alice", kind: "human" }, null, { team: 3, sub: null, kind: "bot" }],
+  };
+  const res = await joinAs(draft, "bob", "t");
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 3);
+});
+
+// FIX: a bookkeeping failure must never turn into a failed *request* for
+// work that already committed. The seat (or the draft itself) is written
+// before addMember runs; if the members-table write throws, the caller must
+// still see success -- especially for POST /drafts, where a client retrying
+// a reported failure would mint a second draft (a fresh randomUUID() each
+// time), not retry the first one.
+test("a membership write that throws still reports the draft as created", async () => {
+  let draftPut = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "PutCommand") {
+      if (cmd.input?.Item?.seats) {
+        draftPut = cmd.input;
+        return {};
+      }
+      // This is the membership row's Put -- simulate the small table
+      // throttling, after the draft item above already committed.
+      throw new Error("ProvisionedThroughputExceededException");
+    }
+    return {};
+  });
+  const res = await handler(
+    evt("POST", "/drafts", { body: { teams: 2, rounds: 1 }, claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).draftId, draftPut.Item.draftId);
+});
+
+// Same failure, on the join success path: the seat UpdateCommand has already
+// landed by the time addMember runs, so a throw there must not turn a
+// successful join into a 500.
+test("a membership write that throws still reports a successful join", async () => {
+  const draft = {
+    draftId: "d1", inviteToken: "t", currentIndex: 0, picks: [], version: 1,
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+    ],
+  };
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") return { Item: draft };
+    if (cmd.constructor.name === "UpdateCommand") return {};
+    if (cmd.constructor.name === "PutCommand") {
+      throw new Error("ProvisionedThroughputExceededException");
+    }
+    return {};
+  });
+  const res = await handler(
+    evt("POST", "/drafts/d1/join", { draftId: "d1", body: { token: "t" }, claims: { sub: "bob" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).team, 2);
 });

@@ -76,6 +76,23 @@ test("teams rank by value, best first, and you get your own rank", () => {
   assert.strictEqual(out.teams.length, 2, "every team appears, even with no picks");
 });
 
+test("yourTeam decides who 'you' are, not userTeam -- userTeam is only the creator's seat", () => {
+  const d = draftWith([
+    pick(1, 1, player("a", { adp: 5.5 })),    // team 1 (the creator): -4.5
+    pick(58, 2, player("b", { adp: 30 })),    // team 2 (the joiner): +28
+  ], { userTeam: 1, yourTeam: 2 });
+  const out = analyzeDraft(d);
+
+  assert.strictEqual(out.you.valueCaptured, 28, "should score the joiner's own team, not the creator's");
+});
+
+test("with no yourTeam, userTeam is the fallback because seats predate the field, not because a write is pending", () => {
+  const d = draftWith([pick(1, 1, player("a", { adp: 5.5 }))], { userTeam: 1 });
+  const out = analyzeDraft(d);
+
+  assert.strictEqual(out.you.valueCaptured, -4.5);
+});
+
 test("a tie in value ranks by team number, deterministically", () => {
   const d = draftWith([
     pick(10, 1, player("a", { adp: 5 })),   // +5

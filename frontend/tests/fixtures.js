@@ -49,19 +49,40 @@ function buildSnakePicks(teams, rounds) {
 
 export const DRAFT_ID = "test-draft-abc123";
 
+export const INVITE_TOKEN = "test-invite-token-xyz";
+
 export function makeDraftState({
   currentIndex = 0,
   completedPicks = [],
   boardId = null,
   format = "standard",
+  userTeam = 1,
+  // Every real GET /drafts/{draftId} carries an inviteToken -- the copy-invite
+  // button on the draft page reads it straight off this state. A fixture that
+  // never set it is exactly how that button went untested for as long as it
+  // did: every mock served `undefined`, the button still rendered a link, and
+  // nobody noticed it read "?t=undefined".
+  inviteToken = INVITE_TOKEN,
+  // The real GET /drafts/{draftId} always carries a `seats` list -- one
+  // human (the creator) and a bot in every other team -- and the page reads
+  // it to decide whose turn is a bot's to take. Defaulting it here the same
+  // way backend/src/lib/owner.js's buildSeats does means a plain solo-draft
+  // test gets that behavior for free, instead of only working because a
+  // test happened to set `seats` by hand. A scenario that wants a second
+  // human on the clock (or any other arrangement) passes its own `seats`.
+  seats = Array.from({ length: 12 }, (_, i) => {
+    const team = i + 1;
+    return team === userTeam
+      ? { team, sub: "me", kind: "human" }
+      : { team, sub: null, kind: "bot" };
+  }),
 } = {}) {
   const picks = buildSnakePicks(12, 15);
   for (const { idx, player } of completedPicks) {
     picks[idx].playerId = player.id;
     picks[idx].player = player;
   }
-  const current = picks[currentIndex] || null;
-  return {
+  const state = {
     draftId: DRAFT_ID,
     sport: "nfl",
     format,
@@ -69,15 +90,44 @@ export function makeDraftState({
     year: 2025,
     teams: 12,
     rounds: 15,
-    userTeam: 1,
+    userTeam,
+    // Derived per caller on the real endpoint (seatOf(d, sub)?.team); for a
+    // fixture representing the creator's own view, that's just their team.
+    yourTeam: userTeam,
+    seats,
+    inviteToken,
     picked: completedPicks.map(({ player }) => player.id),
     currentIndex,
-    currentRound: current?.round ?? 15,
-    currentPick: current ? (current.overall % 12) || 12 : 12,
-    currentTeam: current?.team ?? null,
-    completed: currentIndex >= picks.length,
     picks,
   };
+  // currentRound/currentPick/currentTeam/completed are DERIVED from
+  // currentIndex, not independent facts -- a real GET always returns them in
+  // agreement. A plain copied value here would go stale the moment a test
+  // mutates `state.currentIndex` afterward to simulate the draft advancing
+  // (a natural way to move a scenario's clock forward), silently reproducing
+  // exactly the "static double that never advances" failure mode this fixture
+  // exists to avoid. Getters keep them truthful to whatever currentIndex is
+  // at read time instead.
+  Object.defineProperty(state, "currentRound", {
+    enumerable: true,
+    get() { return (picks[state.currentIndex] || null)?.round ?? 15; },
+  });
+  Object.defineProperty(state, "currentPick", {
+    enumerable: true,
+    get() {
+      const current = picks[state.currentIndex] || null;
+      return current ? (current.overall % 12) || 12 : 12;
+    },
+  });
+  Object.defineProperty(state, "currentTeam", {
+    enumerable: true,
+    get() { return (picks[state.currentIndex] || null)?.team ?? null; },
+  });
+  Object.defineProperty(state, "completed", {
+    enumerable: true,
+    get() { return state.currentIndex >= picks.length; },
+  });
+  return state;
 }
 
 export function makeCompletedDraft() {
@@ -160,6 +210,42 @@ export const MOCK_GAME_LOG = [
     off_snp: 55, tm_off_snp: 63, pts_ppr: 41.5 },
 ];
 
+// The exact top-level shape backend/src/drafts.js's GET /drafts/{draftId}
+// returns (see the pinned "GET /drafts/{id} found returns the full draft
+// object" test on the backend). Serving `draftState` verbatim -- as this
+// mock used to -- let a test invent a field the real endpoint never sends
+// (that is exactly how `seats` went unnoticed for as long as it did: a test
+// set it, the mock echoed it, and the suite stayed green while production
+// never returned it at all). Routing every response through this projection
+// means only fields the real contract actually carries can reach a test, and
+// a `seats` entry is reduced the same way the server reduces it -- to `team`
+// and `kind`, dropping `sub` -- so a test cannot exercise a shape the client
+// will never actually receive.
+function toDraftResponse(state) {
+  return {
+    draftId: state.draftId,
+    sport: state.sport,
+    format: state.format,
+    year: state.year,
+    teams: state.teams,
+    rounds: state.rounds,
+    userTeam: state.userTeam,
+    yourTeam: state.yourTeam,
+    seats: (state.seats ?? []).map((s) => ({ team: s.team, kind: s.kind })),
+    rosterSlots: state.rosterSlots,
+    boardId: state.boardId,
+    inviteToken: state.inviteToken,
+    picked: state.picked,
+    version: state.version,
+    currentIndex: state.currentIndex,
+    currentRound: state.currentRound,
+    currentPick: state.currentPick,
+    currentTeam: state.currentTeam,
+    completed: state.completed,
+    picks: state.picks,
+  };
+}
+
 export function mockDraftApis(page, draftState) {
   page.route(`${API_BASE}/players*`, async (route) => {
     await route.fulfill({ json: { players: MOCK_PLAYERS } });
@@ -178,7 +264,7 @@ export function mockDraftApis(page, draftState) {
   });
   page.route(`${API_BASE}/drafts/${DRAFT_ID}`, async (route) => {
     if (route.request().method() === "GET") {
-      await route.fulfill({ json: draftState });
+      await route.fulfill({ json: toDraftResponse(draftState) });
     }
   });
 }

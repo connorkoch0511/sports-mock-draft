@@ -3,9 +3,9 @@ const {
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
-  UpdateCommand,
   QueryCommand,
   DeleteCommand,
+  UpdateCommand,
 } = require("@aws-sdk/lib-dynamodb");
 const { randomUUID } = require("crypto");
 const {
@@ -15,8 +15,10 @@ const {
   kDefBlocked,
 } = require("./lib/roster");
 const { responder } = require("./lib/http");
-const { subOf, ANON, buildSeats, isSeated } = require("./lib/owner");
+const { subOf, ANON, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
+const { addMember } = require("./lib/members");
 const { withAdpBySource } = require("./lib/adpBySource");
+const { advanceDraft } = require("./lib/advance");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
@@ -234,9 +236,23 @@ exports.handler = async (event) => {
         currentIndex: 0,
         createdAt: Date.now(),
         version: 1,
+        // Whoever holds this can take a seat. Returned only to people already
+        // seated, so it travels the way the person sharing it chooses.
+        inviteToken: randomUUID(),
       };
 
       await ddb.send(new PutCommand({ TableName: draftsTable, Item: item }));
+      // The seat is already committed by this point, and the row is only a
+      // convenience for listing. Failing the whole request here would tell
+      // somebody their draft was not created when it was -- and a retry would
+      // mint a second one, since the id is new each time. Log it and carry on;
+      // the list entry can be missing, which is the failure this design
+      // deliberately chose to have.
+      try {
+        await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, id);
+      } catch (e) {
+        console.error("membership row not written:", e.message);
+      }
 
       return json(200, { draftId: id });
     }
@@ -260,9 +276,24 @@ exports.handler = async (event) => {
         teams: d.teams,
         rounds: d.rounds,
         userTeam: d.userTeam || 1,
+        // Derived per request. userTeam is the CREATOR's team, which is right
+        // for them and wrong for everybody who joined.
+        yourTeam: seatOf(d, sub)?.team ?? null,
+        // The page only ever reads `team` and `kind` off a seat (to decide
+        // who is on the clock and whether the draft is shared) -- never
+        // `sub`. Everyone here already passed isSeated above, so handing a
+        // teammate's Cognito id to the others isn't a disclosure to a
+        // stranger, but there is no reason to ship it when nothing on the
+        // client reads it. Least data by default.
+        seats: (d.seats || []).map((s) => ({ team: s.team, kind: s.kind })),
         rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
         boardId: d.boardId || null,
+        inviteToken: d.inviteToken,
         picked: d.picked || [],
+        // Bumped on every write. The draft page polls this endpoint so
+        // everyone sees everyone's picks, and re-renders only when this
+        // number has moved rather than on every poll response.
+        version: d.version ?? 1,
         currentIndex: d.currentIndex,
         currentRound: current?.round || d.rounds,
         currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
@@ -278,13 +309,93 @@ exports.handler = async (event) => {
       });
     }
 
+    // POST /drafts/{draftId}/join
+    if (method === "POST" && /\/drafts\/[^/]+\/join$/.test(path)) {
+      if (!sub) return needsAuth();
+      const { token } = event.body ? JSON.parse(event.body) : {};
+
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+      // A wrong token and a missing draft answer identically, so guessing an
+      // id learns nothing about whether it exists.
+      if (!res.Item || !token || res.Item.inviteToken !== token) return notFound();
+
+      const d = res.Item;
+      const already = seatOf(d, sub);
+      if (already) {
+        // Idempotent: this is the self-healing path for a row that never got
+        // written (e.g. joined before this table existed). Cheap because a
+        // Put here just overwrites the same item with a fresh joinedAt.
+        //
+        // The seat is already committed by this point (it was committed on a
+        // prior request, or this one wouldn't be in the `already` branch),
+        // and the row is only a convenience for listing. Failing the whole
+        // request here would tell somebody they aren't seated when they are.
+        // Log it and carry on; the list entry can be missing, which is the
+        // failure this design deliberately chose to have.
+        try {
+          await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
+        } catch (e) {
+          console.error("membership row not written:", e.message);
+        }
+        return json(200, { ok: true, team: already.team });
+      }
+
+      const seats = Array.isArray(d.seats) ? d.seats : [];
+      for (let i = 0; i < seats.length; i++) {
+        if (seats[i]?.kind !== "bot") continue;
+        try {
+          await ddb.send(
+            new UpdateCommand({
+              TableName: draftsTable,
+              Key: { draftId },
+              // The index, not the team: seats[i].team === i + 1.
+              UpdateExpression: `SET seats[${i}].#sub = :me, seats[${i}].kind = :human, version = version + :one`,
+              ConditionExpression: `seats[${i}].kind = :bot`,
+              ExpressionAttributeNames: { "#sub": "sub" },
+              ExpressionAttributeValues: { ":me": sub, ":human": "human", ":bot": "bot", ":one": 1 },
+            })
+          );
+          // Seat first, row second: the seat write above already succeeded,
+          // and the row is only a convenience for listing. Failing the whole
+          // request here would tell somebody they failed to join a draft they
+          // just joined. Log it and carry on; the list entry can be missing,
+          // which is the failure this design deliberately chose to have.
+          try {
+            await addMember(ddb, process.env.DRAFT_MEMBERS_TABLE, sub, draftId);
+          } catch (e) {
+            console.error("membership row not written:", e.message);
+          }
+          return json(200, { ok: true, team: seats[i].team });
+        } catch (e) {
+          if (e?.name !== "ConditionalCheckFailedException") throw e;
+          // Somebody took this seat between our read and our write. Before
+          // trying the next one, check whether that somebody was US -- a
+          // double-clicked link sends two requests that both read the draft
+          // before either writes, and blindly advancing would give one person
+          // two seats. Re-read rather than trusting the snapshot from the top
+          // of this request, which is by now stale by definition.
+          //
+          // ConsistentRead is required here, not optional: this read exists
+          // specifically to check the outcome of a write that JUST happened
+          // (the sibling request's conditional write, which succeeded where
+          // ours failed). DynamoDB's default read is eventually consistent,
+          // but a conditional write is always strongly consistent -- so the
+          // default read here could still see the pre-write snapshot and
+          // conclude we hold no seat, sending this request on to claim a
+          // second one. Without this flag that race reopens the exact door
+          // the seat-race fix above was written to close.
+          const fresh = await ddb.send(
+            new GetCommand({ TableName: draftsTable, Key: { draftId }, ConsistentRead: true })
+          );
+          const mine = seatOf(fresh.Item, sub);
+          if (mine) return json(200, { ok: true, team: mine.team });
+        }
+      }
+
+      return json(409, { error: "This draft is full — every seat is taken" });
+    }
+
     // POST /drafts/{draftId}/pick
-    //
-    // DEFERRED, and it must not stay deferred past invitations: this checks
-    // that you hold A seat, not that you hold the seat currently on the
-    // clock. With one human in a draft those are the same thing, and the
-    // ownership check this replaced was equally permissive. The moment a
-    // second person is seated, seat A can submit picks for seat B.
     if (method === "POST" && draftId && path.endsWith("/pick")) {
       if (!sub) return needsAuth();
       const body = event.body ? JSON.parse(event.body) : {};
@@ -295,8 +406,18 @@ exports.handler = async (event) => {
       if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
+
       if ((d.picked || []).includes(playerId)) return json(409, { error: "Player already picked" });
       if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+
+      // isSeated above answers "may you see this draft". This answers "is it
+      // your turn", which with one human is the same question and with two is
+      // not: without it either person can pick on the other's turn.
+      const onClock = teamOnClock(d);
+      const mySeat = seatOf(d, sub);
+      if (!mySeat || mySeat.team !== onClock) {
+        return json(409, { error: "Not your pick" });
+      }
 
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
@@ -318,17 +439,20 @@ exports.handler = async (event) => {
         tier: snap.tier,
       };
 
+      // Captured before the mutation below moves it.
+      const expectedIndex = d.currentIndex;
+
       d.picked = [playerId, ...(d.picked || [])];
       d.currentIndex = d.currentIndex + 1;
 
-      await ddb.send(
-        new UpdateCommand({
-          TableName: draftsTable,
-          Key: { draftId },
-          UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
-        })
-      );
+      try {
+        await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
+      } catch (e) {
+        if (e?.name === "RaceLost") {
+          return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
+        }
+        throw e;
+      }
 
       return json(200, { ok: true });
     }
@@ -341,6 +465,24 @@ exports.handler = async (event) => {
 
       const d = res.Item;
       if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+
+      // Same position as the turn check in /pick, just above: after the
+      // already-completed check, so a finished draft still says it is
+      // finished rather than that it is not your turn. Unlike /pick,
+      // auto-pick is not ONLY for your own turn -- it is also how a bot
+      // seat's pick gets made, by whichever seated human's browser happens
+      // to notice the clock has reached it. What it may never be is a way
+      // for one human to draft for another: allowed when the seat on the
+      // clock is a bot, or when the caller holds that seat. Anyone else,
+      // human or not seated at all, gets the same 409 /pick gives.
+      const onClock = teamOnClock(d);
+      const clockSeat = (d.seats || []).find((s) => s?.team === onClock);
+      const mySeat = seatOf(d, sub);
+      const clockIsBot = clockSeat?.kind === "bot";
+      const iHoldTheClock = !!mySeat && mySeat.team === onClock;
+      if (!clockIsBot && !iHoldTheClock) {
+        return json(409, { error: "Not your pick" });
+      }
 
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
@@ -363,17 +505,21 @@ exports.handler = async (event) => {
         ...withAdpBySource(best.adpBySource),
         tier: best.tier,
       };
+
+      // Captured before the mutation below moves it.
+      const expectedIndex = d.currentIndex;
+
       d.picked = [best.id, ...(d.picked || [])];
       d.currentIndex = d.currentIndex + 1;
 
-      await ddb.send(
-        new UpdateCommand({
-          TableName: draftsTable,
-          Key: { draftId },
-          UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
-        })
-      );
+      try {
+        await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
+      } catch (e) {
+        if (e?.name === "RaceLost") {
+          return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
+        }
+        throw e;
+      }
 
       return json(200, { ok: true, picked: best });
     }
@@ -385,9 +531,22 @@ exports.handler = async (event) => {
       if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
+
+      // Simulating the rest of a draft other people are sitting in takes
+      // their picks away from them.
+      if (humanSeatCount(d) > 1) {
+        return json(409, { error: "Sim to End is for drafts you are in on your own" });
+      }
+
       const sport = (d.sport || "nfl").toLowerCase();
       const format = (d.format || "standard").toLowerCase();
       const { players, byId } = await loadPlayersForSport(playersTable, sport, format);
+
+      // Captured before the loop below moves it. sim-to-end computes many
+      // picks in memory but writes once at the end, so the guard is against
+      // anything that moved currentIndex since this single read -- not
+      // against anything that happens mid-loop, which is all local state.
+      const expectedIndex = d.currentIndex;
 
       while (d.currentIndex < d.picks.length) {
         const teamNum = d.picks[d.currentIndex]?.team;
@@ -411,14 +570,14 @@ exports.handler = async (event) => {
         d.currentIndex += 1;
       }
 
-      await ddb.send(
-        new UpdateCommand({
-          TableName: draftsTable,
-          Key: { draftId },
-          UpdateExpression: "SET picks = :p, picked = :k, currentIndex = :i, version = if_not_exists(version, :z) + :one",
-          ExpressionAttributeValues: { ":p": d.picks, ":k": d.picked, ":i": d.currentIndex, ":z": 0, ":one": 1 },
-        })
-      );
+      try {
+        await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
+      } catch (e) {
+        if (e?.name === "RaceLost") {
+          return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
+        }
+        throw e;
+      }
 
       return json(200, { ok: true, completed: d.currentIndex >= d.picks.length });
     }

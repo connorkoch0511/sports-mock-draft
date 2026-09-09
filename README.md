@@ -54,6 +54,7 @@ a particular pick, and a standalone page has no pick to advise on.
 ## Features
 
 - **Sign-in Required** — Google sign-in via Cognito; drafts and boards are private to the people in them, not to anyone who merely has the link
+- **Draft With Friends** — Share an invite link and whoever opens it takes an open seat in your draft, so everyone sees every pick as it happens. The clock isn't shared yet, so only whoever's turn it actually is sees a countdown
 - **Custom Big Boards** — Rank players your way, save the board, and draft off it instead of the consensus order
 - **Every source's ADP** — See our ADP, ESPN's and Yahoo's side by side while you rank and while you draft, so a player one service likes a round earlier than another is obvious. Our rank stays the default order; sort by any source when you want to
 - **Share a Big Board** — Download a board as CSV or JSON and hand it to a friend, who imports it as their own copy to edit. Files carry player names as well as ids, so they are readable on their own and survive a player id changing between seasons; anyone missing from the new season's pool is reported by name rather than dropped in silence

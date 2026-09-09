@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
-import { MOCK_PLAYERS, DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js";
+import { MOCK_PLAYERS, DRAFT_ID, INVITE_TOKEN, makeDraftState, mockDraftApis } from "./fixtures.js";
 import { signIn } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +21,27 @@ test.describe("Draft page", () => {
     await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Draft Board" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Team Rosters" })).toBeVisible();
+  });
+
+  // FIX 3: the button reads draft.inviteToken straight off state -- a fixture
+  // that never set it (every mock then serving `undefined`) is exactly how
+  // this went untested, and a dropped inviteToken field would otherwise ship
+  // an invite link the server 404s on (`?t=undefined`) with every other test
+  // here still green.
+  test("the copy-invite button copies a link carrying the real invite token", async ({ page, context }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    await page.getByTestId("copy-invite").click();
+
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toContain(`/draft/${DRAFT_ID}/join?t=${INVITE_TOKEN}`);
+    expect(copied).not.toContain("undefined");
   });
 
   test("big board shows player names from API", async ({ page }) => {
@@ -346,6 +367,209 @@ test.describe("Draft page", () => {
     await expect(note).toContainText("whole platform");
   });
 
+  test("the browser never picks for another human", async ({ page }) => {
+    let autoPicks = 0;
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    // Team 2 -- another human -- is on the clock.
+    state.currentIndex = 1;
+    mockDraftApis(page, state);
+    await page.route("**/drafts/*/auto-pick", (r) => { autoPicks += 1; return r.fulfill({ json: { ok: true } }); });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.waitForTimeout(2000);
+    expect(autoPicks).toBe(0);
+  });
+
+  // The effect above only stops the browser from firing auto-pick on its
+  // own. Critical 2 also found the manual Auto Pick button offering the
+  // exact same click on somebody else's turn -- disabled only on
+  // paused/busy/completed, nothing about whose turn it actually is.
+  test("the Auto Pick button is disabled on another human's turn", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    // Team 2 -- another human -- is on the clock.
+    state.currentIndex = 1;
+    mockDraftApis(page, state);
+    await page.route("**/drafts/*/auto-pick", (r) => r.fulfill({ json: { ok: true } }));
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    await expect(page.getByRole("button", { name: "Auto Pick" })).toBeDisabled();
+  });
+
+  test("a bot seat still advances immediately", async ({ page }) => {
+    let autoPicks = 0;
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: null, kind: "bot" },
+    ];
+    state.currentIndex = 1;
+    mockDraftApis(page, state);
+    await page.route("**/drafts/*/auto-pick", (r) => { autoPicks += 1; return r.fulfill({ json: { ok: true } }); });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect.poll(() => autoPicks).toBeGreaterThan(0);
+  });
+
+  // Unlike the test above, this one sets no `seats` at all -- it is exactly
+  // what a real solo draft's GET /drafts/{draftId} returns today: one human
+  // seat (the creator, team 1) and a bot in every other team, straight from
+  // makeDraftState's own default. Critical 1 was the real endpoint never
+  // sending `seats` in the first place, which the test above could not have
+  // caught -- it supplies `seats` by hand, so it would have stayed green
+  // even while production sent none. This one fails exactly the way a solo
+  // draft did in production: revert makeDraftState's default `seats` (or the
+  // mock's projection of it) and team 2 no longer reads as a bot here.
+  test("a solo draft's bot seat still auto-advances, with the response shape the real API returns", async ({ page }) => {
+    let autoPicks = 0;
+    const state = makeDraftState({ currentIndex: 1 }); // team 2, a bot, on the clock
+    mockDraftApis(page, state);
+    await page.route("**/drafts/*/auto-pick", (r) => { autoPicks += 1; return r.fulfill({ json: { ok: true } }); });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect.poll(() => autoPicks).toBeGreaterThan(0);
+  });
+
+  // Important 3: a failed auto-pick must not leave the browser deciding
+  // against stale data. Team 2 (a bot) is on the clock when the page loads,
+  // so the effect fires immediately -- but by the time the request lands,
+  // the server says otherwise (Critical 2's own guard refusing it, in a real
+  // race). Without a reload afterward, the page would keep re-firing the
+  // identical request against the same stale `draft` object forever, since
+  // nothing ever told it the clock had moved on.
+  test("a failed auto-pick reloads the draft instead of retrying against stale data", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 1 }); // team 2, a bot, on the clock
+    let autoPickCalls = 0;
+
+    await page.route(`${API}/players*`, (r) => r.fulfill({ json: { players: MOCK_PLAYERS } }));
+    await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+    await page.route(`${API}/drafts/${DRAFT_ID}/auto-pick`, (r) => {
+      autoPickCalls += 1;
+      if (autoPickCalls === 1) {
+        // The clock moved on between this browser's stale read and the
+        // request landing: team 1 -- a human -- is on the clock now, and the
+        // server (correctly) refuses.
+        state.currentIndex = 0;
+        return r.fulfill({ status: 409, json: { error: "Not your pick" } });
+      }
+      return r.fulfill({ json: { ok: true } });
+    });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    await expect.poll(() => autoPickCalls).toBeGreaterThan(0);
+    // Give the effect every chance to re-fire against stale data before
+    // deciding it didn't: team 1 is a human now, so a reload that saw that
+    // must have stopped it, same as if the page had never been stale.
+    await page.waitForTimeout(1500);
+    expect(autoPickCalls).toBe(1);
+  });
+
+  test("a shared draft shows no countdown", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("clock")).toHaveCount(0);
+  });
+
+  // Pins the exact copy: "Auto-picking other teams…" is false the moment a
+  // second human is seated, since the team being waited on is a person, not
+  // a bot. Nothing else in this file asserts this text, so a careless
+  // revert back to the old copy would otherwise pass every other test here.
+  test("the shared-draft status pill names whose pick it is, not bots", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 }); // team 1 on the clock
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    const pill = page.getByTestId("status-pill");
+    await expect(pill).toHaveText("Your pick");
+    await expect(page.getByText(/Auto-picking/i)).toHaveCount(0);
+
+    // Somebody else's pick, in the same shared draft.
+    state.currentIndex = 1; // team 2's turn
+    await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
+    await page.reload();
+
+    await expect(pill).toHaveText("Waiting on Team 2");
+    await expect(page.getByText(/Auto-picking/i)).toHaveCount(0);
+  });
+
+  test("Sim to End is not offered once somebody else is in the draft", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.seats = [
+      { team: 1, sub: "me", kind: "human" },
+      { team: 2, sub: "them", kind: "human" },
+    ];
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Sim to End" })).toHaveCount(0);
+  });
+
+  test("opening an invite link seats you and opens the draft", async ({ page }) => {
+    let joinedWith = null;
+    await page.route("**/drafts/*/join", (r) => {
+      joinedWith = r.request().postDataJSON().token;
+      return r.fulfill({ json: { ok: true, team: 2 } });
+    });
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 2;
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}/join?t=abc123`);
+
+    await expect(page).toHaveURL(new RegExp(`/draft/${DRAFT_ID}$`));
+    expect(joinedWith).toBe("abc123");
+  });
+
+  test("a picked player appears without touching anything", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    state.yourTeam = 1;
+    state.version = 1;
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+
+    // Somebody else picks: the next poll should bring it in.
+    const moved = { ...state, version: 2, currentIndex: 1 };
+    await page.route(`**/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: moved }));
+
+    await expect.poll(async () => (await page.getByTestId("current-pick").textContent()) || "",
+      { timeout: 10000 }).toContain("2");
+  });
+
 });
 
 // --- Pinning the Big Board row before it is restructured -------------------
@@ -442,4 +666,35 @@ test("a player can be drafted from the keyboard", async ({ page }) => {
   await page.keyboard.press("Enter");
 
   await expect(() => expect(picked).toBe("p1")).toPass();
+});
+
+test("a joiner sees their own team as theirs, not the creator's", async ({ page }) => {
+  // currentIndex: 4 puts team 5 -- nobody's turn but team 5's -- on the
+  // clock. Neither yourTeam (2) nor userTeam (the creator's, 1) is on the
+  // clock, so "my-team" showing 2 can only be "this is your seat", never
+  // "this is who's up" -- a fixture where the two happened to coincide could
+  // pass this test even if the page fell back to rendering whichever team is
+  // on the clock instead of yourTeam.
+  const state = makeDraftState({ currentIndex: 4 });
+  // The creator made it and sits in team 1; we are the person who joined and
+  // claimed team 2's seat. Team 5 -- on the clock here -- is still a bot,
+  // same as any real two-human draft with ten seats left unclaimed.
+  state.userTeam = 1;
+  state.yourTeam = 2;
+  state.seats = [
+    { team: 1, sub: "alice", kind: "human" },
+    { team: 2, sub: "me", kind: "human" },
+    ...state.seats.slice(2),
+  ];
+  mockDraftApis(page, state);
+  // Team 5 is a bot per the seats above, so onClockIsBot fires the moment the
+  // page loads -- mocked here so that firing is harmless instead of hanging
+  // the test on a real network call.
+  await page.route("**/drafts/*/auto-pick", (r) => r.fulfill({ json: { ok: true } }));
+
+  await signIn(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  await expect(page.getByTestId("my-team")).toContainText("2");
 });
