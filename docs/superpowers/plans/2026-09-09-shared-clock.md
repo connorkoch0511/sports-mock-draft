@@ -176,7 +176,7 @@ In the `GET /drafts/{draftId}` response object, after `version: d.version ?? 1,`
 
 - [ ] **Step 5: Run the whole backend suite**
 
-Run: `cd backend && node --test src/`
+Run: `cd backend && node --test 'src/**/*.test.js'`
 Expected: all tests PASS, including the three new ones and every pre-existing `advance.js` test.
 
 - [ ] **Step 6: Mutation-test the conditional write**
@@ -402,7 +402,7 @@ In `backend/template.yaml`, inside `DraftsFunction`'s `Events:`, after the `Auto
 
 - [ ] **Step 6: Run the tests**
 
-Run: `cd backend && node --test src/`
+Run: `cd backend && node --test 'src/**/*.test.js'`
 Expected: PASS, all six new tests plus every existing `/auto-pick` test (the extraction must not have changed its behaviour).
 
 - [ ] **Step 7: Mutation-test the two guards that matter**
@@ -551,7 +551,7 @@ In `backend/template.yaml`, after the `ExpireDraft` entry:
 
 - [ ] **Step 5: Run the tests**
 
-Run: `cd backend && node --test src/`
+Run: `cd backend && node --test 'src/**/*.test.js'`
 Expected: PASS.
 
 - [ ] **Step 6: Mutation-test the resume arithmetic**
@@ -748,7 +748,7 @@ module.exports.pickBestForTeam = pickBestForTeam;
 
 - [ ] **Step 5: Run the tests**
 
-Run: `cd backend && node --test src/`
+Run: `cd backend && node --test 'src/**/*.test.js'`
 Expected: PASS — including every pre-existing auto-pick test, which must be unaffected by the default parameter.
 
 - [ ] **Step 6: Mutation-test the off-board fallback**
@@ -940,7 +940,7 @@ Read-only: the drafting path reads a board and must never be able to change one.
 
 - [ ] **Step 5: Run the tests**
 
-Run: `cd backend && node --test src/`
+Run: `cd backend && node --test 'src/**/*.test.js'`
 Expected: PASS.
 
 - [ ] **Step 6: Mutation-test the null/undefined distinction and the fallback**
@@ -1114,7 +1114,7 @@ In `backend/template.yaml`, after `PauseDraft`:
 
 - [ ] **Step 6: Run the tests**
 
-Run: `cd backend && node --test src/` then `cd backend && sam validate --lint`
+Run: `cd backend && node --test 'src/**/*.test.js'` then `cd backend && sam validate --lint`
 Expected: all tests PASS; template valid.
 
 - [ ] **Step 7: Mutation-test the ownership check**
@@ -1786,7 +1786,7 @@ Adjust the `getByTestId` selector to whichever the draft board panel actually us
 - [ ] **Step 2: Run the whole suite**
 
 ```bash
-cd backend && node --test src/
+cd backend && node --test 'src/**/*.test.js'
 cd ../frontend && npm run test:unit && npm run lint && npm test
 ```
 
