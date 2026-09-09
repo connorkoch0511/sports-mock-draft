@@ -6,7 +6,10 @@ import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
+import { skewFrom, remainingSeconds, expireDelayMs } from "../lib/clock";
 
+// Display fallback only. The server owns the clock; this is what the page
+// shows for a draft written before pickDeadline existed.
 const PICK_SECONDS = 60;
 
 // A 401 means "sign in first"; a 404 from a mutation on a draft this page
@@ -34,6 +37,9 @@ export default function Draft() {
   const [paused, setPaused] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(PICK_SECONDS);
   const tickRef = useRef(null);
+  // How far ahead the server's clock is of this browser's. Measured fresh on
+  // every full load; see src/lib/clock.js for why this matters.
+  const skewRef = useRef(0);
 
 
   // Derived straight from currentIndex + picks, the same way the server
@@ -61,11 +67,6 @@ export default function Draft() {
 
   const seats = draft?.seats ?? [];
   const humans = seats.filter((s) => s?.kind === "human").length;
-  // More than one person in here means the browser is no longer the authority
-  // on time. Phase 2 moves the clock to the server; until then a shared draft
-  // simply has no clock, because several browsers each running their own
-  // would fire auto-picks at one another.
-  const shared = humans > 1;
   // "Not my team" is not the same question as "is a bot", and in a shared
   // draft the difference is somebody else's pick being taken from them.
   const onClockIsBot = seats.find((s) => s?.team === currentTeamOnClock)?.kind === "bot";
@@ -81,6 +82,10 @@ export default function Draft() {
     setErr("");
     try {
       const d = await apiGet(`/drafts/${draftId}`);
+      // Corrected against the server's own clock, not assumed to be zero --
+      // see src/lib/clock.js for what a laptop running fast would do without
+      // this.
+      skewRef.current = skewFrom(d.now);
       const p = await apiGet(
         `/players?sport=${d.sport || "nfl"}&format=${encodeURIComponent(d.format || "standard")}`
       );
@@ -226,6 +231,22 @@ export default function Draft() {
     }
   };
 
+  const expire = async () => {
+    try {
+      await apiPost(`/drafts/${draftId}/expire`, {});
+      await load();
+    } catch (e) {
+      // 409 is the ordinary outcome for everyone who lost the race, and for a
+      // clock that turned out not to have expired. Re-read rather than
+      // reporting it -- the board is the answer.
+      if (e.status === 409) {
+        await load();
+        return;
+      }
+      setErr(mutationErrorMessage(e, "Could not advance the clock"));
+    }
+  };
+
   // ----- Timer + Autopick behavior -----
 
   // The timer effects below depend on the draft's FIELDS, never the draft
@@ -235,10 +256,12 @@ export default function Draft() {
   // `draft` either, which is what lets the dependency arrays be honest instead
   // of suppressed.
   const hasDraft = draft != null;
-  const draftKey = draft?.draftId;
-  const currentIndex = draft?.currentIndex;
-  const currentTeam = draft?.currentTeam;
   const completed = draft?.completed ?? false;
+  // The deadline the server is enforcing, and whether the server has stopped
+  // the clock. Both come straight off `draft` -- neither is ever computed
+  // locally -- because the server is the only party allowed to decide either.
+  const deadline = draft?.pickDeadline ?? null;
+  const serverPaused = draft?.pausedAt != null;
 
   // Everyone in the draft is looking at the same row, and only the person who
   // picked knows it changed. Three seconds is a judgement: fast enough that a
@@ -258,17 +281,6 @@ export default function Draft() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId, completed]);
 
-  // Reset timer on new pick / when it becomes the user's team's turn
-  useEffect(() => {
-    if (!hasDraft) return;
-    if (completed) {
-      setSecondsLeft(0);
-      return;
-    }
-    // Only meaningful for the user's team
-    if (isMyTurn) setSecondsLeft(PICK_SECONDS);
-  }, [hasDraft, draftKey, currentIndex, currentTeam, completed, isMyTurn]);
-
   // Autopick only for a bot's turn. "Not mine" used to be the trigger, which
   // is exactly right with one human and exactly wrong with two: it would
   // take the other person's pick the instant the clock reached them.
@@ -284,43 +296,57 @@ export default function Draft() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft?.currentTeam, draft?.currentIndex, draft?.completed, paused, busy, onClockIsBot]);
 
-  // Run countdown only when the user's team is on the clock, and never in a
-  // shared draft -- the clock is the server's job in Phase 2, and until then
-  // several browsers each running their own would fire timeout auto-picks at
-  // one another.
+  // Ticks for EVERYONE now, not just whoever's turn it is -- a shared draft
+  // has no browser that is "the" authority on time any more, the server is,
+  // and every seated browser independently watching the same deadline is
+  // what lets the expire effect below fire even when the team on the clock's
+  // own browser is closed. There is no reset-on-turn effect any more either:
+  // the deadline already changed when the draft advanced (the server sends a
+  // fresh one with every pick), so there is nothing left for the client to
+  // reset.
   useEffect(() => {
     if (tickRef.current) clearInterval(tickRef.current);
 
-    if (!hasDraft) return;
-    if (shared) return;
-    if (paused) return;
-    if (busy) return;
-    if (completed) return;
-    if (!isMyTurn) return;
+    if (!hasDraft || completed || serverPaused) {
+      setSecondsLeft(0);
+      return undefined;
+    }
 
-    tickRef.current = setInterval(() => {
-      setSecondsLeft((s) => Math.max(0, s - 1));
-    }, 1000);
+    const tick = () => setSecondsLeft(remainingSeconds(deadline, skewRef.current) ?? PICK_SECONDS);
+    tick();
+    tickRef.current = setInterval(tick, 1000);
 
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
-  }, [hasDraft, shared, currentTeam, completed, paused, busy, isMyTurn]);
+  }, [hasDraft, deadline, completed, serverPaused]);
 
-  // If the user's team runs out of time, autopick for the user's team. Same
-  // reason as the countdown above: a shared draft runs no clock at all.
+  // The clock, enforced. Whoever's browser notices zero first calls
+  // /expire -- not /auto-pick, which keeps its own meaning (the manual
+  // button, and the bot-on-clock effect above). Staggered by seat so twelve
+  // browsers noticing the same second don't all race the same request; the
+  // losers get a harmless 409 and re-read, which is exactly what a clock
+  // that turned out not to have expired yet also looks like.
+  //
+  // Scheduled directly off `deadline`, deliberately NOT off the `secondsLeft`
+  // display state above: the two effects run in the same commit whenever the
+  // draft object changes, so `secondsLeft` here would still be the PREVIOUS
+  // render's value -- stale by definition, since the tick effect's own
+  // setSecondsLeft call hasn't been applied to a render yet. On first load
+  // that stale value is the initial 0 the state started life as, which read
+  // as "already expired" and fired /expire against a deadline a full minute
+  // out. Recomputing the remaining time fresh from `deadline` and the
+  // skew here sidesteps that render ordering entirely.
   useEffect(() => {
-    if (!draft) return;
-    if (shared) return;
-    if (paused) return;
-    if (busy) return;
-    if (draft.completed) return;
+    if (!hasDraft || serverPaused || busy || completed) return undefined;
+    if (deadline == null) return undefined;
 
-    if (isMyTurn && secondsLeft === 0) {
-      autoPick();
-    }
+    const seatIndex = seats.findIndex((s) => s?.team === myTeam);
+    const msLeft = deadline - (Date.now() + skewRef.current);
+    const t = setTimeout(expire, Math.max(0, msLeft) + expireDelayMs(seatIndex));
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [secondsLeft, draft?.currentTeam, draft?.completed, paused, busy, isMyTurn, shared]);
+  }, [hasDraft, deadline, serverPaused, busy, completed]);
 
   // Cleanup timer on unmount
   useEffect(() => {
@@ -375,32 +401,25 @@ export default function Draft() {
                 {paused ? "Resume" : "Pause"}
               </button>
 
-              {shared ? (
-                // No clock in a shared draft (see the effects above) -- and
-                // "Auto-picking other teams…" would be a lie here, since the
-                // team waited on is another human, not a bot.
-                draft.completed ? (
-                  <Pill>✅ Completed</Pill>
-                ) : (
-                  // Pill itself doesn't forward props, so the id this test
-                  // keys off of goes on a wrapper instead of changing it --
-                  // same pattern as the "clock" span below, and needed here
-                  // because the Big Board panel's own status line can carry
-                  // this identical sentence at the same time.
-                  <span data-testid="status-pill">
-                    <Pill>{isMyTurn ? "Your pick" : `Waiting on Team ${currentTeamOnClock}`}</Pill>
-                  </span>
-                )
-              ) : isMyTurn && !draft.completed ? (
+              {draft.completed ? (
+                <Pill>✅ Completed</Pill>
+              ) : isMyTurn ? (
                 // Pill itself doesn't forward props, so the id this test
-                // keys off of goes on a wrapper instead of changing it.
-                <span data-testid="clock">
+                // keys off of goes on a wrapper instead of changing it. The
+                // clock now runs (and is shown) for everyone, shared draft or
+                // not -- the server is the one enforcing it either way.
+                <span data-testid="pick-countdown">
                   <Pill>⏱ {secondsLeft}s</Pill>
                 </span>
-              ) : draft.completed ? (
-                <Pill>✅ Completed</Pill>
-              ) : (
+              ) : onClockIsBot ? (
                 <Pill>Auto-picking other teams…</Pill>
+              ) : (
+                // Somebody else's human turn, in a shared draft.
+                // "Auto-picking other teams…" would be a lie here, since the
+                // team waited on is a person, not a bot.
+                <span data-testid="status-pill">
+                  <Pill>{`Waiting on Team ${currentTeamOnClock}`}</Pill>
+                </span>
               )}
 
               <button
@@ -412,7 +431,7 @@ export default function Draft() {
                 Auto Pick
               </button>
 
-              {shared ? null : (
+              {humans > 1 ? null : (
                 // Simulating the rest of a draft other people are sitting in
                 // takes their picks away from them; the server refuses this
                 // with 409 once a second human is seated, so the button is

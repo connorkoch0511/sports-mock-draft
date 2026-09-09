@@ -481,8 +481,13 @@ test.describe("Draft page", () => {
     expect(autoPickCalls).toBe(1);
   });
 
-  test("a shared draft shows no countdown", async ({ page }) => {
-    const state = makeDraftState({ currentIndex: 0 });
+  // Phase 1 disabled the countdown entirely once a second human was seated.
+  // Phase 2 moves the clock to the server, so a shared draft runs one same
+  // as a solo one -- this pins that the regression (no clock at all in a
+  // shared draft) stays fixed. See also "the countdown runs in a shared
+  // draft" below, which covers a full 12-team table.
+  test("a shared draft still shows the countdown on the user's own turn", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0, pickDeadline: Date.now() + 25000 }); // team 1 (me) on the clock
     state.yourTeam = 1;
     state.seats = [
       { team: 1, sub: "me", kind: "human" },
@@ -491,15 +496,15 @@ test.describe("Draft page", () => {
     mockDraftApis(page, state);
     await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
-    await expect(page.getByTestId("clock")).toHaveCount(0);
+    await expect(page.getByTestId("pick-countdown")).toContainText(/2[0-5]/);
   });
 
   // Pins the exact copy: "Auto-picking other teams…" is false the moment a
   // second human is seated, since the team being waited on is a person, not
   // a bot. Nothing else in this file asserts this text, so a careless
   // revert back to the old copy would otherwise pass every other test here.
-  test("the shared-draft status pill names whose pick it is, not bots", async ({ page }) => {
-    const state = makeDraftState({ currentIndex: 0 }); // team 1 on the clock
+  test("the shared-draft status names whose pick it is, not bots, on somebody else's turn", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 }); // team 1 (me) on the clock
     state.yourTeam = 1;
     state.seats = [
       { team: 1, sub: "me", kind: "human" },
@@ -509,8 +514,8 @@ test.describe("Draft page", () => {
     await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
 
-    const pill = page.getByTestId("status-pill");
-    await expect(pill).toHaveText("Your pick");
+    // My own turn: the countdown, not a status pill -- see the test above.
+    await expect(page.getByTestId("pick-countdown")).toBeVisible();
     await expect(page.getByText(/Auto-picking/i)).toHaveCount(0);
 
     // Somebody else's pick, in the same shared draft.
@@ -518,8 +523,62 @@ test.describe("Draft page", () => {
     await page.route(`${API}/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: state }));
     await page.reload();
 
-    await expect(pill).toHaveText("Waiting on Team 2");
+    await expect(page.getByTestId("status-pill")).toHaveText("Waiting on Team 2");
     await expect(page.getByText(/Auto-picking/i)).toHaveCount(0);
+  });
+
+  test("the countdown runs in a shared draft", async ({ page }) => {
+    // Phase 1 disabled the clock entirely whenever a second human was seated.
+    // The regression this guards is that guard coming back.
+    const seats = Array.from({ length: 12 }, (_, i) => {
+      const team = i + 1;
+      if (team === 1) return { team, sub: "me", kind: "human" };
+      if (team === 2) return { team, sub: "them", kind: "human" };
+      return { team, sub: null, kind: "bot" };
+    });
+    const state = makeDraftState({ seats, pickDeadline: Date.now() + 25000 });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("pick-countdown")).toContainText(/2[0-5]/);
+  });
+
+  test("reaching zero asks the server to expire the clock, and does not auto-pick", async ({ page }) => {
+    const state = makeDraftState({ pickDeadline: Date.now() - 1000 });
+    mockDraftApis(page, state);
+
+    let expires = 0;
+    let autoPicks = 0;
+    await page.route(`${API}/drafts/${DRAFT_ID}/expire`, (r) => {
+      expires += 1;
+      return r.fulfill({ status: 409, json: { error: "Clock has not expired" } });
+    });
+    await page.route(`${API}/drafts/${DRAFT_ID}/auto-pick`, (r) => {
+      autoPicks += 1;
+      return r.fulfill({ json: { ok: true } });
+    });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect.poll(() => expires).toBeGreaterThan(0);
+    expect(autoPicks).toBe(0);
+  });
+
+  test("a draft with no stored deadline still renders, and asks nothing of the server", async ({ page }) => {
+    // Rows created before this shipped carry no pickDeadline.
+    const state = makeDraftState({ pickDeadline: null });
+    mockDraftApis(page, state);
+    let expires = 0;
+    await page.route(`${API}/drafts/${DRAFT_ID}/expire`, (r) => {
+      expires += 1;
+      return r.fulfill({ status: 409, json: {} });
+    });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("big-board-row").first()).toBeVisible();
+    expect(expires).toBe(0);
   });
 
   test("Sim to End is not offered once somebody else is in the draft", async ({ page }) => {

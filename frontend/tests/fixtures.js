@@ -76,6 +76,14 @@ export function makeDraftState({
       ? { team, sub: "me", kind: "human" }
       : { team, sub: null, kind: "bot" };
   }),
+  // Every real GET carries these now. pickDeadline defaults a full minute out
+  // so existing tests render a running clock that never reaches zero -- a
+  // fixture that expired mid-test would have the page firing /expire into
+  // whatever else that test was asserting.
+  pickDeadline = Date.now() + 60000,
+  pausedAt = null,
+  pausedBy = null,
+  yourBoardId = null,
 } = {}) {
   const picks = buildSnakePicks(12, 15);
   for (const { idx, player } of completedPicks) {
@@ -99,6 +107,13 @@ export function makeDraftState({
     picked: completedPicks.map(({ player }) => player.id),
     currentIndex,
     picks,
+    pickDeadline,
+    pausedAt,
+    pausedBy,
+    yourBoardId,
+    // The page measures clock skew against this. A fixture omitting it would
+    // silently exercise the zero-skew path only.
+    now: Date.now(),
   };
   // currentRound/currentPick/currentTeam/completed are DERIVED from
   // currentIndex, not independent facts -- a real GET always returns them in
@@ -234,9 +249,18 @@ function toDraftResponse(state) {
     seats: (state.seats ?? []).map((s) => ({ team: s.team, kind: s.kind })),
     rosterSlots: state.rosterSlots,
     boardId: state.boardId,
+    // The board that would actually drive the caller's auto-pick, already
+    // resolved -- see backend/src/drafts.js's own GET handler.
+    yourBoardId: state.yourBoardId ?? null,
     inviteToken: state.inviteToken,
     picked: state.picked,
     version: state.version,
+    pickDeadline: state.pickDeadline ?? null,
+    pausedAt: state.pausedAt ?? null,
+    pausedBy: state.pausedBy ?? null,
+    // The page corrects for clock skew against this. A projection that
+    // dropped it would silently exercise the zero-skew path only.
+    now: state.now ?? Date.now(),
     currentIndex: state.currentIndex,
     currentRound: state.currentRound,
     currentPick: state.currentPick,
@@ -267,4 +291,19 @@ export function mockDraftApis(page, draftState) {
       await route.fulfill({ json: toDraftResponse(draftState) });
     }
   });
+
+  // Pause is server state as of Phase 2. The GET route above must serve the
+  // draft as it is NOW, so mutate the object the GET closes over rather than
+  // answering ok and forgetting.
+  page.route(`${API_BASE}/drafts/${DRAFT_ID}/pause`, async (r) => {
+    const { paused } = JSON.parse(r.request().postData() || "{}");
+    draftState.pausedAt = paused ? Date.now() : null;
+    draftState.pausedBy = paused ? "me" : null;
+    if (!paused) draftState.pickDeadline = Date.now() + 60000;
+    return r.fulfill({ json: { ok: true, pausedAt: draftState.pausedAt } });
+  });
+
+  page.route(`${API_BASE}/drafts/${DRAFT_ID}/expire`, (r) =>
+    r.fulfill({ status: 409, json: { error: "Clock has not expired" } })
+  );
 }
