@@ -127,20 +127,29 @@ custom controls.
 
 ## Testing
 
-- `frontend/tests/sleeper.spec.js` drives the username field and
-  `frontend/tests/yahoo.spec.js` drives the sign-in button. Both now reach
-  their controls through the dropdown. Adjust the setup in each; do not
-  rewrite the assertions — if an assertion needs changing, the rearrangement
+- `frontend/tests/sleeper.spec.js` needs **no change**: Sleeper is the
+  default and its username field is visible on load, which is one practical
+  benefit of decision 1. `frontend/tests/yahoo.spec.js` must select Yahoo in
+  the dropdown before reaching `yahoo-import`. Adjust its setup only; do not
+  rewrite assertions — if an assertion needs changing, the rearrangement
   changed behaviour it should not have.
 - New: selecting Yahoo swaps the panel, and selecting back returns to
   Sleeper's.
-- New: with no `VITE_YAHOO_CLIENT_ID`, choosing Yahoo shows the
-  not-configured line and no sign-in button.
+- **Not testable, and accepted as such:** "choosing Yahoo in a build with no
+  client id shows the not-configured line". Playwright's dev server always
+  sets `VITE_YAHOO_CLIENT_ID` (`playwright.config.js`), so that branch has no
+  test today and cannot get one without a second dev-server project — which
+  is disproportionate for one line of copy. The branch is unchanged by this
+  work; it simply moves. Recorded here so nobody reads its absence as an
+  oversight.
 - New: a Yahoo callback carrying leagues lands with the dropdown on Yahoo and
   those leagues listed.
 - Existing: the whole suite must stay green, including the draft page's
   header-wrap assertions.
-- Regenerate `screenshots/newdraft.png`, which the README displays.
+- Regenerate screenshots. `newdraft.png` obviously — but the header appears
+  on **every** page, so most of the nine images in `screenshots/` will change
+  when the auth controls move right. Run the full suite and commit whatever
+  it rewrites; do not hand-pick.
 
 ## Out of scope
 
