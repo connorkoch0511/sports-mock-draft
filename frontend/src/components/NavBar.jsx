@@ -64,6 +64,14 @@ export default function NavBar() {
 
   return (
     <header className="relative flex items-center gap-3 py-4">
+      <Link
+        to="/"
+        className="flex items-center gap-2 text-sm font-semibold tracking-tight text-white"
+      >
+        <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.6)]" />
+        PerfectPick
+      </Link>
+
       {showAppLinks && (
         <>
           <button
@@ -117,7 +125,7 @@ export default function NavBar() {
         refuses to ship without the two Cognito variables set.
       */}
       {configured ? (
-        <div data-testid="auth-controls" className="flex items-center gap-2">
+        <div data-testid="auth-controls" className="ml-auto flex items-center gap-2">
           {loading ? null : name ? (
             <>
               <span
@@ -148,14 +156,6 @@ export default function NavBar() {
           )}
         </div>
       ) : null}
-
-      <Link
-        to="/"
-        className="flex items-center gap-2 text-sm font-semibold tracking-tight text-white"
-      >
-        <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.6)]" />
-        PerfectPick
-      </Link>
     </header>
   );
 }
