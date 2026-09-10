@@ -68,6 +68,7 @@ test("the Yahoo panel sends you to Yahoo with a state", async ({ page }) => {
 
   // Catch the navigation rather than following it off-site.
   await page.route("https://api.login.yahoo.com/**", (r) => r.fulfill({ status: 200, body: "stub" }));
+  await page.getByTestId("import-platform").selectOption("yahoo");
   await page.getByTestId("yahoo-import").click();
 
   await expect(page).toHaveURL(/api\.login\.yahoo\.com\/oauth2\/request_auth/);
@@ -144,4 +145,34 @@ test("a Yahoo import's roster summary does not blame Sleeper", async ({ page }) 
   // name a platform this league did not come from.
   await expect(page.getByTestId("roster-rounds-note")).toBeVisible();
   await expect(page.getByTestId("roster-rounds-note")).not.toContainText(/sleeper/i);
+});
+
+test("the platform dropdown swaps which import is on screen", async ({ page }) => {
+  await signIn(page);
+  await page.goto("/draft/new");
+
+  // Sleeper is the default, so its field is there without touching anything.
+  await expect(page.getByTestId("sleeper-username")).toBeVisible();
+  await expect(page.getByTestId("yahoo-import")).toHaveCount(0);
+
+  await page.getByTestId("import-platform").selectOption("yahoo");
+  await expect(page.getByTestId("yahoo-import")).toBeVisible();
+  await expect(page.getByTestId("sleeper-username")).toHaveCount(0);
+
+  await page.getByTestId("import-platform").selectOption("sleeper");
+  await expect(page.getByTestId("sleeper-username")).toBeVisible();
+});
+
+test("a Yahoo callback lands with Yahoo already selected", async ({ page }) => {
+  // Coming back from Yahoo with leagues, the dropdown must not be sitting on
+  // Sleeper -- the leagues just authorised would be hidden behind it.
+  await page.route(`${API}/yahoo/leagues`, (r) =>
+    r.fulfill({ json: { leagues: [{ leagueName: "Money League", teams: 10, rounds: 16, format: "half-ppr", rosterSlots: ["QB", "RB"], userTeam: 4 }] } })
+  );
+  await page.addInitScript(([v]) => window.sessionStorage.setItem("yahoo_oauth_state", v), ["s"]);
+  await signIn(page);
+  await page.goto("/yahoo/callback?code=abc&state=s");
+
+  await expect(page.getByTestId("import-platform")).toHaveValue("yahoo");
+  await expect(page.getByTestId("yahoo-leagues")).toContainText("Money League");
 });
