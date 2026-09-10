@@ -47,6 +47,19 @@ Made in this brainstorm:
    future or the draft is complete, because the drafts it finds are by
    definition ones nobody is watching, and the alternative is a zombie draft
    that needs one scheduler run per remaining pick.
+
+   **Catch-up consumes the missed time.** A drained pick advances the deadline
+   from the draft's *previous* deadline, not from wall-clock now: a draft
+   forty minutes overdue burns forty one-minute slots and the loop terminates
+   naturally when the deadline reaches the present. This is not a refinement,
+   it is what makes the drain a drain. `advanceDraft` writes `now + 60s`, so a
+   loop that re-read the draft and continued "while the deadline is in the
+   past" would find a deadline it had just placed in the *future* and exit
+   after exactly one pick — the zombie draft this decision exists to prevent,
+   with the loop written and green. `advanceDraft` therefore takes an optional
+   deadline base. Absent — every browser path, `/pick`, `/auto-pick`,
+   `/expire` and sim-to-end — behaviour is exactly what it was: a full minute
+   from now. Only the scheduler passes one.
 3. **Found by a sparse index, not a scan.** A draft is in the index only while
    its clock should be running.
 4. **The scheduler runs in-process, not over HTTP.** It calls the same pick
@@ -70,7 +83,7 @@ now` — returns exactly the drafts that are due. No scan, no filter, no reads
 of drafts that are not due.
 
 The attribute is maintained at four sites, and **every one of them is a write
-that already happens**. No new write is introduced:
+that already happens**. No new write is introduced by ordinary drafting:
 
 | Site | Effect on `clockRunning` |
 | --- | --- |
@@ -86,6 +99,50 @@ scheduler can never see an index entry that disagrees with the draft it names.
 A separate update would leave a window in which the index claims a draft is
 due when it is not, and the scheduler would pick for a turn that has already
 been taken.
+
+### The one write that is not free: the scheduler's self-heal
+
+Riding along is enough to keep the index *correct*, and not enough to keep it
+*drainable*. The query is ascending on `pickDeadline` with a limit, so a draft
+that is in the index but can never advance is returned **first, on every run,
+forever**. Twenty-five of those and the clock silently stops for everybody
+else: the whole run is spent re-reading drafts it cannot move.
+
+So the scheduler self-heals. When a drain makes zero picks for a *structural*
+reason, it conditionally removes `clockRunning` so the draft leaves the index:
+
+| Reason | Condition on the removal |
+| --- | --- |
+| completed | `currentIndex >= size(picks)` |
+| paused | `attribute_exists(pausedAt)` |
+
+Conditional, because between the read that said "completed" and this write the
+draft may have changed, and un-indexing a draft whose clock should be running
+is the exact bug the index exists to prevent. A condition failure means the
+draft moved on: it is counted and left indexed.
+
+Nothing transient is evicted. A lost race and a deadline that is simply still
+in the future are the system working, and the draft must stay indexed. Neither
+is an exhausted player pool: that is recoverable, and evicting would mean the
+draft is never enforced again once the pool is fixed, so it is counted and
+logged distinctly instead.
+
+This is the one place `clockRunning` is written outside a write that was
+already happening. It is a correctness mechanism rather than maintenance —
+without it a handful of stuck rows disable the feature for every draft in the
+table — and it is carved out explicitly in the plan's Global Constraints.
+
+### Pausing and the index
+
+`advanceDraft`'s condition guards `currentIndex`, and pausing does not move
+`currentIndex`. A pick that raced a pause therefore succeeded, and because the
+same write sets `clockRunning`, it put the paused draft straight back into the
+index `/pause` had just removed it from — manufacturing exactly the stuck rows
+above. The condition is therefore `currentIndex = :expected AND
+attribute_not_exists(pausedAt)`: picking while paused is a clean failure on
+every path, told apart from a lost race by the re-read that already happens,
+and answered with a 409 that says the draft is paused rather than that
+somebody just picked.
 
 `KEYS_ONLY` is deliberate, and follows the reasoning already written on the
 `byOwner` index: the projection excludes `picks`, which is the whole draft
@@ -185,9 +242,16 @@ for as long as the window is open, and will spam the log. A failure counter
 would stop that, but it is state nobody reads, and a draft that fails forever
 is a bug to be found in the log rather than suppressed by one.
 
-One structured log line per run: drafts due, drafts advanced, picks made,
-skipped with reasons. Enough to answer "did the clock run, and did it do
-anything" without reading a hundred lines.
+One structured log line per run: `due`, `advanced`, `picks`, and then every
+non-pick outcome counted separately rather than folded into one `skipped` —
+`raced`, `ineligible`, `evicted`, `emptyPool`, `failed`, `deferred`. The split
+is what lets the line answer the question that actually matters at 3am: is a
+draft poisoned, or is the clock simply finding nothing to do? `raced` and
+`ineligible` are the system working; a `failed` or `emptyPool` that repeats
+tick after tick is not.
+
+Picks made before a drain throws are still counted in the run total. A run
+that made four picks and then died must not report zero.
 
 ## Migration
 
@@ -206,7 +270,12 @@ Deploy order, once:
 1. `sam deploy` — creates the GSI. Adding a GSI to a live table is an
    asynchronous update that can take several minutes; the table stays fully
    available throughout, and the scheduler finds nothing to do until the
-   backfill in step 3 has run.
+   backfill in step 3 has run. Every tick during those minutes queries an
+   index that is still `CREATING` and fails, which is why the schedule sets
+   `RetryPolicy: MaximumRetryAttempts: 0`: Scheduler's default of 185 attempts
+   over 24 hours would turn a few expected failures into a retry storm on top
+   of a per-minute schedule, and a retry buys nothing when the next tick is a
+   minute away.
 2. `node scripts/backfillClockRunning.js` — read the counts.
 3. `node scripts/backfillClockRunning.js --confirm`.
 
@@ -219,11 +288,20 @@ server's deadline; the scheduler is invisible to it.
   `/auto-pick` route tests must pass **unchanged**, and the backend test count
   must not drop. A test that needed editing to accommodate the move is a
   signal the move changed behaviour.
-- **The run loop**, against a mocked `ddb`: a long-overdue draft is drained
-  until its deadline is in the future; a `RaceLost` on one draft does not stop
-  the others; a draft that throws does not abort the run; the wall-clock
-  budget stops new drafts being started; a draft that completes during a drain
-  has `clockRunning` removed.
+- **The run loop**, against a mocked `ddb` — and specifically against the
+  **real** `autoPickAndAdvance` and `advanceDraft`, with the fake storing what
+  an `UpdateCommand` writes and enforcing its `ConditionExpression`. A test
+  that mocks the pick rule cannot see what deadline the pick actually wrote,
+  which is the one value the drain loop reads: it will report a drained draft
+  while the real code makes one pick and exits. A long-overdue draft is
+  drained; the deadlines written walk forward one slot at a time from the old
+  one; a `RaceLost` on one draft does not stop the others; a draft that throws
+  does not abort the run, and the picks it made are still counted; the
+  wall-clock budget stops new drafts being started and stops a drain
+  mid-draft; a draft that completes during a drain has `clockRunning` removed;
+  a completed or paused draft that is still indexed is evicted, and an
+  exhausted pool, a lost race and a future deadline are not; the Query itself
+  is asserted, operator and `Limit` included.
 - **The template**, in `template.test.js`, which this repo already uses for
   exactly this class of bug — things that fail silently in production while
   every unit test passes:

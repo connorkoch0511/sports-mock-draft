@@ -374,6 +374,86 @@ sam deploy --parameter-overrides \
     --query Parameter.Value --output text)
 ```
 
+### The scheduled clock
+
+Every draft has a server-owned deadline. A browser calling `POST
+/drafts/{id}/expire` asks the server to enforce it; `ClockFunction`
+(`backend/src/clock.js`) asks the same question on a timer, so a draft with no
+tab open still moves. It runs every minute from 08:00 to 01:59 Pacific, finds
+due drafts through the sparse `byClock` index, and drains each one — picking
+repeatedly, each pick consuming one expired minute, until the deadline catches
+up with the present.
+
+**Deploying it the first time needs the backfill.** Every draft written before
+this feature has no `clockRunning` attribute, and the index is sparse, so the
+scheduler would never see any of them — while looking, from every log and
+every test, as though it worked. Once, after the deploy that creates the
+index:
+
+```bash
+# Wait for the index. Every tick fails while it says CREATING.
+aws dynamodb describe-table --table-name perfectpick-drafts --region us-east-1 \
+  --query "Table.GlobalSecondaryIndexes[?IndexName=='byClock'].IndexStatus" --output text
+
+cd backend/src
+node scripts/backfillClockRunning.js            # dry run — read the counts
+node scripts/backfillClockRunning.js --confirm  # writes clockRunning
+```
+
+The dry run's `to write` should be roughly the number of unfinished drafts. It
+also names, in full and uncapped, any draft that qualifies for the clock but
+has no usable `pickDeadline`: `byClock` is a composite index and DynamoDB will
+not project an item missing either key, so those drafts need a real deadline
+before they can ever be indexed. That list is a to-do list, which is why it is
+not truncated the way the other id listings are.
+
+**Reading its log.** No function in `template.yaml` sets `FunctionName`, so
+CloudFormation generates one — `/aws/lambda/sports-mock-draft-ClockFunction`
+does not resolve. Ask the stack:
+
+```bash
+CLOCK_FN=$(aws cloudformation describe-stack-resource --stack-name sports-mock-draft \
+  --region us-east-1 --logical-resource-id ClockFunction \
+  --query StackResourceDetail.PhysicalResourceId --output text)
+aws logs tail "/aws/lambda/$CLOCK_FN" --since 15m --region us-east-1 --format short | grep "clock run"
+```
+
+One line per run: `due`, `advanced`, `picks`, then every non-pick outcome
+counted separately — `raced`, `ineligible`, `evicted`, `emptyPool`, `failed`,
+`deferred`. `raced` and `ineligible` are the system working. A `failed` or
+`emptyPool` that repeats tick after tick is a poisoned draft worth finding.
+
+**The kill switch.** The clock writes to live drafts on a timer, so know how
+to stop it before you need to:
+
+```bash
+CLOCK_SCHED=$(aws scheduler list-schedules --region us-east-1 \
+  --query "Schedules[?contains(Name,'Clock')].Name" --output text)
+
+# UpdateSchedule is a full replacement, not a patch: `--state DISABLED` alone
+# is rejected for want of --schedule-expression, --flexible-time-window and
+# --target, so read the current definition and hand it back unchanged.
+CUR=$(aws scheduler get-schedule --name "$CLOCK_SCHED" --region us-east-1)
+aws scheduler update-schedule --region us-east-1 --name "$CLOCK_SCHED" --state DISABLED \
+  --schedule-expression "$(jq -r .ScheduleExpression <<<"$CUR")" \
+  --schedule-expression-timezone "$(jq -r .ScheduleExpressionTimezone <<<"$CUR")" \
+  --flexible-time-window "$(jq -c .FlexibleTimeWindow <<<"$CUR")" \
+  --target "$(jq -c .Target <<<"$CUR")"
+```
+
+`--state ENABLED` the same way turns it back on, and the next `sam deploy`
+restores whatever the template says — this is an incident switch, not a
+configuration change. To stop it *this second* without a schedule definition:
+
+```bash
+aws lambda put-function-concurrency --region us-east-1 \
+  --function-name "$CLOCK_FN" --reserved-concurrent-executions 0
+# undo: aws lambda delete-function-concurrency --function-name "$CLOCK_FN" --region us-east-1
+```
+
+Either way, deadlines stay exactly where they are and browsers calling
+`/expire` keep enforcing the clock on their own.
+
 ---
 
 ## Project Structure
@@ -424,14 +504,18 @@ sports-mock-draft/
 │   │   ├── players.js         # Player query handler
 │   │   ├── me.js              # Your drafts and boards, by owner
 │   │   ├── syncPlayers.js     # Nightly ADP, stats and game-log sync
+│   │   ├── clock.js           # Scheduled: enforces deadlines with no browser open
 │   │   ├── template.test.js   # Asserts every mutating route carries the authorizer
 │   │   ├── lib/
 │   │   │   ├── owner.js       # Who owns this, and who may act in it
 │   │   │   ├── http.js        # Responses, CORS, gzip
 │   │   │   ├── roster.js      # Roster slot logic
+│   │   │   ├── advance.js     # The one conditional write that moves a draft
+│   │   │   ├── autoPick.js    # Who gets picked, shared by the routes and the clock
 │   │   │   └── reconcile.js   # Board-vs-pool reconciliation
 │   │   └── scripts/
-│   │       └── purge-unowned.js   # One-off: delete rows nobody owns, dump first
+│   │       ├── purge-unowned.js        # One-off: delete rows nobody owns, dump first
+│   │       └── backfillClockRunning.js # One-off: put existing drafts in the clock index
 │   └── template.yaml          # SAM infrastructure definition
 └── screenshots/               # Auto-generated by the test suite
 ```
