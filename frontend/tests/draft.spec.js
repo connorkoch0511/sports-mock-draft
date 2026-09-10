@@ -914,3 +914,39 @@ test("changing your board persists the choice", async ({ page }) => {
   await page.getByTestId("seat-board").selectOption("b1");
   await expect.poll(() => posted?.boardId).toBe("b1");
 });
+
+// The one path no earlier task's tests cover end to end: a seat whose clock
+// actually reaches zero gets picked for -- not by a click, not by the manual
+// Auto Pick button -- from its OWN board (yourBoardId "b1"), and the Draft
+// Board panel reflects the result on its own once the server answers.
+test("a seat whose clock runs out is picked for, from its own board", async ({ page }) => {
+  const state = makeDraftState({ pickDeadline: Date.now() - 1000, yourBoardId: "b1" });
+  mockDraftApis(page, state);
+
+  await signIn(page);
+  // Registered after signIn's own (empty-list) /me/boards route, so this one
+  // wins -- Playwright matches the most-recently-added handler first.
+  await page.route(`${API}/me/boards`, (r) =>
+    r.fulfill({ json: { boards: [{ id: "b1", name: "Zero RB" }] } })
+  );
+
+  // The server's answer to /expire: it made the pick, from seat 1's own
+  // board, so the next GET shows a draft that has moved on. Registered after
+  // mockDraftApis's own always-409 /expire route, so this one wins.
+  await page.route(`${API}/drafts/${DRAFT_ID}/expire`, (r) => {
+    const picked = MOCK_PLAYERS[1];
+    state.picks[0].playerId = picked.id;
+    state.picks[0].player = picked;
+    state.picked = [picked.id];
+    state.currentIndex = 1;
+    state.pickDeadline = Date.now() + 60000;
+    return r.fulfill({ json: { ok: true, picked } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+
+  // The page asked (the expire effect fires as soon as it sees the already-
+  // past deadline), the server answered, and the Draft Board panel reflects
+  // it without anybody clicking anything.
+  await expect(page.getByTestId("panel-draft-board")).toContainText(MOCK_PLAYERS[1].name);
+});
