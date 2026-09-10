@@ -43,18 +43,16 @@ async function handler(_event, context) {
       : Number.POSITIVE_INFINITY;
 
   const out = { due: due.length, advanced: 0, picks: 0, skipped: 0, deferred: 0 };
-  let first = true;
 
   for (const draftId of due) {
-    if (!first && remaining() < RESERVE_MS) {
+    if (remaining() < RESERVE_MS) {
       // Not an error: the next tick picks these up, and a half-finished
       // drain is exactly as valid a state as any other.
       out.deferred += 1;
       continue;
     }
-    first = false;
     try {
-      const picks = await drainDraft({ draftId, draftsTable, playersTable, boardsTable });
+      const picks = await drainDraft({ draftId, draftsTable, playersTable, boardsTable, remaining });
       if (picks > 0) out.advanced += 1;
       out.picks += picks;
       if (picks === 0) out.skipped += 1;
@@ -79,9 +77,14 @@ async function handler(_event, context) {
  * definition ones nobody is watching, and the alternative is a zombie draft
  * needing one scheduler run per remaining pick.
  */
-async function drainDraft({ draftId, draftsTable, playersTable, boardsTable }) {
+async function drainDraft({ draftId, draftsTable, playersTable, boardsTable, remaining }) {
   let picks = 0;
   for (;;) {
+    // The outer loop's budget stops a new draft starting; this stops one
+    // draft's drain from overrunning the timeout on its own. The draft keeps
+    // its index entry, so the next run continues where this one stopped.
+    if (remaining() < RESERVE_MS) return picks;
+
     const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
     const d = res.Item;
     if (!d) return picks;
