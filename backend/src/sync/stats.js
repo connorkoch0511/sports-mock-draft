@@ -59,12 +59,40 @@ function hasPlayedGames(statsByPlayer) {
 // The fallback is indistinguishable, from the return value alone, from an
 // upstream schema change or partial outage that returns `200 {}` -- both
 // silently serve last season's data. Callers must log which happened.
+// How many players actually played. This is the question that decides which
+// season to serve, and it replaces "has anyone played?" -- which was true the
+// morning after week 1 of a new season, when the answer that mattered was
+// "hardly anyone". On 10 September 2026 that distinction cost 561 players
+// their history and told the draft page they were all rookies.
+function playedCount(statsByPlayer) {
+  if (!statsByPlayer || typeof statsByPlayer !== "object") return 0;
+  let n = 0;
+  for (const s of Object.values(statsByPlayer)) {
+    if (s && typeof s.gp === "number" && s.gp > 0) n += 1;
+  }
+  return n;
+}
+
+// Serve whichever season actually has the data. Both are fetched every run --
+// one extra request against a sync that already makes 18 -- because the only
+// way to know a young season is thin is to weigh it against the last complete
+// one. Self-correcting by construction: last season wins in September, the
+// new season wins once it has overtaken it, and nobody has to bump a year.
 async function resolveStatsSeason(year, fetchSeason) {
   const primary = await fetchSeason(year);
-  if (hasPlayedGames(primary)) return { season: year, stats: primary };
-
   const prior = await fetchSeason(year - 1);
-  return { season: year - 1, stats: prior };
+
+  // A season nobody has played is never the answer, even when the one before
+  // it is empty too: an upstream outage answering 200 {} then serves the
+  // prior season, which is what it did before this rule existed.
+  // Both counts travel with the result: they are what decided the choice,
+  // and the sync's log is the only place an operator ever sees them.
+  const requestedCount = playedCount(primary);
+  const priorCount = playedCount(prior);
+  if (requestedCount > 0 && requestedCount >= priorCount) {
+    return { season: year, stats: primary, requestedCount, priorCount };
+  }
+  return { season: year - 1, stats: prior, requestedCount, priorCount };
 }
 
 // Attach curated stats to the players we have. Players absent from the feed,
@@ -102,6 +130,7 @@ module.exports = {
   fetchSeasonStats,
   pickStats,
   hasPlayedGames,
+  playedCount,
   resolveStatsSeason,
   mergeStats,
 };

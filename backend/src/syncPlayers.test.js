@@ -895,3 +895,51 @@ test("the handler writes nothing when no ADP arrived", async () => {
     process.env.PLAYERS_TABLE = realTable;
   }
 });
+
+test("resolveStatsSeason prefers last complete season over a week-old one", () => {
+  // 10 September 2026, in production: week 1 of the new season had been
+  // played, so a handful of players carried gp=1. The old guard asked "has
+  // anyone played?", said yes, and adopted 2026 -- dropping 561 players'
+  // history and telling the draft page that Derrick Henry had never played.
+  // Coverage is the question, not existence.
+  const seasons = {
+    2026: { "1": { gp: 1 }, "2": { gp: 1 } },
+    2025: {
+      "1": { gp: 17 }, "2": { gp: 17 }, "3": { gp: 16 },
+      "4": { gp: 15 }, "5": { gp: 17 },
+    },
+  };
+  return resolveStatsSeason(2026, async (y) => seasons[y] || {}).then((r) => {
+    assert.strictEqual(r.season, 2025, "the season with real coverage should win");
+    assert.strictEqual(r.stats["3"].gp, 16);
+  });
+});
+
+test("resolveStatsSeason switches to the current season once it covers more players", () => {
+  // The other half of the rule, and why this needs no annual maintenance:
+  // by midseason the new year holds more than the old one, and the sync
+  // moves across on its own.
+  const seasons = {
+    2026: { "1": { gp: 10 }, "2": { gp: 10 }, "3": { gp: 9 } },
+    2025: { "1": { gp: 17 }, "2": { gp: 17 } },
+  };
+  return resolveStatsSeason(2026, async (y) => seasons[y] || {}).then((r) => {
+    assert.strictEqual(r.season, 2026, "the current season has overtaken the old one");
+  });
+});
+
+test("resolveStatsSeason reports the coverage behind its choice", () => {
+  // The sync's log is the only signal an operator gets, and it is what made
+  // the 2026 regression diagnosable in minutes. A fallback now happens for a
+  // reason the old message could not express -- "thinner", not "empty" -- so
+  // the counts that decided it travel with the result.
+  const seasons = {
+    2026: { "1": { gp: 1 } },
+    2025: { "1": { gp: 17 }, "2": { gp: 17 }, "3": { gp: 16 } },
+  };
+  return resolveStatsSeason(2026, async (y) => seasons[y] || {}).then((r) => {
+    assert.strictEqual(r.season, 2025);
+    assert.strictEqual(r.requestedCount, 1, "players covered by the requested season");
+    assert.strictEqual(r.priorCount, 3, "players covered by the season before it");
+  });
+});

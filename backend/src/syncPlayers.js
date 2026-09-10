@@ -199,18 +199,18 @@ exports.handler = async () => {
         `season stats: using requested season ${STATS_YEAR}, matched ${statsMatched} players`
       );
     } else {
-      // hasPlayedGames() found gp=0 across the board for STATS_YEAR. Early in
-      // a season that's expected -- the endpoint exists before any games are
-      // played. Outside that window, the same signal (all-zero gp) is what a
-      // schema change or a partial "200 {}" outage would also produce, so it
-      // reads as a fallback either way. matched/0 here, or a fallback outside
-      // the pre-season window, is the tell that this is the latter, not the
-      // former.
+      // The requested season covered fewer players than the one before it.
+      // Expected from the endpoint opening until the new season overtakes the
+      // old one, which is most of the autumn -- and the counts below say how
+      // far along that is. A requested count of 0 well into the season, or a
+      // prior count far below its usual few hundred, is the tell that this is
+      // a schema change or a partial "200 {}" outage rather than a young
+      // season.
       console.warn(
-        `season stats: requested season ${STATS_YEAR} has no games played (gp=0 for every ` +
-          `player) -- falling back to ${resolved.season}, matched ${statsMatched} players. ` +
-          `Expected in the weeks before ${STATS_YEAR} kicks off; if that's not now, this may ` +
-          `be an upstream schema change or outage rather than a genuine gap -- check statsMatched.`
+        `season stats: requested season ${STATS_YEAR} covered ${resolved.requestedCount} ` +
+          `players against ${resolved.priorCount} for ${resolved.season} -- using ` +
+          `${resolved.season}, matched ${statsMatched} players. Expected until ${STATS_YEAR} ` +
+          `overtakes it; if both counts look wrong, suspect the feed rather than the calendar.`
       );
     }
   } catch (e) {

@@ -391,13 +391,6 @@ Resources:
           ADP_TEAMS: 12
           ADP_YEAR: 2026
           ADP_FORMAT: standard
-          # Pinned deliberately, and temporarily. resolveStatsSeason adopts the
-          # requested season as soon as ANY player has gp > 0, so the morning
-          # after week 1 of 2026 it switched from 2025 (592 players matched) to
-          # 2026 (32), and every unmatched player started reading as a rookie
-          # who never played. Until that rule is replaced by a coverage
-          # comparison, this holds the sync on the last complete season.
-          STATS_YEAR: 2025
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref PlayersTable
