@@ -71,6 +71,13 @@ test("losing a race to a human ends that draft's turn, not the run", { timeout: 
   });
   let calls = 0;
   mock.method(autoPick, "autoPickAndAdvance", async ({ draftId, d: draft }) => {
+    // Yield to the event loop once per drain iteration. Without this, a
+    // mutated-away race guard makes drainDraft spin on an unbroken chain of
+    // already-resolved promises -- pure microtasks, no macrotask boundary --
+    // which starves node:test's timer-based per-test timeout and lets the
+    // loop run until the process dies of OOM instead of failing at the
+    // 5000ms timeout above. Do not remove this thinking it's dead code.
+    await new Promise((r) => setImmediate(r));
     calls += 1;
     if (draftId === "d1") return { ok: false, code: "race", error: "Somebody just picked" };
     draft.currentIndex += 1;

@@ -545,14 +545,26 @@ test("a draft whose deadline is now in the future is left alone", async () => {
 });
 
 test("losing a race to a human ends that draft's turn, not the run", { timeout: 5000 }, async () => {
+  const drafts = {
+    d1: dueDraft("d1", 2, 600000),
+    d2: dueDraft("d2", 2, 600000),
+  };
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     if (cmd.input.IndexName === "byClock") {
       return { Items: [{ draftId: "d1" }, { draftId: "d2" }] };
     }
-    return { Item: dueDraft(cmd.input.Key.draftId, 2, 600000) };
+    const draftId = cmd.input.Key.draftId;
+    return { Item: drafts[draftId] };
   });
   let calls = 0;
   mock.method(autoPick, "autoPickAndAdvance", async ({ draftId, d: draft }) => {
+    // Yield to the event loop once per drain iteration. Without this, a
+    // mutated-away race guard makes drainDraft spin on an unbroken chain of
+    // already-resolved promises -- pure microtasks, no macrotask boundary --
+    // which starves node:test's timer-based per-test timeout and lets the
+    // loop run until the process dies of OOM instead of failing at the
+    // 5000ms timeout above. Do not remove this thinking it's dead code.
+    await new Promise((r) => setImmediate(r));
     calls += 1;
     if (draftId === "d1") return { ok: false, code: "race", error: "Somebody just picked" };
     draft.currentIndex += 1;
@@ -566,12 +578,15 @@ test("losing a race to a human ends that draft's turn, not the run", { timeout: 
 });
 
 test("a draft that throws does not abort the run", async () => {
+  const drafts = {
+    d2: dueDraft("d2", 1, 600000),
+  };
   mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
     if (cmd.input.IndexName === "byClock") {
       return { Items: [{ draftId: "boom" }, { draftId: "d2" }] };
     }
     if (cmd.input.Key.draftId === "boom") throw new Error("table on fire");
-    return { Item: dueDraft("d2", 1, 600000) };
+    return { Item: drafts[cmd.input.Key.draftId] };
   });
   mock.method(autoPick, "autoPickAndAdvance", async ({ d: draft }) => {
     draft.currentIndex += 1;
