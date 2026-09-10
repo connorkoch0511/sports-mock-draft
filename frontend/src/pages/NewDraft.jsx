@@ -159,13 +159,16 @@ export default function NewDraft() {
             data-testid="import-platform"
             value={platform}
             onChange={(e) => {
-              const next = e.target.value;
-              setPlatform(next);
-              // Clear the other service's leagues so a set fetched from one
-              // can never be applied while the other is selected. Fields the
-              // import already filled in are deliberately left alone.
-              if (next === "sleeper") setYahooLeagues(null);
-              else setLeagues(null);
+              // Only the selected platform's panel ever renders below, so the
+              // other platform's league list is never reachable while this
+              // select shows something else -- there is nothing here to
+              // guard against by clearing it. Clearing used to run anyway,
+              // which meant switching away and back (e.g. after returning
+              // from Yahoo's OAuth) threw away an already-fetched list, and a
+              // bare arrow key on this native <select> can fire this handler
+              // on Windows/Linux without the menu ever opening. Leave both
+              // lists alone.
+              setPlatform(e.target.value);
             }}
             className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-sm text-zinc-100 outline-none focus:border-cyan-300/60"
           >
