@@ -31,19 +31,35 @@ async function advanceDraft({ ddb, table, draftId, draft, expectedIndex, now = D
   // has already been made -- and the loser of a race would arm a clock for
   // somebody else's turn.
   const deadline = now + PICK_MS;
+  // The index entry rides inside this same conditional write, for the same
+  // reason the deadline does: a separate update would leave a window where
+  // the index says a draft is due and the draft says somebody already picked.
+  const complete = draft.currentIndex >= draft.picks.length;
+  const base =
+    "SET picks = :p, picked = :k, currentIndex = :i, pickDeadline = :d, version = if_not_exists(version, :z) + :one";
+  const values = {
+    ":p": draft.picks, ":k": draft.picked, ":i": draft.currentIndex,
+    ":d": deadline,
+    ":z": 0, ":one": 1, ":expected": expectedIndex,
+  };
+  let expression;
+  if (complete) {
+    // A finished draft leaves the index for good; nothing will ever put it
+    // back, which is what makes the index sparse rather than ever-growing.
+    expression = `${base} REMOVE clockRunning`;
+  } else {
+    expression = `${base}, clockRunning = :run`;
+    // Declared only on this branch. An unused value is a ValidationException.
+    values[":run"] = "1";
+  }
   try {
     await ddb.send(
       new UpdateCommand({
         TableName: table,
         Key: { draftId },
-        UpdateExpression:
-          "SET picks = :p, picked = :k, currentIndex = :i, pickDeadline = :d, version = if_not_exists(version, :z) + :one",
+        UpdateExpression: expression,
         ConditionExpression: "currentIndex = :expected",
-        ExpressionAttributeValues: {
-          ":p": draft.picks, ":k": draft.picked, ":i": draft.currentIndex,
-          ":d": deadline,
-          ":z": 0, ":one": 1, ":expected": expectedIndex,
-        },
+        ExpressionAttributeValues: values,
       })
     );
   } catch (e) {

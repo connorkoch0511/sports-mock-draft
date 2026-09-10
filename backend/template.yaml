@@ -123,6 +123,10 @@ Resources:
           AttributeType: S
         - AttributeName: ownerId
           AttributeType: S
+        - AttributeName: clockRunning
+          AttributeType: S
+        - AttributeName: pickDeadline
+          AttributeType: N
       KeySchema:
         - AttributeName: draftId
           KeyType: HASH
@@ -144,6 +148,21 @@ Resources:
               - boardId
               - currentIndex
               - createdAt
+        # Sparse on purpose: `clockRunning` exists only while a draft's clock
+        # should be running, so a finished or paused draft has no entry here
+        # at all. The scheduled clock's whole query is "this index, deadline
+        # before now" -- no scan, no filter, no reads of drafts not due.
+        # KEYS_ONLY for the reason byOwner excludes `picks`: this index is
+        # read every minute, and the scheduler loads the full draft only for
+        # the few ids that come back.
+        - IndexName: byClock
+          KeySchema:
+            - AttributeName: clockRunning
+              KeyType: HASH
+            - AttributeName: pickDeadline
+              KeyType: RANGE
+          Projection:
+            ProjectionType: KEYS_ONLY
   # seats already says who is in a draft, but seats is a list and a DynamoDB
   # index cannot be built on a list, so membership gets its own rows here.
   # The seat is still the truth -- GET /drafts/{draftId} gates on isSeated and

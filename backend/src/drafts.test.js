@@ -2121,3 +2121,48 @@ test("GET reports the effective board for your seat", async () => {
   const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
   assert.equal(JSON.parse(res.body).yourBoardId, "b-creator");
 });
+
+test("a new draft is in the clock index", async () => {
+  let put = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    // Same disambiguation as "creating a draft puts pick 1 on the clock"
+    // above: the membership-row write also carries a `draftId` attribute, so
+    // matching on that alone would capture the wrong Item once addMember runs.
+    if (cmd?.input?.Item?.seats) put = cmd.input.Item;
+    return {};
+  });
+  const res = await handler(
+    evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1 }, claims: ME })
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(put.clockRunning, "1");
+});
+
+test("pausing takes a draft out of the clock index", async () => {
+  const d = ownedDraft(ME.sub);
+  const sent = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    sent.push(cmd.input);
+    return { Item: d };
+  });
+  await handler(
+    evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: true }, claims: ME })
+  );
+  const upd = sent.find((i) => i.UpdateExpression?.includes("pausedAt = :n"));
+  assert.match(upd.UpdateExpression, /REMOVE .*clockRunning/);
+});
+
+test("resuming puts it back", async () => {
+  const d = { ...ownedDraft(ME.sub), pausedAt: Date.now() - 5000, pausedBy: ME.sub };
+  const sent = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    sent.push(cmd.input);
+    return { Item: d };
+  });
+  await handler(
+    evt("POST", "/drafts/d1/pause", { draftId: "d1", body: { paused: false }, claims: ME })
+  );
+  const upd = sent.find((i) => i.UpdateExpression?.includes("pickDeadline = :d"));
+  assert.match(upd.UpdateExpression, /clockRunning = :run/);
+  assert.equal(upd.ExpressionAttributeValues[":run"], "1");
+});

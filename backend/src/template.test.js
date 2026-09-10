@@ -192,3 +192,20 @@ test("the Yahoo function outlives its own fetch timeout", () => {
   // 8s per fetch, and Task 6 adds a second sequential call after the exchange.
   assert.ok(fnTimeout >= 20, `expected room for two 8s fetches, got ${fnTimeout}`);
 });
+
+test("the drafts table has a sparse clock index", () => {
+  const tpl = loadTemplate();
+  const t = tpl.Resources.DraftsTable.Properties;
+  const gsi = (t.GlobalSecondaryIndexes || []).find((g) => g.IndexName === "byClock");
+  assert.ok(gsi, "byClock index is missing");
+  assert.deepEqual(
+    gsi.KeySchema.map((k) => [k.AttributeName, k.KeyType]),
+    [["clockRunning", "HASH"], ["pickDeadline", "RANGE"]]
+  );
+  assert.equal(gsi.Projection.ProjectionType, "KEYS_ONLY");
+  // A key attribute with no definition is a deploy-time failure, not a
+  // runtime one, so it never shows up in any other test.
+  const defs = Object.fromEntries(t.AttributeDefinitions.map((a) => [a.AttributeName, a.AttributeType]));
+  assert.equal(defs.clockRunning, "S");
+  assert.equal(defs.pickDeadline, "N");
+});

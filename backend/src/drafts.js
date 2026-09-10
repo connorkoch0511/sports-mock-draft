@@ -141,6 +141,8 @@ exports.handler = async (event) => {
         // Pick 1 is on the clock from the moment the page opens. Every later
         // deadline is written by advanceDraft, inside the conditional write.
         pickDeadline: Date.now() + PICK_MS,
+        // In the clock index from birth: pick 1 is already on the clock.
+        clockRunning: "1",
         version: 1,
         // Whoever holds this can take a seat. Returned only to people already
         // seated, so it travels the way the person sharing it chooses.
@@ -508,7 +510,8 @@ exports.handler = async (event) => {
             new UpdateCommand({
               TableName: draftsTable,
               Key: { draftId },
-              UpdateExpression: "SET pausedAt = :n, pausedBy = :me, version = if_not_exists(version, :z) + :one",
+              UpdateExpression:
+                "SET pausedAt = :n, pausedBy = :me, version = if_not_exists(version, :z) + :one REMOVE clockRunning",
               ConditionExpression: "attribute_not_exists(pausedAt)",
               ExpressionAttributeValues: { ":n": now, ":me": sub, ":z": 0, ":one": 1 },
             })
@@ -534,9 +537,9 @@ exports.handler = async (event) => {
             TableName: draftsTable,
             Key: { draftId },
             UpdateExpression:
-              "SET pickDeadline = :d, version = if_not_exists(version, :z) + :one REMOVE pausedAt, pausedBy",
+              "SET pickDeadline = :d, clockRunning = :run, version = if_not_exists(version, :z) + :one REMOVE pausedAt, pausedBy",
             ConditionExpression: "pausedAt = :was",
-            ExpressionAttributeValues: { ":d": extended, ":was": d.pausedAt, ":z": 0, ":one": 1 },
+            ExpressionAttributeValues: { ":d": extended, ":run": "1", ":was": d.pausedAt, ":z": 0, ":one": 1 },
           })
         );
       } catch (e) {
