@@ -434,6 +434,14 @@ Resources:
           Properties:
             ScheduleExpression: cron(* 8-23,0-1 * * ? *)
             ScheduleExpressionTimezone: America/Los_Angeles
+            # EventBridge Scheduler's default is 185 attempts over 24 hours.
+            # On top of a per-minute schedule that is a retry storm, and the
+            # first deploy invites one: the byClock index is CREATING for
+            # several minutes and every query against it fails. Retries buy
+            # nothing when the next tick is a minute away and re-reads the
+            # index anyway.
+            RetryPolicy:
+              MaximumRetryAttempts: 0
 
   BoardsFunction:
     Type: AWS::Serverless::Function

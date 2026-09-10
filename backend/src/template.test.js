@@ -237,3 +237,15 @@ test("the clock can read what it needs and write only drafts", () => {
     assert.ok(env[k], `${k} is not passed to the clock`);
   }
 });
+
+test("a failing tick is not retried 185 times", () => {
+  const tpl = loadTemplate();
+  const events = Object.values(tpl.Resources.ClockFunction.Properties.Events || {});
+  const sched = events.find((e) => e.Type === "ScheduleV2");
+  // EventBridge Scheduler defaults to 185 attempts spread over 24 hours. The
+  // clock runs every minute and its query is the same one next minute, so a
+  // retry can only pile failures on top of a schedule that is already
+  // retrying -- and the very first deploy guarantees failures, because the
+  // byClock index is CREATING for minutes after the stack updates.
+  assert.equal(sched.Properties.RetryPolicy?.MaximumRetryAttempts, 0);
+});

@@ -99,6 +99,11 @@ async function main() {
       "!! the scheduler will not see them. They need a real pickDeadline before " +
         "they can be added to the clock index."
     );
+    // Uncapped, unlike printIds' 50-id cap, and deliberately so: every id in
+    // this bucket needs a human to give that draft a pickDeadline, so a
+    // truncated list would silently hide work that nothing else will ever
+    // remind anyone about. The capped buckets are informational; this one is
+    // a to-do list.
     for (const draftId of noDeadline) console.log(`     ${draftId}`);
   } else {
     console.log(
