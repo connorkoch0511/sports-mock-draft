@@ -356,6 +356,35 @@ test("a draft item with no picks list is skipped, not a TypeError", async () => 
   assert.equal(seen.updates.length, 0);
 });
 
+test("a draft with picks but no currentIndex is malformed, not a crash", async () => {
+  // `(d.currentIndex ?? 0) >= d.picks.length` treats a missing currentIndex
+  // as 0 and calls this draft not-yet-complete, so it sails on toward
+  // autoPickAndAdvance -- which indexes with the raw, unnormalized
+  // `d.currentIndex` and throws "Cannot set properties of undefined". A
+  // draft in this shape must be classified malformed and left alone, the
+  // same as one with no picks array at all, matching
+  // scripts/backfillClockRunning.js treating this shape as a real
+  // possibility rather than corruption.
+  const store = {
+    d1: {
+      draftId: "d1",
+      sport: "nfl",
+      format: "standard",
+      picks: [{ overall: 1, round: 1, team: 1 }, { overall: 2, round: 1, team: 2 }],
+      pickDeadline: Date.now() - 1000,
+      clockRunning: "1",
+    },
+  };
+  const seen = installDdb({ store, due: ["d1"] });
+  const out = await handler();
+  assert.equal(out.failed, 0, "a currentIndex-less draft must not throw");
+  assert.equal(out.picks, 0);
+  assert.equal(out.ineligible, 1);
+  assert.equal(out.evicted, 0, "malformed is not structural; the draft stays indexed for a fix");
+  assert.equal(seen.updates.length, 0);
+  assert.equal(store.d1.clockRunning, "1");
+});
+
 test("the wall-clock budget stops new drafts being started", async () => {
   const store = { d1: dueDraft("d1", 1, 600000), d2: dueDraft("d2", 1, 600000) };
   installDdb({ store, due: ["d1", "d2"] });
@@ -368,7 +397,13 @@ test("the wall-clock budget stops new drafts being started", async () => {
   };
   const out = await handler({}, context);
   assert.equal(out.advanced, 1);
-  assert.equal(out.deferred, 1);
+  // Two units of left-over work this tick, not one: d2 never started (the
+  // outer loop's own budget check), and d1's own drain also reported
+  // "budget" on the iteration right after its pick -- the loop rechecks
+  // budget before it rereads the draft to notice it finished, so from the
+  // run's point of view d1's drain was cut short too, even though the next
+  // tick will find it complete.
+  assert.equal(out.deferred, 2);
   assert.equal(store.d2.currentIndex, 0);
 });
 
@@ -382,4 +417,19 @@ test("the drain budget stops mid-draft, not just between drafts", { timeout: 500
   assert.equal(out.picks, 1);
   assert.equal(out.advanced, 1);
   assert.equal(store.d1.currentIndex, 1);
+  // A drain that made a pick and then ran out of budget is still truncated
+  // work, not a clean stop -- `deferred` is the number an operator reads to
+  // know whether a run left anything behind, and it must say so here even
+  // though `picks` is nonzero.
+  assert.equal(out.deferred, 1, "a budget-truncated drain must count as deferred even after picking");
+});
+
+test("a budget-truncated drain counts as deferred no matter how many picks it made first", { timeout: 5000 }, async () => {
+  const store = { d1: dueDraft("d1", 5, 600000) };
+  installDdb({ store, due: ["d1"] });
+  const context = { getRemainingTimeInMillis: () => (store.d1.currentIndex < 2 ? 60000 : 1000) };
+  const out = await handler({}, context);
+  assert.equal(out.picks, 2);
+  assert.equal(out.advanced, 1);
+  assert.equal(out.deferred, 1);
 });

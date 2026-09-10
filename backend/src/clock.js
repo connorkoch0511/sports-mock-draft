@@ -78,7 +78,13 @@ async function handler(_event, context) {
       const reason = await drainDraft({
         draftId, draftsTable, playersTable, boardsTable, remaining, tally,
       });
-      if (tally.picks === 0) await countStall({ out, reason, draftId, draftsTable });
+      // A "budget" drain that made some picks before running out is still a
+      // truncated drain -- the work left behind is exactly as real as one
+      // that made none, so it must count as `deferred` either way. Every
+      // other reason still only fires when the drain made zero picks.
+      if (tally.picks === 0 || reason === "budget") {
+        await countStall({ out, reason, draftId, draftsTable });
+      }
     } catch (e) {
       // One draft's failure costs that draft its tick, never the other
       // twenty-four theirs.
@@ -146,7 +152,7 @@ async function countStall({ out, reason, draftId, draftsTable }) {
   }
   if (reason === "malformed") {
     out.ineligible += 1;
-    console.error(`clock: draft ${draftId} has no picks array`);
+    console.error(`clock: draft ${draftId} has no picks array, or no currentIndex to pick from`);
     return;
   }
   out.ineligible += 1;
@@ -220,6 +226,16 @@ async function drainDraft({ draftId, draftsTable, playersTable, boardsTable, rem
     // TypeError, and a TypeError here is retried every minute forever.
     if (!Array.isArray(d.picks)) return "malformed";
     if ((d.currentIndex ?? 0) >= d.picks.length) return "completed";
+    // The `?? 0` above only decides "completed"; it never reaches d itself.
+    // autoPick.js indexes with the raw `d.currentIndex` (`d.picks[d.currentIndex]`,
+    // no fallback), so a draft with picks but no currentIndex sails past the
+    // check above -- it isn't complete -- and dies inside autoPickAndAdvance
+    // with "Cannot set properties of undefined" on every tick forever. Treat
+    // it as malformed instead, matching scripts/backfillClockRunning.js,
+    // which already treats this shape as a real possibility rather than
+    // corruption: shouldRun normalizes it with the same `?? 0`, and its write
+    // condition carries an explicit attribute_not_exists(currentIndex) arm.
+    if (d.currentIndex == null) return "malformed";
     if (d.pausedAt) return "paused";
     // Strictly greater, the same rule /expire applies: a deadline exactly
     // reached has not passed yet.

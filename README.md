@@ -422,13 +422,22 @@ One line per run: `due`, `advanced`, `picks`, then every non-pick outcome
 counted separately — `raced`, `ineligible`, `evicted`, `emptyPool`, `failed`,
 `deferred`. `raced` and `ineligible` are the system working. A `failed` or
 `emptyPool` that repeats tick after tick is a poisoned draft worth finding.
+`deferred` is the work-left-over number: it covers a draft this run never
+reached at all *and* one whose drain ran out of time budget partway through,
+however many picks that drain already made — either way it is still waiting
+for the next tick, and a `deferred` that keeps climbing means runs are
+truncating, not just idling.
 
 **The kill switch.** The clock writes to live drafts on a timer, so know how
 to stop it before you need to:
 
 ```bash
+# The `[0]` picks the first match: with more than one schedule containing
+# "Clock", plain `--output text` would return their names tab-separated and
+# break the --name argument below, so verify CLOCK_SCHED by hand if you have
+# more than one candidate.
 CLOCK_SCHED=$(aws scheduler list-schedules --region us-east-1 \
-  --query "Schedules[?contains(Name,'Clock')].Name" --output text)
+  --query "Schedules[?contains(Name,'Clock')].Name | [0]" --output text)
 
 # UpdateSchedule is a full replacement, not a patch: `--state DISABLED` alone
 # is rejected for want of --schedule-expression, --flexible-time-window and
@@ -446,6 +455,9 @@ restores whatever the template says — this is an incident switch, not a
 configuration change. To stop it *this second* without a schedule definition:
 
 ```bash
+CLOCK_FN=$(aws cloudformation describe-stack-resource --stack-name sports-mock-draft \
+  --region us-east-1 --logical-resource-id ClockFunction \
+  --query StackResourceDetail.PhysicalResourceId --output text)
 aws lambda put-function-concurrency --region us-east-1 \
   --function-name "$CLOCK_FN" --reserved-concurrent-executions 0
 # undo: aws lambda delete-function-concurrency --function-name "$CLOCK_FN" --region us-east-1
