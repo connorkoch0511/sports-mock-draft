@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **The scheduler drains; `POST /expire` does not.** `/expire` keeps its existing rule exactly — one expired deadline, exactly one auto-pick. Do not change its behaviour in any task.
-- **`clockRunning` is written only inside writes that already happen.** No task may add a separate update to maintain it. If a site seems to need one, the design is wrong; stop rather than adding it.
+- **`clockRunning` is written only inside writes that already happen.** No task may add a separate update to *maintain* it at runtime. If a site seems to need one, the design is wrong; stop rather than adding it. The one-off backfill in Task 5 is a migration for rows written before the attribute existed, not maintenance, and is the single exemption.
 - **Every new function needs its resource in `backend/template.yaml`.** A handler without one is dead code that every unit test passes.
 - **Mutation-test every guard:** delete the guard, run the covering test, confirm it goes **red**, restore it, confirm **green**. Record the evidence in the task report.
 - Backend source and tests are **CommonJS** (`require`).
