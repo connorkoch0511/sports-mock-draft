@@ -146,9 +146,10 @@ Open [http://localhost:5173](http://localhost:5173).
 
 ### Backend
 
-`GoogleClientId` and `GoogleClientSecret` have no default, so the deploy fails
-without them. Complete the [Sign-in setup](#sign-in-setup-one-time-manual)
-section below first if you haven't already; it walks through getting both.
+`GoogleClientId`, `GoogleClientSecret`, `YahooClientId` and
+`YahooClientSecret` have no default, so the deploy fails without them.
+Complete the [Sign-in setup](#sign-in-setup-one-time-manual) section below
+first if you haven't already; it walks through getting the Google pair.
 
 ```bash
 cd backend
@@ -157,6 +158,10 @@ sam deploy --parameter-overrides \
   GoogleClientId=YOUR_CLIENT_ID \
   GoogleClientSecret=$(aws ssm get-parameter \
     --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text) \
+  YahooClientId=YOUR_YAHOO_CLIENT_ID \
+  YahooClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/yahoo-client-secret --with-decryption \
     --query Parameter.Value --output text)
 ```
 
@@ -228,6 +233,14 @@ aws ssm put-parameter --name /perfectpick/google-client-secret \
   --type SecureString --value 'THE_SECRET'
 ```
 
+The Yahoo credential works the same way and is required by the same deploy,
+whether or not you use the Yahoo import — the template has no default for it:
+
+```bash
+aws ssm put-parameter --name /perfectpick/yahoo-client-secret \
+  --type SecureString --value 'THE_YAHOO_SECRET'
+```
+
 Then deploy, reading it back at deploy time:
 
 ```bash
@@ -236,6 +249,10 @@ sam deploy --parameter-overrides \
   GoogleClientId=YOUR_CLIENT_ID \
   GoogleClientSecret=$(aws ssm get-parameter \
     --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text) \
+  YahooClientId=YOUR_YAHOO_CLIENT_ID \
+  YahooClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/yahoo-client-secret --with-decryption \
     --query Parameter.Value --output text)
 ```
 
@@ -297,6 +314,10 @@ cd .. && sam build && sam deploy --parameter-overrides \
   GoogleClientId=YOUR_CLIENT_ID \
   GoogleClientSecret=$(aws ssm get-parameter \
     --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text) \
+  YahooClientId=YOUR_YAHOO_CLIENT_ID \
+  YahooClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/yahoo-client-secret --with-decryption \
     --query Parameter.Value --output text)
 
 # 4. Frontend, and not before step 3: the new bundle calls /me/drafts and
@@ -320,10 +341,12 @@ This builds the app, syncs to S3, and invalidates the CloudFront cache.
 
 ### Backend
 
-`GoogleClientId` and `GoogleClientSecret` have no default and are not saved in
-`backend/samconfig.toml` — the secret can never live in a committed file, so
-both must be passed on every deploy, not just the first. A plain `sam deploy`
-fails at CloudFormation for want of them.
+`GoogleClientId`, `GoogleClientSecret`, `YahooClientId` and
+`YahooClientSecret` have no default and are not saved in
+`backend/samconfig.toml` — a secret can never live in a committed file, so all
+four must be passed on every deploy, not just the first. A plain `sam deploy`
+fails at CloudFormation for want of them, and it fails *after* the build,
+which reads like a broken deploy rather than a missing argument.
 
 **Run the purge first, before this deploy, the first time you ship the read
 gate.** `backend/src/scripts/purge-unowned.js` deletes every unowned draft
@@ -344,6 +367,10 @@ sam deploy --parameter-overrides \
   GoogleClientId=YOUR_CLIENT_ID \
   GoogleClientSecret=$(aws ssm get-parameter \
     --name /perfectpick/google-client-secret --with-decryption \
+    --query Parameter.Value --output text) \
+  YahooClientId=YOUR_YAHOO_CLIENT_ID \
+  YahooClientSecret=$(aws ssm get-parameter \
+    --name /perfectpick/yahoo-client-secret --with-decryption \
     --query Parameter.Value --output text)
 ```
 
