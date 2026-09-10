@@ -368,7 +368,11 @@ exports.handler = async (event) => {
       try {
         await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
       } catch (e) {
-        if (e?.name === "RaceLost") {
+        // Two ways advanceDraft's condition can fail, and they must not be
+        // reported as each other: RaceLost is "somebody just picked",
+        // DraftPaused is "somebody hit pause between your read and your
+        // write". Both are a clean 409 carrying their own message.
+        if (e?.name === "RaceLost" || e?.name === "DraftPaused") {
           return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
         }
         throw e;
@@ -643,7 +647,11 @@ exports.handler = async (event) => {
       try {
         await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
       } catch (e) {
-        if (e?.name === "RaceLost") {
+        // Two ways advanceDraft's condition can fail, and they must not be
+        // reported as each other: RaceLost is "somebody just picked",
+        // DraftPaused is "somebody hit pause between your read and your
+        // write". Both are a clean 409 carrying their own message.
+        if (e?.name === "RaceLost" || e?.name === "DraftPaused") {
           return json(409, { error: e.message, currentIndex: e.currentIndex, version: e.version });
         }
         throw e;
@@ -692,8 +700,12 @@ exports.handler = async (event) => {
 module.exports.pickBestForTeam = pickBestForTeam;
 module.exports.boardIdForTeam = boardIdForTeam;
 
-// The three shapes lib/autoPick can return, in the HTTP terms the two routes
+// The shapes lib/autoPick can return, in the HTTP terms the two routes
 // already answer in. Written once so /auto-pick and /expire cannot drift.
+// The last line covers both `race` ("Somebody just picked") and `paused`
+// ("Draft is paused"): each already carries the message it needs, so the
+// only thing that would break by folding them together is the message, and
+// that is exactly what is being passed through.
 function autoPickResponse(json, r) {
   if (r.ok) return json(200, { ok: true, picked: r.picked });
   if (r.code === "empty") return json(409, { error: "No players left" });

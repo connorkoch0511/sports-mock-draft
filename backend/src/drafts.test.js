@@ -2166,3 +2166,67 @@ test("resuming puts it back", async () => {
   assert.match(upd.UpdateExpression, /clockRunning = :run/);
   assert.equal(upd.ExpressionAttributeValues[":run"], "1");
 });
+
+// A pick that races a pause. Pausing does not move currentIndex, so before
+// advance.js grew its `attribute_not_exists(pausedAt)` clause this write
+// SUCCEEDED -- storing a pick on a paused draft and, because the same write
+// sets clockRunning, putting the paused draft straight back into the clock
+// index it had just been removed from.
+function stubPauseRace(draft) {
+  // Taken before the handler mutates `draft` in place -- the Get below hands
+  // out the same object the route then advances, and the re-read has to show
+  // what the server holds, which is the UNadvanced draft plus a pause.
+  const stored = structuredClone(draft);
+  let draftGets = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    const kind = cmd.constructor.name;
+    if (kind === "UpdateCommand") {
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
+    }
+    if (cmd?.input?.TableName === "players-test") {
+      const p = {
+        playerId: "p1", id: "p1", name: "Test Back", position: "RB", team: "SF",
+        rank: { standard: 1 }, adp: { standard: 1 }, tier: { standard: 1 },
+      };
+      // A Get for /pick's snapshot, a Query for auto-pick's pool.
+      return kind === "QueryCommand" ? { Items: [p] } : { Item: p };
+    }
+    if (cmd?.input?.TableName === "boards-test") return {};
+    draftGets += 1;
+    // Somebody hit pause between our read and our write. currentIndex has
+    // not moved, so the pause is the only reason the condition failed.
+    if (draftGets === 1) return { Item: draft };
+    return { Item: { ...stored, pausedAt: Date.now(), pausedBy: THEM.sub } };
+  });
+}
+
+test("a pick that races a pause is refused, and says the draft is paused", async () => {
+  stubPauseRace(ownedDraft(ME.sub));
+  const res = await handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 409);
+  // Not "Somebody just picked": nobody did, and telling the drafter that
+  // sends them looking for a pick that does not exist.
+  assert.strictEqual(JSON.parse(res.body).error, "Draft is paused");
+});
+
+test("an auto-pick that races a pause is refused, and says the draft is paused", async () => {
+  stubPauseRace(ownedDraft(ME.sub));
+  const res = await handler(
+    evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", body: {}, claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 409);
+  assert.strictEqual(JSON.parse(res.body).error, "Draft is paused");
+});
+
+test("a sim-to-end that races a pause is refused, and says the draft is paused", async () => {
+  stubPauseRace(ownedDraft(ME.sub));
+  const res = await handler(
+    evt("POST", "/drafts/d1/sim-to-end", { draftId: "d1", body: {}, claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 409);
+  assert.strictEqual(JSON.parse(res.body).error, "Draft is paused");
+});

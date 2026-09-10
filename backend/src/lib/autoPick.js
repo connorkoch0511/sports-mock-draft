@@ -140,10 +140,25 @@ function boardIdForTeam(draft, teamNum) {
 // authorization in one, the deadline in the other -- and keeping the picking
 // itself in one place is what stops those two paths drifting into picking
 // differently.
-async function autoPickAndAdvance({ ddb, d, draftId, playersTable, draftsTable, boardsTable }) {
+/**
+ * @param {{players: object[], byId: object}} [pool] - an already-loaded
+ *   player pool. The two HTTP callers make one pick per request and pass
+ *   nothing, so the pool is loaded here as it always was. The scheduler's
+ *   drain makes many picks for one draft and loads it once, the way
+ *   sim-to-end already does -- re-reading and re-sorting ~3,900 rows per
+ *   pick is the difference between a drain that fits its budget and one that
+ *   does not. The pool is a static list of players; who is still available
+ *   is decided by `d.picked`, which is re-read per pick, so reusing it
+ *   cannot make a stale pick.
+ * @param {number} [deadlineBase] - passed straight through to advanceDraft.
+ */
+async function autoPickAndAdvance({
+  ddb, d, draftId, playersTable, draftsTable, boardsTable, pool, deadlineBase,
+}) {
   const sport = (d.sport || "nfl").toLowerCase();
   const format = (d.format || "standard").toLowerCase();
-  const { players, byId } = await loadPlayersForSport({ ddb, table: playersTable, sport, format });
+  const { players, byId } =
+    pool || (await loadPlayersForSport({ ddb, table: playersTable, sport, format }));
 
   const teamNum = d.picks[d.currentIndex]?.team;
   d.__counts = getRosterCounts(d, teamNum, byId);
@@ -172,10 +187,16 @@ async function autoPickAndAdvance({ ddb, d, draftId, playersTable, draftsTable, 
   d.currentIndex = d.currentIndex + 1;
 
   try {
-    await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex });
+    await advanceDraft({ ddb, table: draftsTable, draftId, draft: d, expectedIndex, deadlineBase });
   } catch (e) {
     if (e?.name === "RaceLost") {
       return { ok: false, code: "race", error: e.message, currentIndex: e.currentIndex, version: e.version };
+    }
+    // Somebody paused between our read and our write. A clean, distinct
+    // failure: the caller must say "the draft is paused", not "somebody just
+    // picked".
+    if (e?.name === "DraftPaused") {
+      return { ok: false, code: "paused", error: e.message, currentIndex: e.currentIndex, version: e.version };
     }
     throw e;
   }
