@@ -1,5 +1,14 @@
 export const MOCK_PLAYERS = [
-  { id: "p1",  name: "Christian McCaffrey", position: "RB",  team: "SF",  rank: 1,  adp: 1.2,  tier: 1 },
+  // p1 is the only pool player carrying season totals, and every number is
+  // the sum of MOCK_GAME_LOG below. The drill-down renders the advice panel
+  // and the game log together, so a statless p1 produced a page that called
+  // the number-one player a rookie directly above a table of his games --
+  // which is what the committed screenshot showed. The rest of the pool
+  // stays statless on purpose, so tests that need that shape still have it.
+  { id: "p1",  name: "Christian McCaffrey", position: "RB",  team: "SF",  rank: 1,  adp: 1.2,  tier: 1,
+    statsSeason: 2025,
+    stats: { gp: 3, rush_att: 44, rush_yd: 247, rush_td: 3, rec_tgt: 11, rec: 9,
+             rec_yd: 80, rec_td: 1, off_snp: 117, tm_off_snp: 186, pts_ppr: 67.7 } },
   { id: "p2",  name: "Justin Jefferson",    position: "WR",  team: "MIN", rank: 2,  adp: 2.1,  tier: 1 },
   { id: "p3",  name: "CeeDee Lamb",         position: "WR",  team: "DAL", rank: 3,  adp: 3.0,  tier: 1 },
   { id: "p4",  name: "Tyreek Hill",         position: "WR",  team: "MIA", rank: 4,  adp: 4.3,  tier: 1 },

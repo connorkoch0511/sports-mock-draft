@@ -208,6 +208,12 @@ function productionFactors(entry) {
 
   if (!stats || typeof stats !== "object") {
     if (player.rank == null) return null; // unranked players carry no stats by design
+    // Season totals and weekly logs reach us from separate merges, so one can
+    // be absent while the other is present. A game log is proof he played,
+    // and the drill-down renders it directly below this panel -- penalising
+    // him for never having played, above a table of his games, is worse than
+    // saying nothing at all.
+    if (Array.isArray(player.gameLog) && player.gameLog.length > 0) return null;
     return [
       {
         kind: "no-production",

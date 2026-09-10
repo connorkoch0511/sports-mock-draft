@@ -957,6 +957,32 @@ test("a ranked player with no stats earns an explicit no-prior-production reason
   );
 });
 
+test("a game log is proof he played, whatever the season totals are missing", () => {
+  // Season totals and weekly logs are merged from separate feeds, so one can
+  // arrive without the other. The player drill-down did exactly this: it
+  // penalised Christian McCaffrey -2 for never having played, directly above
+  // a table of the three games he played that season. Saying nothing beats
+  // contradicting the page.
+  const logged = player("logged", {
+    position: "RB",
+    rank: 1,
+    adp: 1.2,
+    tier: 1,
+    gameLog: [
+      { wk: 1, rush_att: 14, rush_yd: 82, rush_td: 1, pts_ppr: 21.3 },
+      { wk: 2, rush_att: 9, rush_yd: 25, pts_ppr: 4.9 },
+    ],
+    gameLogSeason: 2025,
+  });
+  const draft = makeDraft({ teams: 2, rounds: 2, userTeam: 1, made: [] });
+  const out = adviseOnPick({ players: [logged], draft, boardRows: null, myTeam: 1 });
+
+  assert.ok(
+    !kinds(out.reasonsFor("logged")).includes("no-production"),
+    "a player with a game log must not be told he has no prior season"
+  );
+});
+
 // ---------------------------------------------------------------------------
 // The base: the board when one is driving the draft, else consensus rank.
 // ---------------------------------------------------------------------------
