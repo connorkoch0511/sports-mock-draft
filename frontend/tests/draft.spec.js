@@ -84,7 +84,7 @@ test.describe("Draft page", () => {
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
 
-    await page.locator("select").first().selectOption("QB");
+    await page.getByTestId("position-filter").selectOption("QB");
 
     await expect(page.getByText("Josh Allen").first()).toBeVisible();
     await expect(page.getByText("Lamar Jackson").first()).toBeVisible();
@@ -891,4 +891,26 @@ test("a joiner sees their own team as theirs, not the creator's", async ({ page 
   await page.getByRole("button", { name: "Pause" }).click();
 
   await expect(page.getByTestId("my-team")).toContainText("2");
+});
+
+test("changing your board persists the choice", async ({ page }) => {
+  const state = makeDraftState({ yourBoardId: null });
+  mockDraftApis(page, state);
+  await signIn(page);
+  // Registered after signIn -- signIn's own /me/boards route (empty list)
+  // was added first, and Playwright matches the most-recently-added handler,
+  // so this one has to come after it to actually win.
+  await page.route(`${API}/me/boards`, (r) =>
+    r.fulfill({ json: { boards: [{ id: "b1", name: "Zero RB" }] } })
+  );
+  let posted = null;
+  await page.route(`${API}/drafts/${DRAFT_ID}/seat-board`, async (r) => {
+    posted = JSON.parse(r.request().postData() || "{}");
+    state.yourBoardId = posted.boardId;
+    return r.fulfill({ json: { ok: true, boardId: posted.boardId } });
+  });
+
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByTestId("seat-board").selectOption("b1");
+  await expect.poll(() => posted?.boardId).toBe("b1");
 });

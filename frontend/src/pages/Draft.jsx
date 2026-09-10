@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useAuth } from "../lib/authContext.js";
+import { fetchMyBoards } from "../lib/me";
+import { boardOptions, boardIdFromValue } from "../lib/seatBoard";
 import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
@@ -110,6 +112,17 @@ export default function Draft() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId]);
+
+  const [myBoards, setMyBoards] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    fetchMyBoards()
+      .then((bs) => { if (alive) setMyBoards(bs); })
+      // Losing this costs the picker, not the draft. Never surface it as a
+      // draft error.
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // Distinct from `load`: a poll only needs the draft's current state, not a
   // fresh player pool (which never changes once a draft has started), and
@@ -247,6 +260,15 @@ export default function Draft() {
       setErr(mutationErrorMessage(e, "Could not pause the draft"));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const setSeatBoard = async (value) => {
+    try {
+      await apiPost(`/drafts/${draftId}/seat-board`, { boardId: boardIdFromValue(value) });
+      await load();
+    } catch (e) {
+      setErr(mutationErrorMessage(e, "Could not change your board"));
     }
   };
 
@@ -438,6 +460,21 @@ export default function Draft() {
               >
                 {paused ? "Resume" : "Pause"}
               </button>
+
+              <label className="flex items-center gap-2 text-xs text-zinc-400">
+                Auto-pick from
+                <select
+                  data-testid="seat-board"
+                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-200"
+                  value={draft.yourBoardId ?? ""}
+                  onChange={(e) => setSeatBoard(e.target.value)}
+                  disabled={busy || draft.completed}
+                >
+                  {boardOptions(myBoards, draft.yourBoardId).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </label>
 
               {pausedByOther && (
                 <span data-testid="paused-by" className="text-xs text-zinc-400">

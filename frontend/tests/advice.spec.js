@@ -234,7 +234,7 @@ test("the card outlives the search and position filters", async ({ page }) => {
   // Filtering to a position is how you ask "who should I take at RB?". The
   // answer must survive the question.
   await search.fill("");
-  await page.locator("select").first().selectOption("RB");
+  await page.getByTestId("position-filter").selectOption("RB");
   await expect(card).toContainText("Christian McCaffrey");
   await expect(card).toContainText("RB");
   expect((await search.boundingBox()).y).toBe(restingY);
@@ -242,7 +242,7 @@ test("the card outlives the search and position filters", async ({ page }) => {
   // Even filtered to a position he is not in, where the card is the only
   // thing on screen still naming him -- it says which position and team he
   // is, so it is not pointing at nothing.
-  await page.locator("select").first().selectOption("QB");
+  await page.getByTestId("position-filter").selectOption("QB");
   await expect(rowFor(page, "Christian McCaffrey")).toHaveCount(0);
   await expect(card).toContainText("Christian McCaffrey");
   expect((await search.boundingBox()).y).toBe(restingY);

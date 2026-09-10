@@ -214,6 +214,7 @@ export function BigBoardPanel({
             onChange={(e) => setQuery(e.target.value)}
           />
           <select
+            data-testid="position-filter"
             className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-sky-300/60 focus:shadow-[0_0_0_4px_rgba(59,130,246,0.10)]"
             value={pos}
             onChange={(e) => setPos(e.target.value)}
@@ -283,7 +284,23 @@ export function BigBoardPanel({
           </div>
         </div>
 
-        <div data-testid="scroll-big-board" className="flex-1 min-h-0 overflow-auto space-y-2 pr-1">
+        {/*
+          min-h-[160px] rather than min-h-0: this panel already runs tight
+          against the fixed three-column layout (see the comment on the
+          adp-sort select above), and the header bar above it can wrap onto
+          an extra line depending on its own content (e.g. an incomplete
+          solo draft shows Sim to End, a long invite/draft id, etc.). Without
+          a floor here, that extra header line steals just enough height to
+          collapse this list to a sliver of a few pixels or zero -- not merely
+          a cosmetic squeeze, but every row's Draft button becoming
+          unclickable, since overflow:auto clips an absolutely-positioned
+          child the instant the scrollable box's own height reaches zero. A
+          fixed minimum keeps the list (and therefore every pick) always
+          reachable; the rare cost is a few pixels of this panel's content
+          extending past its own rounded border when the header is at its
+          tallest, which is a small visual wart next to a dead Draft button.
+        */}
+        <div data-testid="scroll-big-board" className="flex-1 min-h-[160px] overflow-auto space-y-2 pr-1">
           {/*
             Visible small print, not just the per-row `title` on "adp-trio"
             below -- a title is mouse-only (unreachable by keyboard or screen
