@@ -145,6 +145,31 @@ test("the menu is anchored to the toggle that opens it", async ({ page }) => {
   expect(Math.abs(menuBox.x - toggleBox.x)).toBeLessThanOrEqual(8);
 });
 
+test("the menu drops just below the toggle that opens it", async ({ page }) => {
+  // top-full used to measure from the 68px header; now that the toggle and
+  // menu share their own positioning wrapper, top-full alone lands the menu
+  // flush against the toggle's own bottom edge (a 0px gap) rather than the
+  // ~16px drop the old, header-relative top-full used to give it for free.
+  // mt-4 on the menu restores that drop.
+  //
+  // This is a floor, not a closeness band: with mt-4 removed, the rendered
+  // gap collapses to 0, which is *closer* to the toggle's bottom edge than
+  // the correct ~16px drop is, so asserting "close to the toggle's bottom
+  // edge" can never fail this regression -- 0 is always within any
+  // tolerance of itself. Asserting a minimum real gap instead is pinned to
+  // the toggle's own rendered geometry, not the number 16, so it still
+  // catches the day some other header child overtakes the toggle as the
+  // header's tallest and the compensation stops being exactly right.
+  await signIn(page);
+  await page.goto("/");
+
+  await page.getByTestId("nav-toggle").click();
+  const toggleBox = await page.getByTestId("nav-toggle").boundingBox();
+  const menuBox = await page.getByTestId("nav-menu").boundingBox();
+
+  expect(menuBox.y - (toggleBox.y + toggleBox.height)).toBeGreaterThanOrEqual(8);
+});
+
 test("the account controls sit at the header's right edge", async ({ page }) => {
   // Regression guard for the ml-auto that pushes sign-in/out to the right of
   // the header, alongside the brand link that now leads it.
