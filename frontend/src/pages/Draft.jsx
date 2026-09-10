@@ -443,8 +443,8 @@ export default function Draft() {
         )}
 
         {/* Top bar */}
-        <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300">
                 <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.5)]" />
@@ -452,7 +452,7 @@ export default function Draft() {
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2 items-center justify-start lg:justify-end">
+            <div className="flex flex-wrap gap-1.5 items-center justify-start lg:justify-end">
               <button
                 onClick={togglePause}
                 disabled={busy}
@@ -461,20 +461,38 @@ export default function Draft() {
                 {paused ? "Resume" : "Pause"}
               </button>
 
-              <label className="flex items-center gap-2 text-xs text-zinc-400">
-                Auto-pick from
-                <select
-                  data-testid="seat-board"
-                  className="rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-1 text-zinc-200"
-                  value={draft.yourBoardId ?? ""}
-                  onChange={(e) => setSeatBoard(e.target.value)}
-                  disabled={busy || draft.completed}
-                >
-                  {boardOptions(myBoards, draft.yourBoardId).map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </label>
+              {/* A visible "Auto-pick from" label plus a select sized to its
+                  widest option (a board name) was wide enough to tip this
+                  row onto an extra flex-wrap line at the 1280px-wide
+                  viewport the suite actually runs at (playwright.config.js's
+                  top-level 1440x900 is overridden by the chromium project's
+                  devices["Desktop Chrome"]). That extra line shrank
+                  BigBoardPanel below what scroll-big-board's min-h-[160px]
+                  floor needs, pushing the panel's own bottom border off the
+                  visible page. This row's baseline margin at 1280px turned
+                  out to be only ~26px even before this control existed --
+                  nowhere near enough for a functional select no matter how
+                  narrow -- so closing the gap took two things: no visible
+                  text label on the select itself (the accessible name comes
+                  from aria-label, with a hover title carrying the same
+                  text), and a hard cap+truncate on its width so a long board
+                  name can't widen it past a couple of characters. The
+                  reclaimed row/gap spacing above is the same order of
+                  magnitude and applies to every item in this row, not just
+                  this control. */}
+              <select
+                data-testid="seat-board"
+                aria-label="Auto-pick from"
+                title="Auto-pick from"
+                className="max-w-[3rem] truncate rounded-lg border border-zinc-700 bg-zinc-900 px-1 py-1 text-xs text-zinc-200"
+                value={draft.yourBoardId ?? ""}
+                onChange={(e) => setSeatBoard(e.target.value)}
+                disabled={busy || draft.completed}
+              >
+                {boardOptions(myBoards, draft.yourBoardId).map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
 
               {pausedByOther && (
                 <span data-testid="paused-by" className="text-xs text-zinc-400">

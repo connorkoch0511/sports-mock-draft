@@ -163,6 +163,53 @@ test("the board is fetched exactly once, even after a pick", async ({ page }) =>
   expect(boardRequests).toBe(1);
 });
 
+// Regression test for the header-wrap bug the seat-board select exposed:
+// this exact fixture (incomplete solo draft -- Sim to End visible, long
+// invite/draft ids -- with a real board attached) was measured at the real
+// 1280x720 test viewport (playwright.config.js's top-level 1440x900 is
+// overridden by the chromium project's devices["Desktop Chrome"], which
+// carries its own 1280x720) with the header wrapping onto an extra line and
+// scroll-big-board overflowing its own panel by ~169px. Asserting the panel
+// literally never overflows its border is out of reach from this test alone
+// -- BigBoardPanel's own fixed sections (the suggested-pick advice card, the
+// board-format-mismatch note) are dense enough that scroll-big-board's
+// min-h-[160px] floor already binds even with a single-line header, which
+// predates this task and is not something a header fix alone can close. What
+// this guards is the header's own contribution: the seat-board select must
+// not push the row that carries "current-pick" onto a second line. If it
+// does, current-pick's `y` jumps by a full line's height (~30px+) relative
+// to seat-board's, which is what this test would catch.
+test("the seat-board select does not push the header onto an extra line", async ({ page }) => {
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({ json: { ...makeDraftState(), boardId: BID } })
+  );
+  await page.route(`${API}/boards/${BID}`, (route) =>
+    route.fulfill({
+      json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS, changelog: { added: 0, removed: 0 } },
+    })
+  );
+
+  await signIn(page);
+  await seedBoard(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+
+  const seatBoardBox = await page.getByTestId("seat-board").boundingBox();
+  const currentPickBox = await page.getByTestId("current-pick").boundingBox();
+
+  // Same row: their vertical centers should be within a few px of each
+  // other. A wrapped header puts current-pick a full line lower (~30px+),
+  // which this comfortably distinguishes from same-line rendering
+  // differences between a <select> and a <span><Pill></Pill></span>.
+  const seatBoardMidY = seatBoardBox.y + seatBoardBox.height / 2;
+  const currentPickMidY = currentPickBox.y + currentPickBox.height / 2;
+  expect(Math.abs(seatBoardMidY - currentPickMidY)).toBeLessThan(15);
+
+  // Defense in depth stays effective: the floor still guarantees a
+  // clickable list even though (per the comment above) it also still binds.
+  expect(await page.getByTestId("scroll-big-board").evaluate((el) => el.clientHeight)).toBeGreaterThanOrEqual(160);
+});
+
 test("a deleted board still leaves the draft playable", async ({ page }) => {
   await mockPlayers(page);
   await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
