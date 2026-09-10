@@ -400,6 +400,41 @@ Resources:
           Properties:
             Schedule: rate(1 day)
 
+  # The clock, when nobody is watching. POST /expire is the same rule asked
+  # for by a browser; this asks for it on a timer.
+  ClockFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: clock.handler
+      # Longer than the 10s default because one run may drain several
+      # abandoned drafts, and shorter than the one-minute schedule so a slow
+      # run cannot pile up indefinitely. Overlapping runs are safe anyway --
+      # advanceDraft's conditional write makes the loser lose cleanly.
+      Timeout: 60
+      MemorySize: 512
+      Environment:
+        Variables:
+          DRAFTS_TABLE: !Ref DraftsTable
+          PLAYERS_TABLE: !Ref PlayersTable
+          BOARDS_TABLE: !Ref BoardsTable
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DraftsTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref PlayersTable
+        - DynamoDBReadPolicy:
+            TableName: !Ref BoardsTable
+      Events:
+        Tick:
+          # ScheduleV2 (EventBridge Scheduler), not Schedule: only Scheduler
+          # takes a timezone, and this window is expressed in Pacific time.
+          # Every minute from 08:00 to 01:59.
+          Type: ScheduleV2
+          Properties:
+            ScheduleExpression: cron(* 8-23,0-1 * * ? *)
+            ScheduleExpressionTimezone: America/Los_Angeles
+
   BoardsFunction:
     Type: AWS::Serverless::Function
     Properties:

@@ -209,3 +209,31 @@ test("the drafts table has a sparse clock index", () => {
   assert.equal(defs.clockRunning, "S");
   assert.equal(defs.pickDeadline, "N");
 });
+
+test("the clock runs on a schedule, in a real timezone", () => {
+  const tpl = loadTemplate();
+  const fn = tpl.Resources.ClockFunction;
+  assert.ok(fn, "ClockFunction is missing");
+  assert.equal(fn.Properties.Handler, "clock.handler");
+
+  const events = Object.values(fn.Properties.Events || {});
+  const sched = events.find((e) => e.Type === "ScheduleV2");
+  // Type Schedule (EventBridge rules) cannot express a timezone, so a UTC
+  // rule would drift by an hour twice a year. ScheduleV2 is not a style
+  // preference here.
+  assert.ok(sched, "the clock needs a ScheduleV2 event, not Schedule");
+  assert.equal(sched.Properties.ScheduleExpression, "cron(* 8-23,0-1 * * ? *)");
+  assert.equal(sched.Properties.ScheduleExpressionTimezone, "America/Los_Angeles");
+});
+
+test("the clock can read what it needs and write only drafts", () => {
+  const tpl = loadTemplate();
+  const policies = tpl.Resources.ClockFunction.Properties.Policies || [];
+  const named = policies.map((p) => Object.keys(p)[0]);
+  assert.ok(named.includes("DynamoDBCrudPolicy"), "needs write access to drafts");
+  assert.ok(named.includes("DynamoDBReadPolicy"), "needs read access to players and boards");
+  const env = tpl.Resources.ClockFunction.Properties.Environment.Variables;
+  for (const k of ["DRAFTS_TABLE", "PLAYERS_TABLE", "BOARDS_TABLE"]) {
+    assert.ok(env[k], `${k} is not passed to the clock`);
+  }
+});
