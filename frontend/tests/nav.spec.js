@@ -128,3 +128,34 @@ test("New Draft navigates to the draft setup page", async ({ page }) => {
   await expect(page).toHaveURL(/\/draft\/new$/);
   await expect(page.getByTestId("nav-menu")).toHaveCount(0);
 });
+
+test("the menu is anchored to the toggle that opens it", async ({ page }) => {
+  // The brand link sits ahead of the toggle in the header, so the header can
+  // no longer be trusted as the menu's positioning context -- if the toggle
+  // and the menu ever lose their shared wrapper, the menu drifts left under
+  // the brand instead of hanging off the toggle. A tolerance, not an exact
+  // match, because sub-pixel rounding is not the failure this guards.
+  await signIn(page);
+  await page.goto("/");
+
+  await page.getByTestId("nav-toggle").click();
+  const toggleBox = await page.getByTestId("nav-toggle").boundingBox();
+  const menuBox = await page.getByTestId("nav-menu").boundingBox();
+
+  expect(Math.abs(menuBox.x - toggleBox.x)).toBeLessThanOrEqual(8);
+});
+
+test("the account controls sit at the header's right edge", async ({ page }) => {
+  // Regression guard for the ml-auto that pushes sign-in/out to the right of
+  // the header, alongside the brand link that now leads it.
+  await signIn(page);
+  await page.goto("/");
+
+  const headerBox = await page.locator("header").boundingBox();
+  const authBox = await page.getByTestId("auth-controls").boundingBox();
+
+  const headerRight = headerBox.x + headerBox.width;
+  const authRight = authBox.x + authBox.width;
+
+  expect(Math.abs(authRight - headerRight)).toBeLessThanOrEqual(8);
+});
