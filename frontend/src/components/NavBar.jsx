@@ -73,7 +73,12 @@ export default function NavBar() {
       </Link>
 
       {showAppLinks && (
-        <>
+        // The brand link now sits ahead of the toggle in the header, so the
+        // header itself is no longer the toggle's positioning context. This
+        // wrapper gives the toggle and menu their own, so `absolute left-0`
+        // on the menu lines up with the toggle it opens rather than sliding
+        // under whatever the header's first child happens to be.
+        <div className="relative">
           <button
             ref={toggleRef}
             type="button"
@@ -92,7 +97,11 @@ export default function NavBar() {
               id="nav-menu"
               ref={menuRef}
               data-testid="nav-menu"
-              className="absolute left-0 top-full z-50 w-48 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur"
+              // mt-4 replaces the drop `top-full` used to get for free from
+              // the 68px header: this wrapper is only as tall as the ~36px
+              // button, so top-full alone would land the menu ~16px higher
+              // than before.
+              className="absolute left-0 top-full z-50 mt-4 w-48 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/95 shadow-[0_20px_60px_rgba(0,0,0,0.6)] backdrop-blur"
             >
               {LINKS.map((link) => {
                 const active = pathname === link.to;
@@ -114,7 +123,7 @@ export default function NavBar() {
               })}
             </nav>
           )}
-        </>
+        </div>
       )}
 
       {/*
