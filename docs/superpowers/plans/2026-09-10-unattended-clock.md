@@ -1034,6 +1034,7 @@ async function main() {
   }
 
   let written = 0, changed = 0;
+  const conditionFailed = [];
   for (const draftId of toWrite) {
     try {
       await ddb.send(
@@ -1047,7 +1048,11 @@ async function main() {
           // this condition -- that's the expected, correct outcome (the
           // draft changed under us), not an error, so it's counted and
           // skipped rather than aborting the run.
-          ConditionExpression: "attribute_not_exists(pausedAt) AND currentIndex < size(picks)",
+          // The attribute_not_exists(currentIndex) arm matches shouldRun's
+          // ?? 0 normalization, so a draft with missing currentIndex is
+          // treated the same way in both.
+          ConditionExpression:
+            "attribute_not_exists(pausedAt) AND (attribute_not_exists(currentIndex) OR currentIndex < size(picks))",
           ExpressionAttributeValues: { ":run": "1" },
         })
       );
@@ -1055,12 +1060,16 @@ async function main() {
     } catch (e) {
       if (e?.name === "ConditionalCheckFailedException") {
         changed += 1;
+        conditionFailed.push(draftId);
         continue;
       }
       throw e;
     }
   }
   console.log(`wrote ${written}, skipped ${changed} (changed since the scan)`);
+  if (conditionFailed.length > 0) {
+    printIds("drafts whose condition failed", conditionFailed);
+  }
 }
 
 main().catch((e) => {
