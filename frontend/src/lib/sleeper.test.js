@@ -107,3 +107,24 @@ test("survives a league with no draft at all", () => {
   assert.strictEqual(cfg.userTeam, 1);
   assert.strictEqual(cfg.teams, 12);
 });
+
+test("a league's pick timer comes across", () => {
+  assert.strictEqual(toDraftConfig(JOES, JOES_DRAFT, USER).pickSeconds, 60);
+});
+
+test("a non-preset timer comes across unchanged", () => {
+  // 45 is not one of the presets the select offers. It must survive anyway:
+  // snapping it would silently rewrite the setting the user just imported.
+  const draft = { ...JOES_DRAFT, settings: { ...JOES_DRAFT.settings, pick_timer: 45 } };
+  assert.strictEqual(toDraftConfig(JOES, draft, USER).pickSeconds, 45);
+});
+
+test("a league with no timer leaves the choice alone", () => {
+  // Sleeper writes 0 for "no timer". This app has no untimed option, so 0
+  // must not become 0 seconds -- it means "nothing learned, keep the
+  // default", which the caller expresses by leaving its own state be.
+  for (const timer of [0, undefined]) {
+    const draft = { ...JOES_DRAFT, settings: { ...JOES_DRAFT.settings, pick_timer: timer } };
+    assert.strictEqual(toDraftConfig(JOES, draft, USER).pickSeconds, null);
+  }
+});

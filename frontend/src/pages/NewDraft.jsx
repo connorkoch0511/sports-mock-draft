@@ -28,6 +28,7 @@ export default function NewDraft() {
   const location = useLocation();
   const [teams, setTeams] = useState(12);
   const [rounds, setRounds] = useState(15);
+  const [pickSeconds, setPickSeconds] = useState(60);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const [format, setFormat] = useState("standard");
@@ -86,6 +87,7 @@ export default function NewDraft() {
         format,
         year: DRAFT_YEAR,
         userTeam,
+        pickSeconds,
         ...(rosterSlots?.length ? { rosterSlots } : {}),
         ...(boardId ? { boardId } : {}),
       });
@@ -127,6 +129,9 @@ export default function NewDraft() {
     setRosterSlots(cfg.rosterSlots);
     setImportedFrom(cfg.leagueName);
     setLeagues(null);
+    // null means the league had no timer, or Sleeper reported 0 -- leave
+    // whatever the user already chose rather than overwriting it.
+    if (cfg.pickSeconds != null) setPickSeconds(cfg.pickSeconds);
   };
 
   const applyLeague = async (league) => {
@@ -396,6 +401,29 @@ export default function NewDraft() {
             <option value="standard">Standard</option>
             <option value="half-ppr">Half PPR</option>
             <option value="ppr">PPR</option>
+          </select>
+        </label>
+
+        <label className="space-y-1 block">
+          <div className="text-sm text-zinc-300">Seconds per pick</div>
+          <select
+            data-testid="pick-seconds"
+            className="w-full rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-3 text-zinc-100 outline-none"
+            value={pickSeconds}
+            onChange={(e) => setPickSeconds(Number(e.target.value))}
+          >
+            {/* An imported league's timer may not be one of ours. Rather than
+                snap it to the nearest preset -- silently rewriting the setting
+                the user just imported -- it joins the list, labelled. */}
+            {![30, 60, 90, 120, 300, 600].includes(pickSeconds) && (
+              <option value={pickSeconds}>{pickSeconds} seconds · from your league</option>
+            )}
+            <option value={30}>30 seconds</option>
+            <option value={60}>1 minute</option>
+            <option value={90}>90 seconds</option>
+            <option value={120}>2 minutes</option>
+            <option value={300}>5 minutes</option>
+            <option value={600}>10 minutes</option>
           </select>
         </label>
 

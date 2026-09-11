@@ -62,5 +62,9 @@ export function toDraftConfig(league, draft, userId) {
     rosterSlots,
     userTeam,
     leagueName: league?.name || "League",
+    // Sleeper writes 0 for "no timer". This app has no untimed option, so 0
+    // and a missing value both mean "nothing learned" -- null, so the caller
+    // can leave its own default alone rather than being handed a number.
+    pickSeconds: Number(draft?.settings?.pick_timer) > 0 ? Number(draft.settings.pick_timer) : null,
   };
 }

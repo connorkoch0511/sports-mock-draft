@@ -214,3 +214,36 @@ test("editing Rounds after import updates the note live", async ({ page }) => {
   await page.getByLabel("Rounds").fill("16");
   await expect(page.getByTestId("roster-rounds-note")).toHaveCount(0);
 });
+
+test("an imported league's pick timer is offered and sent", async ({ page }) => {
+  let posted = null;
+  await mockSleeper(page);
+  // Registered after mockSleeper, so this handler wins: a league whose
+  // timer is not one of our presets.
+  await page.route(`${SLEEPER}/draft/*`, (route) =>
+    route.fulfill({
+      json: {
+        type: "snake",
+        settings: { rounds: 16, teams: 12, pick_timer: 45 },
+        draft_order: { [USER_ID]: 7 },
+      },
+    })
+  );
+  await page.route("http://localhost:9999/drafts", async (route) => {
+    posted = JSON.parse(route.request().postData() || "{}");
+    await route.fulfill({ json: { draftId: "abc" } });
+  });
+
+  await signIn(page);
+  await page.goto("/draft/new");
+  await page.getByTestId("sleeper-username").fill("ck15");
+  await page.getByTestId("sleeper-find").click();
+  await page.getByTestId("sleeper-leagues").getByRole("button").first().click();
+  await expect(page.getByTestId("roster-summary")).toBeVisible();
+
+  // Offered as its own option, selected, and not snapped to 30 or 60.
+  await expect(page.getByTestId("pick-seconds")).toHaveValue("45");
+
+  await page.getByRole("button", { name: /Start Mock Draft/i }).click();
+  await expect.poll(() => posted?.pickSeconds).toBe(45);
+});

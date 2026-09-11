@@ -365,13 +365,17 @@ export default function Draft() {
       return undefined;
     }
 
-    const tick = () => setSecondsLeft(remainingSeconds(deadline, skewRef.current) ?? PICK_SECONDS);
+    const tick = () =>
+      setSecondsLeft(
+        remainingSeconds(deadline, skewRef.current) ?? (draft?.pickSeconds ?? PICK_SECONDS)
+      );
     tick();
     tickRef.current = setInterval(tick, 1000);
 
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hasDraft, deadline, completed, paused]);
 
   // The clock, enforced. Whoever's browser notices zero first calls
