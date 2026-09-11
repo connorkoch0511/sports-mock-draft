@@ -576,18 +576,39 @@ export default function Draft() {
               </button>
 
               {notifyState !== "unsupported" && (
+                // Same reasoning as seat-board's title/aria-label-carries-
+                // the-real-text trick just above: "Notifications blocked" is
+                // 21 characters, and this row is already tight enough that
+                // Chromium's headless quirk of reporting Notification.
+                // permission as "denied" by default (confirmed against this
+                // very suite -- grantPermissions does not change the
+                // synchronous getter, only what requestPermission() resolves
+                // to) renders that widest label on every draft-page test
+                // unless it is kept short. The full sentence still reaches
+                // anyone who needs it, via the accessible name and the hover
+                // title.
                 <button
                   type="button"
                   data-testid="notify-toggle"
                   disabled={notifyState === "denied"}
                   onClick={async () => setNotifyState(await subscribe())}
+                  aria-label={
+                    notifyState === "granted"
+                      ? "Notifications on"
+                      : notifyState === "denied"
+                        ? "Notifications blocked"
+                        : "Notify me for your turn"
+                  }
+                  title={
+                    notifyState === "granted"
+                      ? "Notifications on"
+                      : notifyState === "denied"
+                        ? "Notifications blocked"
+                        : "Notify me for your turn"
+                  }
                   className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
                 >
-                  {notifyState === "granted"
-                    ? "Notifications on"
-                    : notifyState === "denied"
-                      ? "Notifications blocked"
-                      : "Notify me"}
+                  {notifyState === "granted" ? "On" : notifyState === "denied" ? "Blocked" : "Notify"}
                 </button>
               )}
 

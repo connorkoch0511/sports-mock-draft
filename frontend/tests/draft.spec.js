@@ -950,3 +950,78 @@ test("a seat whose clock runs out is picked for, from its own board", async ({ p
   // it without anybody clicking anything.
   await expect(page.getByTestId("panel-draft-board")).toContainText(MOCK_PLAYERS[1].name);
 });
+
+// --- Push notifications ----------------------------------------------------
+//
+// A real PushManager.subscribe() needs a live push service and a real VAPID
+// key, neither of which belongs in a hermetic test. What stays real here:
+// the granted permission (Playwright can grant it without a prompt), the
+// click, subscribe()'s own branching, and the request it sends. Only the
+// service worker registration is faked -- standing in for the real sw.js
+// this same task ships, which a unit test cannot exercise either.
+test("clicking Notify me, once granted, subscribes and posts the subscription to the API", async ({ page, context }) => {
+  await context.grantPermissions(["notifications"]);
+  const state = makeDraftState({ currentIndex: 0 });
+  mockDraftApis(page, state);
+
+  await page.addInitScript(() => {
+    // Headless Chromium's own Notification.permission getter stays "denied"
+    // regardless of context.grantPermissions() (confirmed against this
+    // suite: requestPermission() below honours the grant, the synchronous
+    // property does not) -- so the button would otherwise mount already
+    // disabled and unclickable. Overridden to "default" to stand in for an
+    // undecided real browser, which is the state this test is actually about.
+    Object.defineProperty(Notification, "permission", { get: () => "default", configurable: true });
+
+    const fakeSubscription = {
+      endpoint: "https://push.example.test/abc123",
+      toJSON() {
+        return { endpoint: this.endpoint, keys: { p256dh: "fake-p256dh", auth: "fake-auth" } };
+      },
+    };
+    const fakeRegistration = { pushManager: { subscribe: async () => fakeSubscription } };
+    navigator.serviceWorker.register = async () => fakeRegistration;
+  });
+
+  let subscribeBody = null;
+  await page.route(`${API}/push/subscribe`, (route) => {
+    subscribeBody = JSON.parse(route.request().postData() || "{}");
+    return route.fulfill({ json: { ok: true } });
+  });
+
+  await signIn(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  const toggle = page.getByTestId("notify-toggle");
+  await expect(toggle).toHaveText("Notify");
+
+  await toggle.click();
+
+  await expect(toggle).toHaveText("On");
+  await expect.poll(() => subscribeBody).toEqual({
+    endpoint: "https://push.example.test/abc123",
+    keys: { p256dh: "fake-p256dh", auth: "fake-auth" },
+  });
+});
+
+// The browser will not ask a second time once denied -- pushState() reads
+// that from Notification.permission directly, and there is no Playwright API
+// to seed a persistent "denied" the way a real prior click would, so the
+// getter itself is overridden to stand in for that browser.
+test("a denied permission renders as blocked and disabled, rather than asking again", async ({ page }) => {
+  const state = makeDraftState({ currentIndex: 0 });
+  mockDraftApis(page, state);
+
+  await page.addInitScript(() => {
+    Object.defineProperty(Notification, "permission", { get: () => "denied", configurable: true });
+  });
+
+  await signIn(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  const toggle = page.getByTestId("notify-toggle");
+  await expect(toggle).toHaveText("Blocked");
+  await expect(toggle).toBeDisabled();
+});

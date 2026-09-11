@@ -36,6 +36,20 @@ export default defineConfig({
       // button by seeding sessionStorage and driving the callback route
       // directly -- so nothing here ever reaches Yahoo.
       VITE_YAHOO_CLIENT_ID: "test-yahoo-client-id",
+      // Not a real VAPID key -- every test that reaches the draft page fakes
+      // navigator.serviceWorker.register itself rather than letting a real
+      // PushManager.subscribe() try to reach a real push service. It does,
+      // however, have to be a validly-shaped base64url string (length % 4 in
+      // {0, 2, 3}, never 1): urlBase64ToUint8Array pads and feeds it to atob()
+      // for real before the fake pushManager.subscribe() ever sees it, and a
+      // string shaped like "test-vapid-public-key" (length % 4 == 1, which no
+      // real base64 ever produces) throws there. Present here (unlike
+      // Yahoo's client id above) means the "no VITE_VAPID_PUBLIC_KEY" build
+      // behaviour -- the control disappearing entirely -- cannot be
+      // exercised by this suite; see draft.spec.js's push section for why
+      // that gap is reported rather than covered by a test that could not
+      // fail.
+      VITE_VAPID_PUBLIC_KEY: "test-vapid-public-key-not-a-real-key",
     },
   },
 });
