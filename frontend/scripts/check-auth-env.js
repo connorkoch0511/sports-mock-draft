@@ -19,6 +19,10 @@ import path from "node:path";
 
 export const REQUIRED_VARS = ["VITE_COGNITO_AUTHORITY", "VITE_COGNITO_CLIENT_ID"];
 
+// Kept in sync with the value committed in .env.production -- this is the
+// one string that means "nobody has filled this in yet".
+export const VAPID_PLACEHOLDER = "REPLACE_WITH_REAL_VAPID_PUBLIC_KEY_AT_DEPLOY_TIME";
+
 // A minimal KEY=VALUE reader, not a full .env parser: no quoting, no
 // escapes, no multiline values, no export prefix. That is everything this
 // repo's .env files use, and matching Vite's own (equally minimal) handling
@@ -61,10 +65,41 @@ export function missingAuthVars(env) {
   return REQUIRED_VARS.filter((name) => !env[name] || !env[name].trim());
 }
 
+/**
+ * A warning message if VITE_VAPID_PUBLIC_KEY is missing or still the
+ * placeholder, else null.
+ *
+ * Deliberately a warning, not a REQUIRED_VARS-style failure: a build with no
+ * working sign-in is bricked for every mutation, with no visible cause,
+ * which is what earned that variable a hard stop. A build with no working
+ * turn notifications is the same app minus one optional control -- the
+ * button simply does not render (or, with the placeholder in place,
+ * subscribing fails visibly instead of silently, per push.js's own
+ * handling) -- so this only needs to be seen, not enforced.
+ */
+export function vapidWarning(env) {
+  const key = (env.VITE_VAPID_PUBLIC_KEY || "").trim();
+  if (!key) {
+    return "VITE_VAPID_PUBLIC_KEY is not set -- the Notify control will not appear in this build.";
+  }
+  if (key === VAPID_PLACEHOLDER) {
+    return "VITE_VAPID_PUBLIC_KEY is still the placeholder from .env.production -- replace it with the real key before this build reaches anyone, or the Notify control will appear but fail to subscribe.";
+  }
+  return null;
+}
+
 function main() {
   const frontendDir = path.resolve(fileURLToPath(import.meta.url), "..", "..");
   const env = loadProductionEnv(frontendDir);
   const missing = missingAuthVars(env);
+
+  // Printed either way, and before the possible exit below -- a deploy
+  // blocked on the Cognito vars should still surface this, since whoever
+  // fixes that is the same person about to re-run the deploy.
+  const vapidIssue = vapidWarning(env);
+  if (vapidIssue) {
+    console.warn(`\nWarning: ${vapidIssue}\n`);
+  }
 
   if (missing.length > 0) {
     console.error(
