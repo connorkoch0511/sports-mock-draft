@@ -26,19 +26,24 @@ function decideNotifications(oldImage, newImage) {
   const picks = newImage.picks || [];
   const out = [];
 
-  // The pick that just completed. Told only when the clock made it: a person
-  // who picked for themselves does not need telling they did.
-  const done = picks[before];
-  if (done?.auto) {
-    const seat = seatFor(newImage, done.team);
-    if (seat?.kind === "human" && seat.sub) {
-      out.push({
-        sub: seat.sub,
-        kind: "picked-for-you",
-        draftId: newImage.draftId,
-        title: "Your clock ran out",
-        body: `We picked ${done.player?.name || "a player"} for you.`,
-      });
+  // Every pick that just completed. Told only when the clock made it: a person
+  // who picked for themselves does not need telling they did. Scan the full range
+  // rather than a single index, because a single write can advance by multiple
+  // picks—and whether it does depends on unrelated implementation details
+  // (like whether the clock re-reads between picks) that could change.
+  for (let i = before; i < after; i++) {
+    const done = picks[i];
+    if (done?.auto) {
+      const seat = seatFor(newImage, done.team);
+      if (seat?.kind === "human" && seat.sub) {
+        out.push({
+          sub: seat.sub,
+          kind: "picked-for-you",
+          draftId: newImage.draftId,
+          title: "Your clock ran out",
+          body: `We picked ${done.player?.name || "a player"} for you.`,
+        });
+      }
     }
   }
 
