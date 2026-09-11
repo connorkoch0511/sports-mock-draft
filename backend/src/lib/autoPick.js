@@ -170,6 +170,10 @@ async function autoPickAndAdvance({
   if (!best) return { ok: false, code: "empty" };
 
   d.picks[d.currentIndex].playerId = best.id;
+  // Marked, not inferred. The notifier has to tell "your turn began" from
+  // "the clock picked for you", and the only honest way to know is for the
+  // path that did it to say so.
+  d.picks[d.currentIndex].auto = true;
   d.picks[d.currentIndex].player = {
     id: best.id,
     name: best.name,

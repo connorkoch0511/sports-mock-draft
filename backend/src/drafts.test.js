@@ -2289,3 +2289,56 @@ test("GET returns the draft's pick length", async () => {
   const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
   assert.equal(JSON.parse(res.body).pickSeconds, 30);
 });
+
+test("a pick the clock makes is marked as automatic", async () => {
+  const d = ownedDraft(ME.sub);
+  let written = null;
+  stubByTable({
+    "drafts-test": { Item: d },
+    "players-test": {
+      Items: [
+        {
+          sport: "nfl",
+          id: "p1",
+          playerId: "p1",
+          name: "Test Back",
+          position: "RB",
+          team: "SF",
+          rank: { standard: 10 },
+          adp: { standard: 12.3 },
+          tier: { standard: 2 },
+        },
+      ],
+    },
+  });
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression?.includes("picks = :p")) {
+      written = cmd.input.ExpressionAttributeValues[":p"];
+    }
+    if (cmd?.input?.TableName === "players-test") return { Items: [{ sport: "nfl", id: "p1", playerId: "p1", name: "Test Back", position: "RB", team: "SF", rank: { standard: 10 }, adp: { standard: 12.3 }, tier: { standard: 2 } }] };
+    if (cmd?.input?.TableName === "drafts-test") return { Item: d };
+    return {};
+  });
+
+  await handler(evt("POST", "/drafts/d1/auto-pick", { draftId: "d1", claims: ME }));
+
+  assert.equal(written[0].auto, true);
+});
+
+test("a pick a person makes is not marked automatic", async () => {
+  const d = ownedDraft(ME.sub);
+  let written = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.UpdateExpression?.includes("picks = :p")) {
+      written = cmd.input.ExpressionAttributeValues[":p"];
+    }
+    if (cmd?.input?.TableName === "players-test") return { Item: { sport: "nfl", id: "p1", name: "A", position: "RB", team: "SF", rank: 1 } };
+    return { Item: d };
+  });
+
+  await handler(
+    evt("POST", "/drafts/d1/pick", { draftId: "d1", body: { playerId: "p1" }, claims: ME })
+  );
+
+  assert.equal(written[0].auto, undefined);
+});
