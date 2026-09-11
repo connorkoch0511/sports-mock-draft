@@ -2240,13 +2240,17 @@ test("a draft is created with the pick length it was given", async () => {
     if (cmd?.input?.Item?.seats) put = cmd.input.Item;
     return {};
   });
+  const before = Date.now();
   const res = await handler(
     evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1, pickSeconds: 30 }, claims: ME })
   );
   assert.equal(res.statusCode, 200);
   assert.equal(put.pickSeconds, 30);
-  // The first deadline uses it too, not just later ones.
-  assert.ok(put.pickDeadline - Date.now() <= 30_000);
+  // The first deadline uses it too, not just later ones -- both-sided, so
+  // this fails just as loudly on a deadline in the past (e.g. Date.now()
+  // with the multiply dropped) as it does on one too far in the future.
+  assert.ok(put.pickDeadline >= before + 30_000, "deadline is at least 30s out");
+  assert.ok(put.pickDeadline <= Date.now() + 30_000, "and no further");
 });
 
 test("a draft created without a pick length gets sixty seconds", async () => {
@@ -2261,7 +2265,7 @@ test("a draft created without a pick length gets sixty seconds", async () => {
 
 test("a pick length outside the allowed range is refused", async () => {
   mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
-  for (const bad of [14, 3601, 0, -60, "sixty", 1.5]) {
+  for (const bad of [29, 86401, 0, -60, "sixty", 1.5]) {
     const res = await handler(
       evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1, pickSeconds: bad }, claims: ME })
     );
@@ -2271,7 +2275,7 @@ test("a pick length outside the allowed range is refused", async () => {
 
 test("the edges of the allowed range are accepted", async () => {
   mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
-  for (const ok of [15, 3600]) {
+  for (const ok of [30, 86400]) {
     const res = await handler(
       evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1, pickSeconds: ok }, claims: ME })
     );
