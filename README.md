@@ -54,14 +54,14 @@ a particular pick, and a standalone page has no pick to advise on.
 ## Features
 
 - **Sign-in Required** — Google sign-in via Cognito; drafts and boards are private to the people in them, not to anyone who merely has the link
-- **Draft With Friends** — Share an invite link and whoever opens it takes an open seat in your draft, so everyone sees every pick as it happens. The clock isn't shared yet, so only whoever's turn it actually is sees a countdown
+- **Draft With Friends** — Share an invite link and whoever opens it takes an open seat in your draft, so everyone sees every pick as it happens. The clock is shared too: it keeps running for everyone, whoever's turn it is, and pausing stops it for the whole draft, not just one person
 - **Custom Big Boards** — Rank players your way, save the board, and draft off it instead of the consensus order
 - **Every source's ADP** — See our ADP, ESPN's and Yahoo's side by side while you rank and while you draft, so a player one service likes a round earlier than another is obvious. Our rank stays the default order; sort by any source when you want to
 - **Share a Big Board** — Download a board as CSV or JSON and hand it to a friend, who imports it as their own copy to edit. Files carry player names as well as ids, so they are readable on their own and survive a player id changing between seasons; anyone missing from the new season's pool is reported by name rather than dropped in silence
 - **Snake Draft Engine** — Round-by-round snake ordering with full persistence to DynamoDB
 - **Big Board + Search** — Filter by position, search by name, and paginate through the full player pool
 - **Smart Auto Picks** — Roster-aware auto picks weighted by ADP rank, position needs, and tier
-- **60-Second Clock** — Countdown timer for Team 1; auto-picks on timeout
+- **Configurable Clock** — Set your draft's pick length when you create it, from 30 seconds up to a full day; the countdown runs for whoever is on the clock and auto-picks on timeout
 - **Sim to End** — Instantly simulate all remaining picks to complete a draft
 - **Pause / Resume** — Freeze the draft clock at any time
 - **Export** — Download your completed draft as CSV or JSON
