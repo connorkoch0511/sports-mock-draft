@@ -12,7 +12,7 @@ const { responder } = require("./lib/http");
 const { subOf, ANON, canMutate, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
 const { addMember } = require("./lib/members");
 const { withAdpBySource } = require("./lib/adpBySource");
-const { advanceDraft, PICK_MS } = require("./lib/advance");
+const { advanceDraft, PICK_SECONDS } = require("./lib/advance");
 const {
   loadPlayersForSport,
   getRosterCounts,
@@ -113,6 +113,20 @@ exports.handler = async (event) => {
       const rawBoardId = typeof body.boardId === "string" ? body.boardId.trim() : "";
       const boardId = rawBoardId.length > 0 && rawBoardId.length <= 64 ? rawBoardId : null;
 
+      // A range, not the preset list the UI offers: an imported Sleeper
+      // league can carry any timer its commissioner set, and the client is
+      // not trusted for either. Absent is not an error -- it means the
+      // caller does not care, and 60 is what every draft had before this
+      // field existed.
+      let pickSeconds = 60;
+      if (body.pickSeconds !== undefined && body.pickSeconds !== null) {
+        const n = Number(body.pickSeconds);
+        if (!Number.isInteger(n) || n < 15 || n > 3600) {
+          return json(400, { error: "pickSeconds must be a whole number of seconds between 15 and 3600" });
+        }
+        pickSeconds = n;
+      }
+
       const id = randomUUID();
       const picks = buildSnakeOrder(teams, rounds);
 
@@ -138,9 +152,10 @@ exports.handler = async (event) => {
         picked: [],
         currentIndex: 0,
         createdAt: Date.now(),
+        pickSeconds,
         // Pick 1 is on the clock from the moment the page opens. Every later
         // deadline is written by advanceDraft, inside the conditional write.
-        pickDeadline: Date.now() + PICK_MS,
+        pickDeadline: Date.now() + pickSeconds * 1000,
         // In the clock index from birth: pick 1 is already on the clock.
         clockRunning: "1",
         version: 1,
@@ -208,6 +223,7 @@ exports.handler = async (event) => {
         // number has moved rather than on every poll response.
         version: d.version ?? 1,
         pickDeadline: d.pickDeadline ?? null,
+        pickSeconds: d.pickSeconds ?? PICK_SECONDS,
         pausedAt: d.pausedAt ?? null,
         pausedBy: d.pausedBy ?? null,
         // The page corrects for clock skew against this. Without it a laptop

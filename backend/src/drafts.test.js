@@ -691,6 +691,9 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     // rather than undefined so the page can tell "no deadline" from "not
     // sent".
     pickDeadline: null,
+    // Same story as pickDeadline: absent on this pre-existing fixture, so the
+    // response falls back to the default rather than reporting undefined.
+    pickSeconds: 60,
     pausedAt: null,
     pausedBy: null,
     currentRound: 1,
@@ -2229,4 +2232,56 @@ test("a sim-to-end that races a pause is refused, and says the draft is paused",
   );
   assert.strictEqual(res.statusCode, 409);
   assert.strictEqual(JSON.parse(res.body).error, "Draft is paused");
+});
+
+test("a draft is created with the pick length it was given", async () => {
+  let put = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Item?.seats) put = cmd.input.Item;
+    return {};
+  });
+  const res = await handler(
+    evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1, pickSeconds: 30 }, claims: ME })
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(put.pickSeconds, 30);
+  // The first deadline uses it too, not just later ones.
+  assert.ok(put.pickDeadline - Date.now() <= 30_000);
+});
+
+test("a draft created without a pick length gets sixty seconds", async () => {
+  let put = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Item?.seats) put = cmd.input.Item;
+    return {};
+  });
+  await handler(evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1 }, claims: ME }));
+  assert.equal(put.pickSeconds, 60);
+});
+
+test("a pick length outside the allowed range is refused", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  for (const bad of [14, 3601, 0, -60, "sixty", 1.5]) {
+    const res = await handler(
+      evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1, pickSeconds: bad }, claims: ME })
+    );
+    assert.equal(res.statusCode, 400, `${bad} should be refused`);
+  }
+});
+
+test("the edges of the allowed range are accepted", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  for (const ok of [15, 3600]) {
+    const res = await handler(
+      evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1, pickSeconds: ok }, claims: ME })
+    );
+    assert.equal(res.statusCode, 200, `${ok} should be accepted`);
+  }
+});
+
+test("GET returns the draft's pick length", async () => {
+  const d = { ...ownedDraft(ME.sub), pickSeconds: 30 };
+  stubByTable({ "drafts-test": { Item: d } });
+  const res = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.equal(JSON.parse(res.body).pickSeconds, 30);
 });
