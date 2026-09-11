@@ -247,3 +247,32 @@ test("an imported league's pick timer is offered and sent", async ({ page }) => 
   await page.getByRole("button", { name: /Start Mock Draft/i }).click();
   await expect.poll(() => posted?.pickSeconds).toBe(45);
 });
+
+// The only end-to-end check that applyConfig's `cfg.pickSeconds != null`
+// guard does not clobber a user's own choice: Sleeper writes 0 for "no
+// timer" on this league's draft, and toDraftConfig maps that to null (see
+// sleeper.test.js) -- so importing it must leave the select exactly where it
+// already was, not snap it to 0 or to some other default.
+test("a league with no pick timer leaves the select on 1 minute", async ({ page }) => {
+  await mockSleeper(page);
+  // Registered after mockSleeper, so this handler wins: Sleeper's own
+  // "no timer" value.
+  await page.route(`${SLEEPER}/draft/*`, (route) =>
+    route.fulfill({
+      json: {
+        type: "snake",
+        settings: { rounds: 16, teams: 12, pick_timer: 0 },
+        draft_order: { [USER_ID]: 7 },
+      },
+    })
+  );
+
+  await signIn(page);
+  await page.goto("/draft/new");
+  await expect(page.getByTestId("pick-seconds")).toHaveValue("60");
+
+  await importFirstLeague(page);
+  await expect(page.getByTestId("roster-summary")).toBeVisible();
+
+  await expect(page.getByTestId("pick-seconds")).toHaveValue("60");
+});

@@ -46,6 +46,21 @@ test.describe("New Draft page", () => {
     await expect(page).toHaveURL(`/draft/${DRAFT_ID}`);
   });
 
+  test("selecting 30 seconds per pick reaches the create call as 30", async ({ page }) => {
+    let posted = null;
+    await page.route(`${API}/drafts`, async (route) => {
+      posted = JSON.parse(route.request().postData() || "{}");
+      await route.fulfill({ json: { draftId: DRAFT_ID } });
+    });
+
+    await signIn(page);
+    await page.goto("/draft/new");
+    await page.getByTestId("pick-seconds").selectOption("30");
+    await page.getByRole("button", { name: /Start Mock Draft/i }).click();
+
+    await expect.poll(() => posted?.pickSeconds).toBe(30);
+  });
+
   test("shows error message when API call fails", async ({ page }) => {
     await page.route(`${API}/drafts`, async (route) => {
       await route.fulfill({ status: 500, json: { error: "Server error" } });
