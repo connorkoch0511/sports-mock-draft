@@ -210,6 +210,43 @@ test("the seat-board select does not push the header onto an extra line", async 
   expect(await page.getByTestId("scroll-big-board").evaluate((el) => el.clientHeight)).toBeGreaterThanOrEqual(160);
 });
 
+// The fix above was measured against a "60s"-shaped countdown pill. This
+// branch lets a draft run pick lengths up to a full day, and Draft.jsx now
+// formats a countdown that long as "23:59:59" -- nine characters wider than
+// anything the header-wrap fix above was ever checked against. Same fixture
+// and same assertion, but with a pick length and deadline that render the
+// widest pill this branch can produce, so a regression that only shows up at
+// that width does not hide behind the test above's short-pill fixture.
+test("the header does not wrap even at the widest possible countdown", async ({ page }) => {
+  await mockPlayers(page);
+  await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
+    route.fulfill({
+      json: {
+        ...makeDraftState({ pickDeadline: Date.now() + 86_399_000 }),
+        boardId: BID,
+        pickSeconds: 86400,
+      },
+    })
+  );
+  await page.route(`${API}/boards/${BID}`, (route) =>
+    route.fulfill({
+      json: { boardId: BID, name: "My PPR Board", format: "ppr", rows: BOARD_ROWS, changelog: { added: 0, removed: 0 } },
+    })
+  );
+
+  await signIn(page);
+  await seedBoard(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+
+  await expect(page.getByTestId("pick-countdown")).toContainText("23:59:5");
+
+  const seatBoardBox = await page.getByTestId("seat-board").boundingBox();
+  const currentPickBox = await page.getByTestId("current-pick").boundingBox();
+  const seatBoardMidY = seatBoardBox.y + seatBoardBox.height / 2;
+  const currentPickMidY = currentPickBox.y + currentPickBox.height / 2;
+  expect(Math.abs(seatBoardMidY - currentPickMidY)).toBeLessThan(15);
+});
+
 test("a deleted board still leaves the draft playable", async ({ page }) => {
   await mockPlayers(page);
   await page.route(`${API}/drafts/${DRAFT_ID}`, (route) =>
