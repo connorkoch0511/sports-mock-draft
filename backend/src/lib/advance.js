@@ -55,7 +55,14 @@ async function advanceDraft({
   // update would leave a window in which the deadline belongs to a pick that
   // has already been made -- and the loser of a race would arm a clock for
   // somebody else's turn.
-  const deadline = (deadlineBase ?? now) + PICK_MS;
+  // Read from the draft, not the module constant: every caller already
+  // passes the whole draft, so this hands /pick, /auto-pick, /expire,
+  // sim-to-end and the scheduled clock the per-draft length without any of
+  // them changing. A draft written before pick lengths existed has no field,
+  // and 60 is exactly what it has always had -- which is why this feature
+  // needs no backfill.
+  const seconds = draft.pickSeconds ?? PICK_SECONDS;
+  const deadline = (deadlineBase ?? now) + seconds * 1000;
   // The index entry rides inside this same conditional write, for the same
   // reason the deadline does: a separate update would leave a window where
   // the index says a draft is due and the draft says somebody already picked.

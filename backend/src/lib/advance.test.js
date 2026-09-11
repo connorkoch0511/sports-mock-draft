@@ -124,3 +124,43 @@ test("a moved index is still reported as a lost race, paused or not", async () =
     }
   );
 });
+
+test("the deadline honours the draft's own pick length", async () => {
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return {};
+  });
+  const draft = { picks: [{ team: 1 }, { team: 2 }], picked: [], currentIndex: 1, pickSeconds: 30 };
+  const now = 1_000_000;
+  await advanceDraft({ ddb, table: "t", draftId: "d1", draft, expectedIndex: 0, now });
+  assert.equal(input.ExpressionAttributeValues[":d"], now + 30_000);
+});
+
+test("a draft written before pick lengths existed still gets sixty seconds", async () => {
+  // The entire migration story: no backfill, because an absent field has a
+  // correct meaning. If this passes without the fallback, it tests nothing.
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return {};
+  });
+  const draft = { picks: [{ team: 1 }, { team: 2 }], picked: [], currentIndex: 1 };
+  const now = 1_000_000;
+  await advanceDraft({ ddb, table: "t", draftId: "d1", draft, expectedIndex: 0, now });
+  assert.equal(input.ExpressionAttributeValues[":d"], now + 60_000);
+});
+
+test("catch-up advances in the draft's own slot length", async () => {
+  // What the scheduler's drain relies on: each catch-up pick consumes one
+  // slot of missed time, and a slot is this draft's length, not 60s.
+  let input = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    input = cmd.input;
+    return {};
+  });
+  const draft = { picks: [{ team: 1 }, { team: 2 }], picked: [], currentIndex: 1, pickSeconds: 30 };
+  const base = 500_000;
+  await advanceDraft({ ddb, table: "t", draftId: "d1", draft, expectedIndex: 0, deadlineBase: base });
+  assert.equal(input.ExpressionAttributeValues[":d"], base + 30_000);
+});
