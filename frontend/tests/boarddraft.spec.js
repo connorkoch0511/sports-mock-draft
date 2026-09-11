@@ -245,6 +245,11 @@ test("the header does not wrap even at the widest possible countdown", async ({ 
   const seatBoardMidY = seatBoardBox.y + seatBoardBox.height / 2;
   const currentPickMidY = currentPickBox.y + currentPickBox.height / 2;
   expect(Math.abs(seatBoardMidY - currentPickMidY)).toBeLessThan(15);
+
+  // Defense in depth stays effective at the widest pill too: the floor still
+  // guarantees a clickable list even though (per the comment above) it also
+  // still binds.
+  expect(await page.getByTestId("scroll-big-board").evaluate((el) => el.clientHeight)).toBeGreaterThanOrEqual(160);
 });
 
 test("a deleted board still leaves the draft playable", async ({ page }) => {

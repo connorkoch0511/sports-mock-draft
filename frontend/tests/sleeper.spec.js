@@ -243,9 +243,41 @@ test("an imported league's pick timer is offered and sent", async ({ page }) => 
 
   // Offered as its own option, selected, and not snapped to 30 or 60.
   await expect(page.getByTestId("pick-seconds")).toHaveValue("45");
+  // Labelled with the same formatting the draft page's clock uses, not the
+  // raw second count.
+  await expect(page.getByTestId("pick-seconds").locator("option:checked")).toHaveText(
+    "45s · from your league"
+  );
 
   await page.getByRole("button", { name: /Start Mock Draft/i }).click();
   await expect.poll(() => posted?.pickSeconds).toBe(45);
+});
+
+// 45s (above) is short enough that raw seconds and formatCountdown's output
+// happen to look almost alike. A real Sleeper "slow draft" timer is nowhere
+// near that short -- this pins the case the raw-seconds label was actually
+// unreadable for.
+test("a multi-hour imported pick timer is labelled as a clock, not raw seconds", async ({ page }) => {
+  await mockSleeper(page);
+  await page.route(`${SLEEPER}/draft/*`, (route) =>
+    route.fulfill({
+      json: {
+        type: "snake",
+        settings: { rounds: 16, teams: 12, pick_timer: 10800 },
+        draft_order: { [USER_ID]: 7 },
+      },
+    })
+  );
+
+  await signIn(page);
+  await page.goto("/draft/new");
+  await importFirstLeague(page);
+  await expect(page.getByTestId("roster-summary")).toBeVisible();
+
+  await expect(page.getByTestId("pick-seconds")).toHaveValue("10800");
+  await expect(page.getByTestId("pick-seconds").locator("option:checked")).toHaveText(
+    "3:00:00 · from your league"
+  );
 });
 
 // The only end-to-end check that applyConfig's `cfg.pickSeconds != null`

@@ -45,6 +45,12 @@ export function expireDelayMs(seatIndex, step = 250) {
  * once the remaining time reaches an hour.
  */
 export function formatCountdown(seconds) {
+  // Not reachable from the draft page's own clock today -- remainingSeconds
+  // always hands back a clamped integer or null, and the caller's fallback
+  // is a server-supplied number -- but the pick-length select's imported-
+  // value label (NewDraft.jsx) calls this too, and a Sleeper timer is just a
+  // number off the wire. Fail safely rather than print "NaN:NaN".
+  if (!Number.isFinite(seconds)) return "--";
   const s = Math.max(0, Math.floor(seconds));
   if (s < 120) return `${s}s`;
   const pad2 = (n) => String(n).padStart(2, "0");

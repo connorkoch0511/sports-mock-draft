@@ -98,12 +98,12 @@ between **30 and 86400** inclusive and rejects anything else with a 400. The
 presets are a UI affordance; the range is the contract, and the server does
 not trust the client for either.
 
-The floor is 30, not 15: the draft page polls every 3 seconds and the
-`/expire` stagger adds up to another 2.75 seconds on top of that (see
-`expireDelayMs`), so a 15-second slot was mistimed by close to a fifth of its
-own length before anything else about it was wrong. 30 is also already the
-shortest preset the UI offers, so raising the floor to it does not make any
-existing option unreachable.
+The floor is 30, not 15: 30 is already the shortest preset the UI offers, so
+raising the floor to it does not make any existing option unreachable. And
+the slop already built into how the clock is enforced -- a per-seat `/expire`
+stagger of up to 2.75 seconds (see `expireDelayMs`), and, for a draft with no
+browser open, the scheduler's own one-minute tick -- is a larger fraction of
+a 15-second slot than anyone would want it to be.
 
 The ceiling is a full day, not an hour: Sleeper's "slow draft" leagues run
 pick timers from two to twenty-four hours (`pick_timer` 7200-86400), and the
@@ -140,14 +140,17 @@ which `frontend/src/lib/sleeper.js` already fetches for `rounds` and
   since decision 2 says every draft here is timed.
 - A value matching a preset selects that preset.
 - Any other value is added to the select as its own option, labelled so its
-  origin is obvious (for example "45 seconds · from your league"), and
-  selected. It is sent as-is, and the server's range check still applies —
-  though with the range now 30-86400, no realistic Sleeper timer, including a
-  slow draft's, actually hits it. What used to be the common case for this
-  branch (a slow-draft import refused with a raw 400) is now the case that
-  cannot happen; the range check remains only as the server's own floor
-  against a client that is not trusted, not as a check this import path is
-  expected to trip.
+  origin is obvious (for example "45s · from your league", using the same
+  `formatCountdown` the draft page's clock renders with, rather than raw
+  seconds), and selected. It is sent as-is, and the server's range check
+  still applies — though with the range now 30-86400, no timer Sleeper offers
+  as a preset, including a slow draft's, falls outside it, so tripping this
+  check on import is now the rare case rather than the common one. It is not
+  the impossible case: nothing here validates an imported value before
+  submit, so a league with some other, out-of-range `pick_timer` still reaches
+  the server and comes back as a submit-time 400 in the generic error banner,
+  naming the field but not pre-empting the trip. Closing that properly means
+  validating at import time, which this branch does not do.
 
 ## Testing
 

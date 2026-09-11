@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { apiPost } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { picksForSlot, largestGap } from "../lib/snake";
+import { formatCountdown } from "../lib/clock";
 import { fetchMyBoards } from "../lib/me";
 import {
   fetchUser,
@@ -442,7 +443,7 @@ export default function NewDraft() {
                 snap it to the nearest preset -- silently rewriting the setting
                 the user just imported -- it joins the list, labelled. */}
             {!PICK_SECONDS_PRESETS.some(([s]) => s === pickSeconds) && (
-              <option value={pickSeconds}>{pickSeconds} seconds · from your league</option>
+              <option value={pickSeconds}>{formatCountdown(pickSeconds)} · from your league</option>
             )}
             {PICK_SECONDS_PRESETS.map(([s, label]) => (
               <option key={s} value={s}>{label}</option>

@@ -50,3 +50,9 @@ test("a countdown of an hour or more is h:mm:ss", () => {
   assert.equal(formatCountdown(86399), "23:59:59");
   assert.equal(formatCountdown(86400), "24:00:00");
 });
+
+test("a non-finite countdown fails safely instead of printing NaN", () => {
+  assert.equal(formatCountdown(NaN), "--");
+  assert.equal(formatCountdown(undefined), "--");
+  assert.equal(formatCountdown(Infinity), "--");
+});

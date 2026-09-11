@@ -119,15 +119,16 @@ exports.handler = async (event) => {
       // caller does not care, and 60 is what every draft had before this
       // field existed.
       //
-      // The floor is 30, not 15: the draft page polls every 3s and the
-      // expire stagger adds up to 2.75s more (see expireDelayMs), so a
-      // 15-second slot was mistimed by close to 20% of its own length. 30 is
-      // also already the shortest preset the UI offers, so raising the floor
-      // to it makes no existing option unreachable. The ceiling is a full
-      // day, because Sleeper's own "slow draft" leagues run pick timers of
-      // two to twenty-four hours (`pick_timer` 7200-86400) -- all of which
-      // the old 3600 ceiling refused, turning an otherwise-normal import into
-      // a form nothing could submit.
+      // The floor is 30, not 15: 30 is already the shortest preset the UI
+      // offers, so raising the floor to it makes no existing option
+      // unreachable. And the enforcement slop -- a per-seat expire stagger of
+      // up to 2.75s (see expireDelayMs), plus a full minute of scheduler tick
+      // for a draft with no browser open -- is a larger fraction of a
+      // 15-second slot than anyone would want. The ceiling is a full day,
+      // because Sleeper's own "slow draft" leagues run pick timers of two to
+      // twenty-four hours (`pick_timer` 7200-86400) -- all of which the old
+      // 3600 ceiling refused, turning an otherwise-normal import into a form
+      // nothing could submit.
       let pickSeconds = 60;
       if (body.pickSeconds !== undefined && body.pickSeconds !== null) {
         const n = Number(body.pickSeconds);
