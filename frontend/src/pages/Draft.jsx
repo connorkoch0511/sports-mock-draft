@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiGet, apiPost } from "../lib/api";
+import { pushState, subscribe } from "../lib/push";
 import { usePageTitle } from "../lib/usePageTitle";
 import { useAuth } from "../lib/authContext.js";
 import { fetchMyBoards } from "../lib/me";
@@ -36,6 +37,10 @@ export default function Draft() {
   const [boardRows, setBoardRows] = useState(null);
   const [boardFailed, setBoardFailed] = useState(false);
   const [boardMeta, setBoardMeta] = useState(null);
+  // Read once at mount: pushState() is cheap (no network) and this control
+  // only ever changes in response to this browser's own click below, never
+  // from anything the draft's polling could bring back.
+  const [notifyState, setNotifyState] = useState(() => pushState());
 
   // Timer + pause
   // Pause is the draft's state, not this browser's. A pause that stopped only
@@ -569,6 +574,22 @@ export default function Draft() {
               >
                 Copy invite link
               </button>
+
+              {notifyState !== "unsupported" && (
+                <button
+                  type="button"
+                  data-testid="notify-toggle"
+                  disabled={notifyState === "denied"}
+                  onClick={async () => setNotifyState(await subscribe())}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
+                >
+                  {notifyState === "granted"
+                    ? "Notifications on"
+                    : notifyState === "denied"
+                      ? "Notifications blocked"
+                      : "Notify me"}
+                </button>
+              )}
 
               {draft.completed ? (
                 <Link

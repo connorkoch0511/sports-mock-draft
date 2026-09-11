@@ -39,4 +39,8 @@ async function req(path, options = {}) {
 export const apiGet = (path) => req(path);
 export const apiPost = (path, body) => req(path, { method: "POST", body: JSON.stringify(body || {}) });
 export const apiPut = (path, body) => req(path, { method: "PUT", body: JSON.stringify(body || {}) });
-export const apiDelete = (path) => req(path, { method: "DELETE" });
+// Body is optional -- most callers delete by id in the path and send
+// nothing. Shaped after apiPost so DELETE /push/subscribe (endpoint travels
+// in the body, not the path) can reuse this rather than a one-off fetch.
+export const apiDelete = (path, body) =>
+  req(path, { method: "DELETE", ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
