@@ -266,3 +266,21 @@ test("both push routes require a signed-in caller", () => {
   assert.equal(rows.length, 2, "expected POST and DELETE");
   for (const r of rows) assert.equal(r.authorizer, "CognitoAuth", `${r.method} must be authorised`);
 });
+
+test("the drafts table streams both images", () => {
+  const t = loadTemplate().Resources.DraftsTable.Properties;
+  assert.equal(t.StreamSpecification.StreamViewType, "NEW_AND_OLD_IMAGES");
+});
+
+test("the notifier reads the stream and never retries a batch", () => {
+  const fn = loadTemplate().Resources.NotifierFunction;
+  assert.ok(fn, "NotifierFunction is missing");
+  const evt = Object.values(fn.Properties.Events).find((e) => e.Type === "DynamoDB");
+  assert.ok(evt, "the notifier needs a DynamoDB stream event");
+  // A retried batch re-notifies everyone in it.
+  assert.equal(evt.Properties.MaximumRetryAttempts, 0);
+});
+
+test("the VAPID private key is NoEcho", () => {
+  assert.equal(loadTemplate().Parameters.VapidPrivateKey.NoEcho, true);
+});

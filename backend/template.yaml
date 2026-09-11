@@ -32,6 +32,24 @@ Parameters:
       Yahoo OAuth client secret. NoEcho keeps it out of console output and
       stack events -- it does NOT keep it out of samconfig.toml, which this
       repo tracks in git. Pass it explicitly at deploy, never with --guided.
+  VapidPublicKey:
+    Type: String
+    Description: >-
+      VAPID public key for web push. Not secret -- it is handed to every
+      browser that subscribes.
+  VapidPrivateKey:
+    Type: String
+    NoEcho: true
+    Description: >
+      VAPID private key, used to sign push messages. NoEcho keeps it out of
+      console output and stack events -- it does NOT keep it out of
+      samconfig.toml, which this repo tracks in git. Pass it explicitly at
+      deploy, never with --guided.
+  VapidSubject:
+    Type: String
+    Description: >-
+      Contact URI (mailto: or https:) a push service can use to reach the
+      sender of these notifications, per the VAPID spec.
 
 Globals:
   Function:
@@ -163,6 +181,11 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: KEYS_ONLY
+      # Read by NotifierFunction only. Both images, because "was this pick
+      # automatic, and whose turn just began" is a question about the change,
+      # not about the row.
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
   # seats already says who is in a draft, but seats is a list and a DynamoDB
   # index cannot be built on a list, so membership gets its own rows here.
   # The seat is still the truth -- GET /drafts/{draftId} gates on isSeated and
@@ -410,6 +433,36 @@ Resources:
             Method: DELETE
             Auth:
               Authorizer: CognitoAuth
+  # The stream's reader: pushes a browser notification when a turn changes
+  # hands. Off to one side of the pick path on purpose -- see notifier.js.
+  NotifierFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/
+      Handler: notifier.handler
+      Timeout: 30
+      MemorySize: 512
+      Environment:
+        Variables:
+          PUSH_SUBS_TABLE: !Ref PushSubsTable
+          VAPID_PUBLIC_KEY: !Ref VapidPublicKey
+          VAPID_PRIVATE_KEY: !Ref VapidPrivateKey
+          VAPID_SUBJECT: !Ref VapidSubject
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PushSubsTable
+      Events:
+        DraftChanged:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt DraftsTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            # A failing batch is retried, and a retried batch notifies
+            # everybody in it again. The handler is written never to throw;
+            # this is the second line of defence.
+            MaximumRetryAttempts: 0
+
   SyncPlayersFunction:
     Type: AWS::Serverless::Function
     Properties:
