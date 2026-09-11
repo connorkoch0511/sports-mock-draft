@@ -115,6 +115,7 @@ test("the expected mutating routes are all present", () => {
   assert.deepStrictEqual(found, [
     "DELETE /boards/{boardId}",
     "DELETE /drafts/{draftId}",
+    "DELETE /push/subscribe",
     "POST /boards",
     "POST /drafts",
     "POST /drafts/{draftId}/auto-pick",
@@ -124,6 +125,7 @@ test("the expected mutating routes are all present", () => {
     "POST /drafts/{draftId}/pick",
     "POST /drafts/{draftId}/seat-board",
     "POST /drafts/{draftId}/sim-to-end",
+    "POST /push/subscribe",
     "POST /yahoo/leagues",
     "PUT /boards/{boardId}",
   ]);
@@ -248,4 +250,19 @@ test("a failing tick is not retried 185 times", () => {
   // retrying -- and the very first deploy guarantees failures, because the
   // byClock index is CREATING for minutes after the stack updates.
   assert.equal(sched.Properties.RetryPolicy?.MaximumRetryAttempts, 0);
+});
+
+test("the push subscriptions table is keyed by person and endpoint", () => {
+  const tpl = loadTemplate();
+  const t = tpl.Resources.PushSubsTable.Properties;
+  assert.deepEqual(
+    t.KeySchema.map((k) => [k.AttributeName, k.KeyType]),
+    [["sub", "HASH"], ["endpoint", "RANGE"]]
+  );
+});
+
+test("both push routes require a signed-in caller", () => {
+  const rows = httpRoutes(loadTemplate()).filter((r) => r.path === "/push/subscribe");
+  assert.equal(rows.length, 2, "expected POST and DELETE");
+  for (const r of rows) assert.equal(r.authorizer, "CognitoAuth", `${r.method} must be authorised`);
 });

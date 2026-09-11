@@ -7,6 +7,7 @@ const { handler } = require("./drafts");
 process.env.DRAFTS_TABLE = "drafts-test";
 process.env.PLAYERS_TABLE = "players-test";
 process.env.BOARDS_TABLE = "boards-test";
+process.env.PUSH_SUBS_TABLE = "push-subs-test";
 
 // `claims` is exactly the shape API Gateway's JWT authorizer puts on the
 // event, which is the boundary this code actually depends on -- Cognito
@@ -2341,4 +2342,50 @@ test("a pick a person makes is not marked automatic", async () => {
   );
 
   assert.equal(written[0].auto, undefined);
+});
+
+test("a subscription is stored against the caller", async () => {
+  let put = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Item?.endpoint) put = cmd.input.Item;
+    return {};
+  });
+  const res = await handler(
+    evt("POST", "/push/subscribe", {
+      body: { endpoint: "https://push.example/abc", keys: { p256dh: "k", auth: "a" } },
+      claims: ME,
+    })
+  );
+  assert.equal(res.statusCode, 200);
+  assert.equal(put.sub, ME.sub);
+  assert.equal(put.endpoint, "https://push.example/abc");
+  assert.equal(put.p256dh, "k");
+});
+
+test("a subscription without an endpoint is refused", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { keys: { p256dh: "k", auth: "a" } }, claims: ME })
+  );
+  assert.equal(res.statusCode, 400);
+});
+
+test("subscribing requires a signed-in caller", async () => {
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: "https://push.example/abc" } })
+  );
+  assert.equal(res.statusCode, 401);
+});
+
+test("a subscription can be removed", async () => {
+  let deleted = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Key?.endpoint) deleted = cmd.input.Key;
+    return {};
+  });
+  const res = await handler(
+    evt("DELETE", "/push/subscribe", { body: { endpoint: "https://push.example/abc" }, claims: ME })
+  );
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(deleted, { sub: ME.sub, endpoint: "https://push.example/abc" });
 });

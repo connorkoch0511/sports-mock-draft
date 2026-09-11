@@ -73,6 +73,7 @@ exports.handler = async (event) => {
   const draftsTable = process.env.DRAFTS_TABLE;
   const playersTable = process.env.PLAYERS_TABLE; // ADD this env var in template (see below)
   const boardsTable = process.env.BOARDS_TABLE;
+  const pushSubsTable = process.env.PUSH_SUBS_TABLE;
 
   const method = event.requestContext?.http?.method;
   const path = event.rawPath || event.requestContext?.http?.path || event.path || "";
@@ -685,6 +686,40 @@ exports.handler = async (event) => {
       }
 
       return json(200, { ok: true, completed: d.currentIndex >= d.picks.length });
+    }
+
+    // POST /push/subscribe  { endpoint, keys: { p256dh, auth } }
+    //
+    // One row per browser: a laptop and a phone are different subscriptions
+    // for the same person, and both should buzz.
+    if (method === "POST" && path === "/push/subscribe") {
+      if (!sub) return needsAuth();
+      const body = event.body ? JSON.parse(event.body) : {};
+      const endpoint = typeof body.endpoint === "string" ? body.endpoint.trim() : "";
+      if (!endpoint) return json(400, { error: "endpoint is required" });
+      await ddb.send(
+        new PutCommand({
+          TableName: pushSubsTable,
+          Item: {
+            sub,
+            endpoint,
+            p256dh: body.keys?.p256dh || null,
+            auth: body.keys?.auth || null,
+            createdAt: Date.now(),
+          },
+        })
+      );
+      return json(200, { ok: true });
+    }
+
+    // DELETE /push/subscribe  { endpoint }
+    if (method === "DELETE" && path === "/push/subscribe") {
+      if (!sub) return needsAuth();
+      const body = event.body ? JSON.parse(event.body) : {};
+      const endpoint = typeof body.endpoint === "string" ? body.endpoint.trim() : "";
+      if (!endpoint) return json(400, { error: "endpoint is required" });
+      await ddb.send(new DeleteCommand({ TableName: pushSubsTable, Key: { sub, endpoint } }));
+      return json(200, { ok: true });
     }
 
     // DELETE /drafts/{draftId}

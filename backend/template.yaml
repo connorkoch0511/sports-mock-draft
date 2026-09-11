@@ -222,6 +222,24 @@ Resources:
               - season
               - updatedAt
 
+  PushSubsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: perfectpick-push-subs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sub
+          AttributeType: S
+        - AttributeName: endpoint
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sub
+          KeyType: HASH
+        # One row per browser. A phone and a laptop are separate
+        # subscriptions for the same person and both should be kept.
+        - AttributeName: endpoint
+          KeyType: RANGE
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -282,6 +300,7 @@ Resources:
           PLAYERS_TABLE: !Ref PlayersTable
           DRAFT_MEMBERS_TABLE: !Ref DraftMembersTable
           BOARDS_TABLE: !Ref BoardsTable
+          PUSH_SUBS_TABLE: !Ref PushSubsTable
           ALLOWED_ORIGIN: "https://d2kf4b52rvabfv.cloudfront.net"
       Policies:
         - DynamoDBCrudPolicy:
@@ -292,6 +311,8 @@ Resources:
             TableName: !Ref DraftMembersTable
         - DynamoDBReadPolicy:
             TableName: !Ref BoardsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PushSubsTable
       Events:
         CreateDraft:
           Type: HttpApi
@@ -370,6 +391,22 @@ Resources:
           Properties:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuth
+        PushSubscribe:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /push/subscribe
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
+        PushUnsubscribe:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /push/subscribe
             Method: DELETE
             Auth:
               Authorizer: CognitoAuth
