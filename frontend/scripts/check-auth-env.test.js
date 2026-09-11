@@ -109,14 +109,28 @@ test("vapidWarning is quiet once a real-looking key is set", () => {
   );
 });
 
-test("this repo's real .env.production, as committed, still carries the VAPID placeholder", () => {
-  // A live tripwire, not just a unit test of the pure function: this fails
-  // the moment someone fills in the real key without also updating this
-  // test, which is exactly the deploy-time reminder this placeholder exists
-  // to give in the first place.
+test("this repo's real .env.production, as committed, carries a real VAPID public key", () => {
+  // This replaces the tripwire that used to assert the opposite. That test
+  // existed to fire the moment somebody filled in the real key, as a
+  // deploy-time reminder -- and it did exactly that, which is why this now
+  // reads the other way round.
+  //
+  // It pins the property worth keeping: a VAPID public key is an
+  // uncompressed P-256 point, so it decodes to 65 bytes beginning 0x04. A
+  // truncated paste, a placeholder, or the private half committed here by
+  // mistake all fail this -- and none of them would fail at deploy time,
+  // because a wrong key is not a deploy error. It just means every
+  // subscription is signed against a key the push service rejects and
+  // nothing is ever delivered.
   const repoFrontendDir = path.resolve(import.meta.dirname, "..");
   const env = loadProductionEnv(repoFrontendDir);
-  assert.match(vapidWarning(env) || "", /placeholder/);
+
+  assert.strictEqual(vapidWarning(env), null, "the committed key must not warn");
+
+  const key = env.VITE_VAPID_PUBLIC_KEY;
+  const bytes = Buffer.from(key.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  assert.strictEqual(bytes.length, 65, `expected 65 bytes, got ${bytes.length}`);
+  assert.strictEqual(bytes[0], 4, "must be an uncompressed EC point (0x04)");
 });
 
 test("this repo's real .env.production, as committed, passes the check", () => {
