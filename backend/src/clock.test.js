@@ -36,8 +36,13 @@ const POOL = [
   { sport: "nfl", playerId: "p9", id: "p9", name: "Nine", position: "QB", team: "III", rank: { standard: 9 } },
 ];
 
-/** A draft `n` picks from done whose deadline passed `ms` ago. */
-function dueDraft(id, n, ms) {
+/**
+ * A draft `n` picks from done whose deadline passed `ms` ago. `pickSeconds`
+ * is optional -- omitted, the draft carries no field at all, which is what
+ * lets every existing test in this file keep exercising the 60-second
+ * fallback (`draft.pickSeconds ?? PICK_SECONDS`) without changing.
+ */
+function dueDraft(id, n, ms, pickSeconds) {
   return {
     draftId: id,
     sport: "nfl",
@@ -49,6 +54,7 @@ function dueDraft(id, n, ms) {
     clockRunning: "1",
     version: 1,
     seats: [{ team: 1, kind: "human", sub: "user-me" }],
+    ...(pickSeconds != null ? { pickSeconds } : {}),
   };
 }
 
@@ -180,6 +186,44 @@ test("catch-up consumes the missed slots: one pick per elapsed minute", async ()
   assert.ok(store.d1.pickDeadline > Date.now(), "the drain stops at the present, not before it");
   assert.equal(store.d1.currentIndex, 3);
   // Not finished, so it stays in the index for the rest of its picks.
+  assert.equal(store.d1.clockRunning, "1");
+});
+
+// The spec's own scenario, at the scheduler level: nothing else in this file
+// ever sets `pickSeconds`, so every test above would still pass even if
+// drainDraft's catch-up silently ignored the field and walked every draft
+// forward in 60-second slots regardless of its own length. This is the one
+// test that would catch that -- a future change to how `deadlineBase` is
+// threaded through that broke short (sub-minute) drafts specifically, while
+// leaving the default-length tests above green.
+//
+// 145s overdue rather than an exact 150s: at exactly five 30-second slots
+// (150s), the fifth deadline lands exactly on "now", and whether the loop
+// takes a sixth pick then depends on how many milliseconds of real,
+// wall-clock test overhead (each mocked send yields on setImmediate) elapsed
+// while getting there -- observed to reliably tip into a sixth pick in this
+// environment, not "five, occasionally six". 145s leaves a solid five-second
+// buffer before that boundary, so the drain deterministically takes exactly
+// the five picks the scenario describes and no more.
+test("catch-up honours the draft's own pick length, not the 60s default", async () => {
+  const overdueBy = 145000;
+  const store = { d1: dueDraft("d1", 8, overdueBy, 30) };
+  const t0 = store.d1.pickDeadline;
+  const seen = installDdb({ store, due: ["d1"] });
+
+  const out = await handler();
+
+  assert.equal(out.picks, 5);
+  // Walking in 30-second slots, not 60: the exact regression this test
+  // exists for. If `deadlineBase` (or the length it reads) ever went back to
+  // the 60-second default for this draft, these would be 60s apart instead
+  // and the picks count would drop to 3, same as the 60-second scenario
+  // above.
+  assert.deepEqual(deadlinesWritten(seen), [
+    t0 + 30_000, t0 + 60_000, t0 + 90_000, t0 + 120_000, t0 + 150_000,
+  ]);
+  assert.ok(store.d1.pickDeadline > Date.now(), "the drain stops at the present, not before it");
+  assert.equal(store.d1.currentIndex, 5);
   assert.equal(store.d1.clockRunning, "1");
 });
 
