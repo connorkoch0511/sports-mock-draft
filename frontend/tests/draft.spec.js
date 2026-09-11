@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { fileURLToPath } from "url";
 import path from "path";
 import { MOCK_PLAYERS, DRAFT_ID, INVITE_TOKEN, makeDraftState, mockDraftApis, pauseRoute } from "./fixtures.js";
-import { signIn } from "./auth.js";
+import { signIn, AUTHORITY } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
@@ -1074,4 +1074,78 @@ test("a failing subscribe request renders as a retryable failure, not silence", 
   await expect(toggle).toHaveText("Retry");
   await expect(toggle).toBeEnabled();
   await expect(toggle).toHaveAttribute("title", "Notifications failed, tap to try again");
+});
+
+// A shared browser must not go on displaying one account's turn
+// notifications for the next: pushManager.subscribe() on a browser that
+// already holds a subscription hands back the same endpoint, so the fix is
+// to tear it down, server-side included, before the session ends -- not to
+// rely on the browser losing it. This drives sign-out for real (through
+// AuthProvider's actual oidc-client-ts UserManager), faking only the two
+// network destinations a real sign-out reaches outside this app: Cognito's
+// discovery document and its end-session endpoint.
+test("signing out unsubscribes this browser from push before the session ends", async ({ page }) => {
+  await page.context().grantPermissions(["notifications"]);
+  const state = makeDraftState({ currentIndex: 0 });
+  mockDraftApis(page, state);
+
+  await page.addInitScript(() => {
+    Object.defineProperty(Notification, "permission", { get: () => "default", configurable: true });
+    const fakeSubscription = {
+      endpoint: "https://push.example.test/signout",
+      toJSON() {
+        return { endpoint: this.endpoint, keys: { p256dh: "fake-p256dh", auth: "fake-auth" } };
+      },
+      unsubscribe: async () => true,
+    };
+    const fakeRegistration = {
+      pushManager: {
+        subscribe: async () => fakeSubscription,
+        getSubscription: async () => fakeSubscription,
+      },
+    };
+    navigator.serviceWorker.register = async () => fakeRegistration;
+    navigator.serviceWorker.getRegistration = async () => fakeRegistration;
+    Object.defineProperty(navigator.serviceWorker, "ready", {
+      get: () => Promise.resolve(fakeRegistration),
+      configurable: true,
+    });
+  });
+
+  let deleteBody = null;
+  await page.route(`${API}/push/subscribe`, (route) => {
+    if (route.request().method() === "DELETE") {
+      deleteBody = JSON.parse(route.request().postData() || "{}");
+    }
+    return route.fulfill({ json: { ok: true } });
+  });
+
+  // The two network destinations a real signoutRedirect() reaches, faked so
+  // the test does not depend on a real Cognito pool: the discovery document
+  // that supplies end_session_endpoint, and that endpoint itself, which the
+  // browser is genuinely navigated to (oidc-client-ts drives the real
+  // window.location, not a mockable API call).
+  await page.route(`${AUTHORITY}/.well-known/openid-configuration`, (route) =>
+    route.fulfill({
+      json: {
+        issuer: AUTHORITY,
+        authorization_endpoint: `${AUTHORITY}/authorize`,
+        end_session_endpoint: `${AUTHORITY}/logout`,
+      },
+    })
+  );
+  await page.route(`${AUTHORITY}/logout*`, (route) =>
+    route.fulfill({ contentType: "text/html", body: "<html>signed out</html>" })
+  );
+
+  await signIn(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  await page.getByTestId("notify-toggle").click();
+  await expect(page.getByTestId("notify-toggle")).toHaveText("On");
+
+  await page.getByTestId("sign-out").click();
+
+  await expect.poll(() => deleteBody).toEqual({ endpoint: "https://push.example.test/signout" });
 });

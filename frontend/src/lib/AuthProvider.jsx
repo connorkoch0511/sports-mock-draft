@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getUserManager, isAuthConfigured, idTokenOf, displayNameOf, isActive } from "./auth";
 import { setCurrentIdToken } from "./idToken.js";
 import { AuthContext } from "./authContext.js";
+import { unsubscribe } from "./push.js";
 
 export function AuthProvider({ children }) {
   const manager = getUserManager();
@@ -76,7 +77,23 @@ export function AuthProvider({ children }) {
           // Come back to where they were, not to the home page.
           state: { returnTo: window.location.pathname + window.location.search },
         }),
-      signOut: () => manager?.signoutRedirect(),
+      // A shared browser must not go on showing the next signed-in user the
+      // previous one's turn notifications: pushManager.subscribe() on a
+      // browser that already holds a subscription hands back the very same
+      // endpoint, so without this, B's subscribe() would overwrite the
+      // *server's* copy of A's subscription and A's picks would keep landing
+      // on this screen. Unsubscribed before the session is torn down --
+      // DELETE /push/subscribe still needs the outgoing user's token -- and
+      // never allowed to block signing out itself.
+      signOut: async () => {
+        try {
+          await unsubscribe();
+        } catch {
+          // Best-effort. No subscription, no service worker, offline --
+          // none of that should keep this person from signing out.
+        }
+        manager?.signoutRedirect();
+      },
     }),
     [user, loading, manager]
   );
