@@ -25,9 +25,14 @@ fallback on the draft page (`Draft.jsx:16`).
    what a length change does to a deadline that is already ticking.
 2. **Every draft is timed.** There is no "no clock" option.
 3. **The control offers presets**, not a free-form number: 30 seconds, 1
-   minute, 90 seconds, 2 minutes, 5 minutes, 10 minutes. One minute is the
-   default, so a draft created without touching the field behaves exactly as
-   every draft does today.
+   minute, 90 seconds, 2 minutes, 5 minutes, 10 minutes, 30 minutes, 1 hour,
+   2 hours, 4 hours, 8 hours, 12 hours, 24 hours. One minute is the default,
+   so a draft created without touching the field behaves exactly as every
+   draft does today. The longer presets exist for the same reason the range
+   goes to a full day (see the API contract below): Sleeper's own "slow
+   draft" leagues run pick timers of two to twenty-four hours, and without
+   these an import from one would land on a lone "from your league" entry
+   instead of a selectable option.
 4. **A Sleeper import carries the league's real timer across**, including
    values that are not on the preset list.
 5. **An imported value that is not a preset is offered as its own option**
@@ -89,9 +94,24 @@ stores `pickSeconds` on the item.
 **Validation is a range, not the preset list.** The client offers presets
 plus, after an import, one arbitrary value from the user's league — so
 membership of a fixed set is the wrong check. The server requires an integer
-between **15 and 3600** inclusive and rejects anything else with a 400. The
+between **30 and 86400** inclusive and rejects anything else with a 400. The
 presets are a UI affordance; the range is the contract, and the server does
 not trust the client for either.
+
+The floor is 30, not 15: the draft page polls every 3 seconds and the
+`/expire` stagger adds up to another 2.75 seconds on top of that (see
+`expireDelayMs`), so a 15-second slot was mistimed by close to a fifth of its
+own length before anything else about it was wrong. 30 is also already the
+shortest preset the UI offers, so raising the floor to it does not make any
+existing option unreachable.
+
+The ceiling is a full day, not an hour: Sleeper's "slow draft" leagues run
+pick timers from two to twenty-four hours (`pick_timer` 7200-86400), and the
+original 3600-second ceiling rejected every one of them. Importing such a
+league produced a form that could not be submitted, with a raw server error
+and nothing in it pointing at the pick-length field as the culprit — the
+range needed to cover what real leagues actually do, not just what this
+app's own presets happened to offer at first.
 
 A missing or absent value defaults to 60 rather than erroring, so an older
 client, or a caller that does not care, keeps working.
@@ -101,8 +121,9 @@ right fallback before the first deadline arrives.
 
 ## Frontend
 
-**New Draft** gains a select beside the other league settings, with the six
-presets and 1 minute selected by default. Its value is sent on create.
+**New Draft** gains a select beside the other league settings, with the
+thirteen presets and 1 minute selected by default. Its value is sent on
+create.
 
 **The draft page** replaces its hard-coded `const PICK_SECONDS = 60` with the
 value from the draft response, keeping 60 as the fallback for the moment
@@ -120,8 +141,13 @@ which `frontend/src/lib/sleeper.js` already fetches for `rounds` and
 - A value matching a preset selects that preset.
 - Any other value is added to the select as its own option, labelled so its
   origin is obvious (for example "45 seconds · from your league"), and
-  selected. It is sent as-is, and the server's range check still applies — a
-  league with an absurd timer is refused like anything else.
+  selected. It is sent as-is, and the server's range check still applies —
+  though with the range now 30-86400, no realistic Sleeper timer, including a
+  slow draft's, actually hits it. What used to be the common case for this
+  branch (a slow-draft import refused with a raw 400) is now the case that
+  cannot happen; the range check remains only as the server's own floor
+  against a client that is not trusted, not as a check this import path is
+  expected to trip.
 
 ## Testing
 
@@ -132,7 +158,7 @@ which `frontend/src/lib/sleeper.js` already fetches for `rounds` and
 - A draft created with `pickSeconds: 30` gets a deadline 30 seconds out, and
   its next deadline after a pick is 30 seconds beyond the last one — not 60.
 - The scheduler's drain advances a 30-second draft in 30-second slots.
-- Validation: 14 and 3601 are refused; 15, 60 and 3600 are accepted; a
+- Validation: 29 and 86401 are refused; 30, 60 and 86400 are accepted; a
   non-integer and a missing value behave as specified. Mutation-test the
   range guard.
 - `GET /drafts/{draftId}` includes `pickSeconds`.

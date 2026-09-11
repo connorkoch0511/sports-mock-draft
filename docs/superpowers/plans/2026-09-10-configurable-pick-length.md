@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **The fallback is the migration.** Every read of the length is `draft.pickSeconds ?? PICK_SECONDS`. A draft written before this change must behave exactly as it does today.
-- **Validation is a range, not the preset list:** an integer **15–3600** inclusive, rejected with 400 otherwise. An absent value defaults to 60 rather than erroring. The presets are a UI affordance; the range is the contract.
+- **Validation is a range, not the preset list:** an integer **30–86400** inclusive, rejected with 400 otherwise. An absent value defaults to 60 rather than erroring. The presets are a UI affordance; the range is the contract. The floor is 30 (not 15): the draft page polls every 3s and the `/expire` stagger adds up to 2.75s more, so a 15-second slot was mistimed by close to a fifth of its own length, and 30 is already the shortest preset offered. The ceiling is a full day, because Sleeper's "slow draft" leagues run pick timers of two to twenty-four hours (`pick_timer` 7200–86400) — all of which the original 3600-second ceiling rejected outright.
 - **Mutation-test every guard:** delete it, run the covering test, confirm **red**, restore, confirm **green**. Record the evidence.
 - Backend is CommonJS; frontend is ESM.
 - No change to pause, to the scheduler, or to how the deadline is enforced.
@@ -150,7 +150,7 @@ git commit -m "feat: the deadline comes from the draft, not a constant"
 
 **Interfaces:**
 - Consumes: Task 1's reading of `draft.pickSeconds`.
-- Produces: `POST /drafts` accepts `pickSeconds` (integer 15–3600, default 60, 400 otherwise) and stores it; `GET /drafts/{draftId}` returns it.
+- Produces: `POST /drafts` accepts `pickSeconds` (integer 30–86400, default 60, 400 otherwise) and stores it; `GET /drafts/{draftId}` returns it.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -184,7 +184,7 @@ test("a draft created without a pick length gets sixty seconds", async () => {
 
 test("a pick length outside the allowed range is refused", async () => {
   mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
-  for (const bad of [14, 3601, 0, -60, "sixty", 1.5]) {
+  for (const bad of [29, 86401, 0, -60, "sixty", 1.5]) {
     const res = await handler(
       evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1, pickSeconds: bad }, claims: ME })
     );
@@ -194,7 +194,7 @@ test("a pick length outside the allowed range is refused", async () => {
 
 test("the edges of the allowed range are accepted", async () => {
   mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
-  for (const ok of [15, 3600]) {
+  for (const ok of [30, 86400]) {
     const res = await handler(
       evt("POST", "/drafts", { body: { teams: 12, rounds: 2, userTeam: 1, pickSeconds: ok }, claims: ME })
     );
@@ -234,8 +234,8 @@ In `drafts.js`'s `POST /drafts` block, beside the other body parsing (after `boa
       let pickSeconds = 60;
       if (body.pickSeconds !== undefined && body.pickSeconds !== null) {
         const n = Number(body.pickSeconds);
-        if (!Number.isInteger(n) || n < 15 || n > 3600) {
-          return json(400, { error: "pickSeconds must be a whole number of seconds between 15 and 3600" });
+        if (!Number.isInteger(n) || n < 30 || n > 86400) {
+          return json(400, { error: "pickSeconds must be a whole number of seconds between 30 and 86400" });
         }
         pickSeconds = n;
       }
@@ -272,9 +272,9 @@ Expected: clean. This is what catches an `PICK_MS` import left dangling.
 
 - [ ] **Step 6: Mutation-test the range guard**
 
-Delete the `if (!Number.isInteger(n) || n < 15 || n > 3600)` block. "a pick length outside the allowed range is refused" must go **red**. Restore, confirm green.
+Delete the `if (!Number.isInteger(n) || n < 30 || n > 86400)` block. "a pick length outside the allowed range is refused" must go **red**. Restore, confirm green.
 
-Then change `n < 15` to `n < 0`. The same test must go **red** on the `14` case. Restore, confirm green — this proves the boundary is pinned, not just the concept.
+Then change `n < 30` to `n < 0`. The same test must go **red** on the `29` case. Restore, confirm green — this proves the boundary is pinned, not just the concept.
 
 - [ ] **Step 7: Commit**
 
@@ -355,7 +355,16 @@ In `frontend/src/pages/NewDraft.jsx`, add state beside the other settings:
   const [pickSeconds, setPickSeconds] = useState(60);
 ```
 
-Add the select after the ADP Format block (around line 400), matching that block's markup exactly:
+Add the select after the ADP Format block (around line 400), matching that block's markup exactly. The presets run from 30 seconds to 24 hours — Sleeper's slow-draft leagues time out at two to twenty-four hours, and without the longer options an import from one of those would land on a lone "from your league" entry rather than a selectable preset. Hoist the `[seconds, label]` pairs to a module-scope constant and derive both the membership test and the `<option>` list from it, rather than writing the same list twice — a preset added to only one of the two used to render twice, once mislabelled "· from your league", with the custom entry winning selection:
+
+```jsx
+const PICK_SECONDS_PRESETS = [
+  [30, "30 seconds"], [60, "1 minute"], [90, "90 seconds"], [120, "2 minutes"],
+  [300, "5 minutes"], [600, "10 minutes"], [1800, "30 minutes"], [3600, "1 hour"],
+  [7200, "2 hours"], [14400, "4 hours"], [28800, "8 hours"], [43200, "12 hours"],
+  [86400, "24 hours"],
+];
+```
 
 ```jsx
         <label className="space-y-1 block">
@@ -369,15 +378,12 @@ Add the select after the ADP Format block (around line 400), matching that block
             {/* An imported league's timer may not be one of ours. Rather than
                 snap it to the nearest preset -- silently rewriting the setting
                 the user just imported -- it joins the list, labelled. */}
-            {![30, 60, 90, 120, 300, 600].includes(pickSeconds) && (
+            {!PICK_SECONDS_PRESETS.some(([s]) => s === pickSeconds) && (
               <option value={pickSeconds}>{pickSeconds} seconds · from your league</option>
             )}
-            <option value={30}>30 seconds</option>
-            <option value={60}>1 minute</option>
-            <option value={90}>90 seconds</option>
-            <option value={120}>2 minutes</option>
-            <option value={300}>5 minutes</option>
-            <option value={600}>10 minutes</option>
+            {PICK_SECONDS_PRESETS.map(([s, label]) => (
+              <option key={s} value={s}>{label}</option>
+            ))}
           </select>
         </label>
 ```
