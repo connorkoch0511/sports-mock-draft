@@ -7,6 +7,14 @@
  */
 const env = (typeof import.meta !== "undefined" && import.meta.env) || {};
 const VAPID_PUBLIC_KEY = env.VITE_VAPID_PUBLIC_KEY;
+// sw.js lives in public/, so Vite copies it byte-for-byte rather than
+// bundling it -- it never sees import.meta.env. Carried across on the
+// registration URL's query string instead (a static host serves a path
+// regardless of its query string, so this does not change what gets
+// served), which is the only way a plain script picks up build-time
+// configuration without a bundler step of its own. sw.js reads it back off
+// self.location to know where to re-POST a rotated subscription.
+const API_BASE = (env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
 /** Whether this browser can do any of this at all. */
 export function pushSupported() {
@@ -73,7 +81,8 @@ async function defaultDelete(path, body) {
 export async function subscribe({
   vapidKey = VAPID_PUBLIC_KEY,
   requestPermission = () => Notification.requestPermission(),
-  registerServiceWorker = () => navigator.serviceWorker.register("/sw.js"),
+  registerServiceWorker = () =>
+    navigator.serviceWorker.register(`/sw.js?apiBase=${encodeURIComponent(API_BASE)}`),
   waitUntilActive = () => navigator.serviceWorker.ready,
   post = defaultPost,
 } = {}) {

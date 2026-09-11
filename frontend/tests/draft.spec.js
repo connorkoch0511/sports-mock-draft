@@ -1149,3 +1149,24 @@ test("signing out unsubscribes this browser from push before the session ends", 
 
   await expect.poll(() => deleteBody).toEqual({ endpoint: "https://push.example.test/signout" });
 });
+
+// Every other push test in this file fakes navigator.serviceWorker.register
+// entirely, by design (see the comment at the top of this section) -- none
+// of them ever load the real frontend/public/sw.js into a browser. This one
+// does, for real, with nothing faked: it is the only thing in this suite
+// that would catch a syntax error in sw.js itself (the new
+// pushsubscriptionchange listener, the narrowed focus check) before it
+// reached production. What it does NOT cover: that the focus check actually
+// suppresses only this draft's own page, or that pushsubscriptionchange
+// actually re-subscribes and posts -- driving a real "push" or
+// "pushsubscriptionchange" event into an installed worker is not something
+// Playwright's public API exposes, and is not attempted here.
+test("the real service worker installs and activates without error", async ({ page }) => {
+  await page.goto("/");
+  const scriptURL = await page.evaluate(async () => {
+    const reg = await navigator.serviceWorker.register("/sw.js");
+    await navigator.serviceWorker.ready;
+    return reg.active?.scriptURL;
+  });
+  expect(scriptURL).toMatch(/\/sw\.js/);
+});
