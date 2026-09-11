@@ -981,6 +981,14 @@ test("clicking Notify me, once granted, subscribes and posts the subscription to
     };
     const fakeRegistration = { pushManager: { subscribe: async () => fakeSubscription } };
     navigator.serviceWorker.register = async () => fakeRegistration;
+    // subscribe() also awaits navigator.serviceWorker.ready before opening
+    // the subscription (a fresh worker is still installing when register()
+    // resolves) -- stand in for an already-active worker, same as the fake
+    // register() above stands in for a real registration.
+    Object.defineProperty(navigator.serviceWorker, "ready", {
+      get: () => Promise.resolve(fakeRegistration),
+      configurable: true,
+    });
   });
 
   let subscribeBody = null;

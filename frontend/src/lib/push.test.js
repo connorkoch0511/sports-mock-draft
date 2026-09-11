@@ -171,6 +171,65 @@ test("a granted permission registers the worker, subscribes with the VAPID key, 
   });
 });
 
+test("subscribe waits for the registration to become active before opening a PushManager subscription", async () => {
+  // What this pins down: waitUntilActive is called, and it is awaited
+  // *before* pushManager.subscribe() runs -- the ordering bug (subscribing
+  // against a still-installing worker) is about sequence, and a plain
+  // Node fake with no real ServiceWorkerContainer can honestly assert
+  // sequence without needing a real "installing -> active" transition.
+  // What this does NOT cover: that a real, unresolved `navigator
+  // .serviceWorker.ready` genuinely blocks subscribe() from running early --
+  // that requires an actual ServiceWorkerContainer, which only a browser
+  // has. That gap is real; a Playwright test cannot honestly close it either
+  // per the task, since its fake registration exists only as a JS object.
+  withBrowserGlobals();
+  const calls = [];
+  const fakeSub = { toJSON: () => ({ endpoint: "https://push.example/abc", keys: {} }) };
+  const reg = {
+    pushManager: {
+      subscribe: () => {
+        calls.push("subscribe");
+        return Promise.resolve(fakeSub);
+      },
+    },
+  };
+
+  const result = await subscribe({
+    vapidKey: toBase64Url([1, 2, 3, 4]),
+    requestPermission: () => Promise.resolve("granted"),
+    registerServiceWorker: () => {
+      calls.push("register");
+      return Promise.resolve(reg);
+    },
+    waitUntilActive: () => {
+      calls.push("ready");
+      return Promise.resolve();
+    },
+    post: () => Promise.resolve({ ok: true }),
+  });
+
+  assert.strictEqual(result, "granted");
+  assert.deepStrictEqual(calls, ["register", "ready", "subscribe"]);
+});
+
+test("subscribe propagates a rejection from waitUntilActive without calling pushManager.subscribe", async () => {
+  withBrowserGlobals();
+  let subscribeCalled = false;
+  const reg = { pushManager: { subscribe: () => { subscribeCalled = true; } } };
+
+  await assert.rejects(
+    () =>
+      subscribe({
+        vapidKey: "key",
+        requestPermission: () => Promise.resolve("granted"),
+        registerServiceWorker: () => Promise.resolve(reg),
+        waitUntilActive: () => Promise.reject(new Error("never became active")),
+      }),
+    /never became active/
+  );
+  assert.strictEqual(subscribeCalled, false);
+});
+
 // --- unsubscribe -------------------------------------------------------
 
 test("unsubscribe does nothing when the browser is unsupported", async () => {

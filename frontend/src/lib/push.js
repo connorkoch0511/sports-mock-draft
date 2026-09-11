@@ -74,6 +74,7 @@ export async function subscribe({
   vapidKey = VAPID_PUBLIC_KEY,
   requestPermission = () => Notification.requestPermission(),
   registerServiceWorker = () => navigator.serviceWorker.register("/sw.js"),
+  waitUntilActive = () => navigator.serviceWorker.ready,
   post = defaultPost,
 } = {}) {
   if (!pushSupported() || !vapidKey) return "unsupported";
@@ -82,6 +83,14 @@ export async function subscribe({
   if (permission !== "granted") return permission;
 
   const reg = await registerServiceWorker();
+  // register() resolves as soon as the registration record exists -- the
+  // worker itself is typically still installing, and reg.active is null
+  // until it finishes activating. PushManager.subscribe() throws
+  // InvalidStateError against a registration with no active worker, so this
+  // looks like a redundant line right up until the first click on a fresh
+  // browser fails every time. `ready` is the platform's own promise for
+  // "this scope has an active worker".
+  await waitUntilActive();
   const sub = await reg.pushManager.subscribe({
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8Array(vapidKey),
