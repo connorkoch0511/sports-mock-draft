@@ -9,7 +9,7 @@ import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
-import { skewFrom, remainingSeconds, expireDelayMs } from "../lib/clock";
+import { skewFrom, remainingSeconds, expireDelayMs, formatCountdown } from "../lib/clock";
 
 // Display fallback only. The server owns the clock; this is what the page
 // shows for a draft written before pickDeadline existed.
@@ -315,6 +315,11 @@ export default function Draft() {
   // never computed locally -- because the server is the only party allowed
   // to decide it. (`paused` is the same kind of value, declared above.)
   const deadline = draft?.pickDeadline ?? null;
+  // Same reason as the hoists above: the tick effect's closure needs this
+  // draft field, and pulling it out as a local here is what lets that
+  // effect's dependency array name it honestly instead of suppressing the
+  // lint rule that would otherwise flag the missing `draft`.
+  const fallbackSeconds = draft?.pickSeconds ?? PICK_SECONDS;
 
   // Everyone in the draft is looking at the same row, and only the person who
   // picked knows it changed. Three seconds is a judgement: fast enough that a
@@ -366,17 +371,14 @@ export default function Draft() {
     }
 
     const tick = () =>
-      setSecondsLeft(
-        remainingSeconds(deadline, skewRef.current) ?? (draft?.pickSeconds ?? PICK_SECONDS)
-      );
+      setSecondsLeft(remainingSeconds(deadline, skewRef.current) ?? fallbackSeconds);
     tick();
     tickRef.current = setInterval(tick, 1000);
 
     return () => {
       if (tickRef.current) clearInterval(tickRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasDraft, deadline, completed, paused]);
+  }, [hasDraft, deadline, completed, paused, fallbackSeconds]);
 
   // The clock, enforced. Whoever's browser notices zero first calls
   // /expire -- not /auto-pick, which keeps its own meaning (the manual
@@ -518,7 +520,7 @@ export default function Draft() {
                 // clock now runs (and is shown) for everyone, shared draft or
                 // not -- the server is the one enforcing it either way.
                 <span data-testid="pick-countdown">
-                  <Pill>⏱ {secondsLeft}s</Pill>
+                  <Pill>⏱ {formatCountdown(secondsLeft)}</Pill>
                 </span>
               ) : onClockIsBot ? (
                 <Pill>Auto-picking other teams…</Pill>

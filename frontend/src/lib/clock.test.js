@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert";
-import { skewFrom, remainingSeconds, expireDelayMs } from "./clock.js";
+import { skewFrom, remainingSeconds, expireDelayMs, formatCountdown } from "./clock.js";
 
 test("skew is the server's clock minus this browser's", () => {
   assert.equal(skewFrom(1000, 400), 600);
@@ -31,4 +31,22 @@ test("expire calls are staggered by seat so they do not all arrive together", ()
   assert.equal(expireDelayMs(0), 0);
   assert.equal(expireDelayMs(3), 750);
   assert.equal(expireDelayMs(-1), 0, "an unknown seat must not produce a negative delay");
+});
+
+test("a countdown under two minutes is bare seconds", () => {
+  assert.equal(formatCountdown(45), "45s");
+  assert.equal(formatCountdown(0), "0s");
+  assert.equal(formatCountdown(119), "119s");
+});
+
+test("a countdown from two minutes to an hour is m:ss", () => {
+  assert.equal(formatCountdown(120), "2:00");
+  assert.equal(formatCountdown(599), "9:59");
+  assert.equal(formatCountdown(3599), "59:59");
+});
+
+test("a countdown of an hour or more is h:mm:ss", () => {
+  assert.equal(formatCountdown(3600), "1:00:00");
+  assert.equal(formatCountdown(86399), "23:59:59");
+  assert.equal(formatCountdown(86400), "24:00:00");
 });
