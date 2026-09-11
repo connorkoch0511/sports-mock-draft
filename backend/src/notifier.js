@@ -31,23 +31,43 @@ async function handler(event) {
     out.records += 1;
     if (rec.eventName !== "MODIFY") continue;
 
-    const before = rec.dynamodb?.OldImage ? unmarshall(rec.dynamodb.OldImage) : null;
-    const after = rec.dynamodb?.NewImage ? unmarshall(rec.dynamodb.NewImage) : null;
+    let notes;
+    try {
+      const before = rec.dynamodb?.OldImage ? unmarshall(rec.dynamodb.OldImage) : null;
+      const after = rec.dynamodb?.NewImage ? unmarshall(rec.dynamodb.NewImage) : null;
+      notes = decideNotifications(before, after);
+    } catch (e) {
+      // A malformed record must not abort the batch either. decideNotifications
+      // is defensively written and real records are well-formed, but the
+      // invariant is "nothing throws" -- true by construction, not by luck.
+      out.failed += 1;
+      console.error(`record decode/decision failed:`, e?.message || e);
+      continue;
+    }
 
-    const notes = decideNotifications(before, after);
     // A pause must not even look up subscriptions -- most records reaching
     // this stream are not a turn changing hands.
     if (notes.length === 0) continue;
 
     for (const note of notes) {
-      const subs = await ddb.send(
-        new QueryCommand({
-          TableName: subsTable,
-          KeyConditionExpression: "#s = :s",
-          ExpressionAttributeNames: { "#s": "sub" },
-          ExpressionAttributeValues: { ":s": note.sub },
-        })
-      );
+      let subs;
+      try {
+        subs = await ddb.send(
+          new QueryCommand({
+            TableName: subsTable,
+            KeyConditionExpression: "#s = :s",
+            ExpressionAttributeNames: { "#s": "sub" },
+            ExpressionAttributeValues: { ":s": note.sub },
+          })
+        );
+      } catch (e) {
+        // A transient DynamoDB error here (throttling, a permissions blip)
+        // must not abort the whole invocation -- that would lose notifications
+        // for every remaining note and record in the batch.
+        out.failed += 1;
+        console.error(`subscription lookup failed for draft ${note.draftId}, sub ${note.sub}:`, e?.message || e);
+        continue;
+      }
 
       for (const row of subs.Items || []) {
         try {
@@ -60,10 +80,20 @@ async function handler(event) {
           // 404 and 410 are how a push service says the subscription is gone.
           // Deleting it is required: otherwise the row is retried forever.
           if (e?.statusCode === 404 || e?.statusCode === 410) {
-            await ddb.send(
-              new DeleteCommand({ TableName: subsTable, Key: { sub: row.sub, endpoint: row.endpoint } })
-            );
-            out.expired += 1;
+            try {
+              await ddb.send(
+                new DeleteCommand({ TableName: subsTable, Key: { sub: row.sub, endpoint: row.endpoint } })
+              );
+              out.expired += 1;
+            } catch (delErr) {
+              // An exception raised while handling an exception would defeat
+              // the very guard it lives inside: it must not escape either.
+              out.failed += 1;
+              console.error(
+                `failed to delete expired subscription for sub ${row.sub}, endpoint ${row.endpoint}:`,
+                delErr?.message || delErr
+              );
+            }
           } else {
             // Caught per subscription and never rethrown. A throw here fails
             // the batch, and DynamoDB retries a failed batch -- which would

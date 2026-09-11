@@ -104,6 +104,101 @@ test("one failing subscription does not stop the others, and does not fail the r
   assert.deepEqual(sent, ["https://push.example/good"]);
 });
 
+test("a failing delete of an expired subscription does not throw, and the run still reports its other work", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd?.input?.Key?.endpoint) {
+      throw new Error("delete rejected: throughput exceeded");
+    }
+    return {
+      Items: [
+        { sub: "user-b", endpoint: "https://push.example/gone", p256dh: "k", auth: "a" },
+        { sub: "user-b", endpoint: "https://push.example/fine", p256dh: "k", auth: "a" },
+      ],
+    };
+  });
+  mock.method(webpush, "sendNotification", async (sub) => {
+    if (sub.endpoint.endsWith("gone")) {
+      const e = new Error("gone");
+      e.statusCode = 410;
+      throw e;
+    }
+    return {};
+  });
+
+  // Must resolve even though the DeleteCommand inside the catch block also
+  // throws -- an exception raised while handling an exception must not
+  // escape the handler either.
+  const out = await handler(advanceRecord());
+  assert.equal(out.sent, 1);
+  assert.equal(out.failed, 1);
+});
+
+test("a failing subscription lookup does not throw, and a second record in the same batch is still processed", async () => {
+  const secondRecord = {
+    eventName: "MODIFY",
+    dynamodb: {
+      OldImage: marshall({ draftId: "d2", currentIndex: 0, picks: [{ team: 1 }, { team: 2 }], seats: SEATS }),
+      NewImage: marshall({
+        draftId: "d2",
+        currentIndex: 1,
+        picks: [{ team: 1, playerId: "p1" }, { team: 2 }],
+        seats: SEATS,
+      }),
+    },
+  };
+  const batch = advanceRecord();
+  batch.Records.push(secondRecord);
+
+  let call = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    call += 1;
+    if (call === 1) throw new Error("throttled");
+    return { Items: [{ sub: "user-b", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }] };
+  });
+  const sent = [];
+  mock.method(webpush, "sendNotification", async (sub) => {
+    sent.push(sub.endpoint);
+    return {};
+  });
+
+  // The QueryCommand for the first record's notification throws. That must
+  // not abort the batch: the second record's notification still gets sent.
+  const out = await handler(batch);
+  assert.equal(out.failed, 1);
+  assert.equal(out.sent, 1);
+  assert.deepEqual(sent, ["https://push.example/laptop"]);
+});
+
+test("a malformed record does not throw", async () => {
+  let queried = false;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
+    queried = true;
+    return { Items: [{ sub: "user-b", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }] };
+  });
+  const sent = [];
+  mock.method(webpush, "sendNotification", async (sub) => {
+    sent.push(sub.endpoint);
+    return {};
+  });
+
+  const good = advanceRecord().Records[0];
+  const malformed = {
+    eventName: "MODIFY",
+    dynamodb: {
+      // Not a real DynamoDB-typed attribute map -- unmarshall must reject it.
+      OldImage: { draftId: { S: "d3" }, currentIndex: { BOGUS: "x" } },
+      NewImage: { draftId: { S: "d3" }, currentIndex: { BOGUS: "x" } },
+    },
+  };
+
+  const out = await handler({ Records: [malformed, good] });
+  assert.equal(out.failed, 1);
+  // The well-formed record right after it in the same batch is unaffected.
+  assert.equal(out.sent, 1);
+  assert.deepEqual(sent, ["https://push.example/laptop"]);
+  assert.equal(queried, true);
+});
+
 test("a record that does not advance the pick sends nothing", async () => {
   let queried = false;
   mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
