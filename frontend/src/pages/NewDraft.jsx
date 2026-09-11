@@ -23,6 +23,32 @@ const DRAFT_YEAR = 2025;
 // season's leagues while drafting them against this season's rankings.
 const SLEEPER_SEASON = 2026;
 
+// The one list of presets, written once. Both the "is this a custom value"
+// test below and the <option> elements the select renders are derived from
+// this -- adding a preset here used to mean adding it in both places, and
+// the two lists drifting apart rendered the same seconds twice, once
+// mislabelled "· from your league", with the custom entry winning selection.
+// Seconds match what the server now accepts (30s-86400s, i.e. up to a full
+// day): Sleeper's own "slow draft" leagues run pick timers of two to
+// twenty-four hours, so the longest presets here are not decoration -- they
+// are what makes importing one of those leagues land on a real option
+// instead of a lone "from your league" entry.
+const PICK_SECONDS_PRESETS = [
+  [30, "30 seconds"],
+  [60, "1 minute"],
+  [90, "90 seconds"],
+  [120, "2 minutes"],
+  [300, "5 minutes"],
+  [600, "10 minutes"],
+  [1800, "30 minutes"],
+  [3600, "1 hour"],
+  [7200, "2 hours"],
+  [14400, "4 hours"],
+  [28800, "8 hours"],
+  [43200, "12 hours"],
+  [86400, "24 hours"],
+];
+
 export default function NewDraft() {
   const nav = useNavigate();
   const location = useLocation();
@@ -415,15 +441,12 @@ export default function NewDraft() {
             {/* An imported league's timer may not be one of ours. Rather than
                 snap it to the nearest preset -- silently rewriting the setting
                 the user just imported -- it joins the list, labelled. */}
-            {![30, 60, 90, 120, 300, 600].includes(pickSeconds) && (
+            {!PICK_SECONDS_PRESETS.some(([s]) => s === pickSeconds) && (
               <option value={pickSeconds}>{pickSeconds} seconds · from your league</option>
             )}
-            <option value={30}>30 seconds</option>
-            <option value={60}>1 minute</option>
-            <option value={90}>90 seconds</option>
-            <option value={120}>2 minutes</option>
-            <option value={300}>5 minutes</option>
-            <option value={600}>10 minutes</option>
+            {PICK_SECONDS_PRESETS.map(([s, label]) => (
+              <option key={s} value={s}>{label}</option>
+            ))}
           </select>
         </label>
 
