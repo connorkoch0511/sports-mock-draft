@@ -697,14 +697,24 @@ exports.handler = async (event) => {
       const body = event.body ? JSON.parse(event.body) : {};
       const endpoint = typeof body.endpoint === "string" ? body.endpoint.trim() : "";
       if (!endpoint) return json(400, { error: "endpoint is required" });
+      if (endpoint.length > 2048) return json(400, { error: "endpoint must not exceed 2048 characters" });
+
+      // A real browser's PushSubscription.toJSON() always produces both keys.
+      // Reject subscriptions without them rather than storing rows that can
+      // never deliver a push.
+      const p256dh = typeof body.keys?.p256dh === "string" ? body.keys.p256dh : "";
+      const auth = typeof body.keys?.auth === "string" ? body.keys.auth : "";
+      if (!p256dh) return json(400, { error: "keys.p256dh is required" });
+      if (!auth) return json(400, { error: "keys.auth is required" });
+
       await ddb.send(
         new PutCommand({
           TableName: pushSubsTable,
           Item: {
             sub,
             endpoint,
-            p256dh: body.keys?.p256dh || null,
-            auth: body.keys?.auth || null,
+            p256dh,
+            auth,
             createdAt: Date.now(),
           },
         })

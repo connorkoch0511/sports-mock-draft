@@ -2370,6 +2370,52 @@ test("a subscription without an endpoint is refused", async () => {
   assert.equal(res.statusCode, 400);
 });
 
+test("a subscription without a keys object is refused with 400", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: "https://push.example/abc" }, claims: ME })
+  );
+  assert.equal(res.statusCode, 400);
+  assert.match(JSON.parse(res.body).error, /keys/i);
+});
+
+test("a subscription with an empty keys object is refused with 400", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: "https://push.example/abc", keys: {} }, claims: ME })
+  );
+  assert.equal(res.statusCode, 400);
+  assert.match(JSON.parse(res.body).error, /keys/i);
+});
+
+test("a subscription with an empty-string p256dh is refused with 400", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: "https://push.example/abc", keys: { p256dh: "", auth: "a" } }, claims: ME })
+  );
+  assert.equal(res.statusCode, 400);
+  assert.match(JSON.parse(res.body).error, /p256dh/i);
+});
+
+test("a subscription with an empty-string auth is refused with 400", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: "https://push.example/abc", keys: { p256dh: "k", auth: "" } }, claims: ME })
+  );
+  assert.equal(res.statusCode, 400);
+  assert.match(JSON.parse(res.body).error, /auth/i);
+});
+
+test("a subscription with an endpoint longer than 2048 characters is refused with 400", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const longEndpoint = "https://push.example/" + "a".repeat(2048);
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: longEndpoint, keys: { p256dh: "k", auth: "a" } }, claims: ME })
+  );
+  assert.equal(res.statusCode, 400);
+  assert.match(JSON.parse(res.body).error, /endpoint/i);
+});
+
 test("subscribing requires a signed-in caller", async () => {
   const res = await handler(
     evt("POST", "/push/subscribe", { body: { endpoint: "https://push.example/abc" } })
