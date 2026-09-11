@@ -281,6 +281,19 @@ test("the notifier reads the stream and never retries a batch", () => {
   assert.equal(evt.Properties.MaximumRetryAttempts, 0);
 });
 
+test("the notifier can read and write the subscriptions table", () => {
+  // The spec asked for this, and the stream/event-source test above does not
+  // exercise it: the notifier queries subscriptions for every note and
+  // deletes a row once its endpoint is confirmed gone (404/410) -- without
+  // this policy both would 403 in production while every unit test, which
+  // mocks the DynamoDB client, stayed green.
+  const fn = loadTemplate().Resources.NotifierFunction;
+  const policies = fn.Properties.Policies || [];
+  const crud = policies.find((p) => p.DynamoDBCrudPolicy);
+  assert.ok(crud, "the notifier needs a DynamoDB policy for the subscriptions table");
+  assert.equal(crud.DynamoDBCrudPolicy.TableName, "PushSubsTable");
+});
+
 test("the VAPID private key is NoEcho", () => {
   assert.equal(loadTemplate().Parameters.VapidPrivateKey.NoEcho, true);
 });

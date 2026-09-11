@@ -2416,6 +2416,32 @@ test("a subscription with an endpoint longer than 2048 characters is refused wit
   assert.match(JSON.parse(res.body).error, /endpoint/i);
 });
 
+test("a subscription with an http:// endpoint is refused with 400", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: "http://push.example/abc", keys: { p256dh: "k", auth: "a" } }, claims: ME })
+  );
+  assert.equal(res.statusCode, 400);
+  assert.match(JSON.parse(res.body).error, /https/i);
+});
+
+test("a subscription with a non-URL endpoint string is refused with 400", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: "not a url at all", keys: { p256dh: "k", auth: "a" } }, claims: ME })
+  );
+  assert.equal(res.statusCode, 400);
+  assert.match(JSON.parse(res.body).error, /url/i);
+});
+
+test("a subscription with a valid https:// endpoint is accepted", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({}));
+  const res = await handler(
+    evt("POST", "/push/subscribe", { body: { endpoint: "https://push.example/abc", keys: { p256dh: "k", auth: "a" } }, claims: ME })
+  );
+  assert.equal(res.statusCode, 200);
+});
+
 test("subscribing requires a signed-in caller", async () => {
   const res = await handler(
     evt("POST", "/push/subscribe", { body: { endpoint: "https://push.example/abc" } })

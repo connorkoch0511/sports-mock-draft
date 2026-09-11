@@ -699,6 +699,23 @@ exports.handler = async (event) => {
       if (!endpoint) return json(400, { error: "endpoint is required" });
       if (endpoint.length > 2048) return json(400, { error: "endpoint must not exceed 2048 characters" });
 
+      // A non-empty string within the length limit is not an endpoint --
+      // it's still whatever the caller typed. Without a scheme check, any
+      // signed-in user can store a URL they control that accepts a
+      // connection and never answers it: sends are sequential (see
+      // notifier.js), so one such row wedges the invocation until the
+      // Lambda timeout and MaximumRetryAttempts: 0 discards the whole
+      // batch, silencing every other draft's notifications too.
+      let endpointUrl;
+      try {
+        endpointUrl = new URL(endpoint);
+      } catch {
+        return json(400, { error: "endpoint must be a valid URL" });
+      }
+      if (endpointUrl.protocol !== "https:") {
+        return json(400, { error: "endpoint must use https" });
+      }
+
       // A real browser's PushSubscription.toJSON() always produces both keys.
       // Reject subscriptions without them rather than storing rows that can
       // never deliver a push.

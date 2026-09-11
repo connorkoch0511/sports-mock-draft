@@ -25,19 +25,33 @@ const SEATS = [
   { team: 2, kind: "human", sub: "user-b" },
 ];
 
-/** A stream MODIFY record advancing the draft from pick 0 to pick 1. */
-function advanceRecord() {
+/**
+ * A stream MODIFY record advancing the draft from pick 0 to pick 1.
+ *
+ * pickSeconds defaults to 600 (10 minutes) -- comfortably above the 300s
+ * your-turn threshold -- so every test below that is not itself about the
+ * threshold or the TTL keeps exercising a your-turn push exactly as before.
+ * Tests that care about a specific pace pass their own.
+ */
+function advanceRecord({ pickSeconds = 600 } = {}) {
   return {
     Records: [
       {
         eventName: "MODIFY",
         dynamodb: {
-          OldImage: marshall({ draftId: "d1", currentIndex: 0, picks: [{ team: 1 }, { team: 2 }], seats: SEATS }),
+          OldImage: marshall({
+            draftId: "d1",
+            currentIndex: 0,
+            picks: [{ team: 1 }, { team: 2 }],
+            seats: SEATS,
+            pickSeconds,
+          }),
           NewImage: marshall({
             draftId: "d1",
             currentIndex: 1,
             picks: [{ team: 1, playerId: "p1" }, { team: 2 }],
             seats: SEATS,
+            pickSeconds,
           }),
         },
       },
@@ -61,6 +75,193 @@ test("the person now on the clock is sent one push per browser", async () => {
   const out = await handler(advanceRecord());
   assert.equal(out.sent, 2);
   assert.deepEqual(sent.sort(), ["https://push.example/laptop", "https://push.example/phone"]);
+});
+
+test("your-turn is skipped for a draft under the 5-minute threshold", async () => {
+  let queried = false;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
+    queried = true;
+    return { Items: [{ sub: "user-b", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }] };
+  });
+  const sent = [];
+  mock.method(webpush, "sendNotification", async (sub) => {
+    sent.push(sub.endpoint);
+    return {};
+  });
+
+  const out = await handler(advanceRecord({ pickSeconds: 299 }));
+  assert.equal(out.sent, 0);
+  assert.equal(sent.length, 0);
+  // Skipped before the subscription lookup, not after -- a fast draft
+  // must not pay for a query whose result is thrown away.
+  assert.equal(queried, false);
+});
+
+test("your-turn is sent right at the 5-minute threshold and above", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ sub: "user-b", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }],
+  }));
+  const sent = [];
+  mock.method(webpush, "sendNotification", async (sub) => {
+    sent.push(sub.endpoint);
+    return {};
+  });
+
+  const out = await handler(advanceRecord({ pickSeconds: 300 }));
+  assert.equal(out.sent, 1);
+  assert.deepEqual(sent, ["https://push.example/laptop"]);
+});
+
+test("picked-for-you is sent even for a draft under the 5-minute threshold", async () => {
+  const fastSeats = [
+    { team: 1, kind: "human", sub: "user-a" },
+    { team: 2, kind: "human", sub: "user-b" },
+  ];
+  const record = {
+    eventName: "MODIFY",
+    dynamodb: {
+      OldImage: marshall({
+        draftId: "d1",
+        currentIndex: 0,
+        picks: [{ team: 1 }, { team: 2 }],
+        seats: fastSeats,
+        pickSeconds: 30,
+      }),
+      NewImage: marshall({
+        draftId: "d1",
+        currentIndex: 1,
+        picks: [{ team: 1, playerId: "p1", auto: true, player: { name: "Auto Pick" } }, { team: 2 }],
+        seats: fastSeats,
+        pickSeconds: 30,
+      }),
+    },
+  };
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ sub: "user-a", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }],
+  }));
+  const sent = [];
+  mock.method(webpush, "sendNotification", async (sub, payload) => {
+    sent.push({ endpoint: sub.endpoint, kind: JSON.parse(payload).title });
+    return {};
+  });
+
+  // Two notes come out of this record: picked-for-you (user-a, who was
+  // auto-picked) and your-turn (user-b, now on the clock) -- the latter
+  // skipped by the 30s pace, the former sent regardless.
+  const out = await handler({ Records: [record] });
+  assert.equal(out.sent, 1);
+  assert.deepEqual(sent, [{ endpoint: "https://push.example/laptop", kind: "Your clock ran out" }]);
+});
+
+test("a short draft's TTL is clamped to the one-minute floor", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ sub: "user-a", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }],
+  }));
+  let options = null;
+  mock.method(webpush, "sendNotification", async (_sub, _payload, opts) => {
+    options = opts;
+    return {};
+  });
+
+  const fastSeats = [
+    { team: 1, kind: "human", sub: "user-a" },
+    { team: 2, kind: "human", sub: "user-b" },
+  ];
+  const record = {
+    eventName: "MODIFY",
+    dynamodb: {
+      OldImage: marshall({ draftId: "d1", currentIndex: 0, picks: [{ team: 1 }, { team: 2 }], seats: fastSeats, pickSeconds: 15 }),
+      NewImage: marshall({
+        draftId: "d1",
+        currentIndex: 1,
+        picks: [{ team: 1, playerId: "p1", auto: true, player: { name: "Auto Pick" } }, { team: 2 }],
+        seats: fastSeats,
+        pickSeconds: 15,
+      }),
+    },
+  };
+
+  // picked-for-you always sends, even at a 15s pace, so this pins the TTL
+  // without the your-turn threshold getting in the way.
+  await handler({ Records: [record] });
+  assert.equal(options.TTL, 60);
+  assert.equal(options.timeout, 5000);
+});
+
+test("a slow draft's TTL is clamped to the one-hour ceiling", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ sub: "user-b", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }],
+  }));
+  let options = null;
+  mock.method(webpush, "sendNotification", async (_sub, _payload, opts) => {
+    options = opts;
+    return {};
+  });
+
+  await handler(advanceRecord({ pickSeconds: 86400 }));
+  assert.equal(options.TTL, 3600);
+});
+
+test("a draft with no pickSeconds falls back to the 60-second default, floored to a minute TTL", async () => {
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => ({
+    Items: [{ sub: "user-a", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }],
+  }));
+  let options = null;
+  mock.method(webpush, "sendNotification", async (_sub, _payload, opts) => {
+    options = opts;
+    return {};
+  });
+
+  const fastSeats = [
+    { team: 1, kind: "human", sub: "user-a" },
+    { team: 2, kind: "human", sub: "user-b" },
+  ];
+  const record = {
+    eventName: "MODIFY",
+    dynamodb: {
+      // No pickSeconds at all -- a draft written before the field existed.
+      OldImage: marshall({ draftId: "d1", currentIndex: 0, picks: [{ team: 1 }, { team: 2 }], seats: fastSeats }),
+      NewImage: marshall({
+        draftId: "d1",
+        currentIndex: 1,
+        picks: [{ team: 1, playerId: "p1", auto: true, player: { name: "Auto Pick" } }, { team: 2 }],
+        seats: fastSeats,
+      }),
+    },
+  };
+
+  await handler({ Records: [record] });
+  assert.equal(options.TTL, 60);
+});
+
+test("subscriptions for the same person are queried once per invocation, not once per note", async () => {
+  let queries = 0;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async () => {
+    queries += 1;
+    return { Items: [{ sub: "user-b", endpoint: "https://push.example/laptop", p256dh: "k", auth: "a" }] };
+  });
+  mock.method(webpush, "sendNotification", async () => ({}));
+
+  const batch = advanceRecord();
+  // A second draft, same person on the clock in both -- the drain-batch
+  // scenario item #11 is about: one person, several notes, one invocation.
+  batch.Records.push({
+    eventName: "MODIFY",
+    dynamodb: {
+      OldImage: marshall({ draftId: "d2", currentIndex: 0, picks: [{ team: 1 }, { team: 2 }], seats: SEATS, pickSeconds: 600 }),
+      NewImage: marshall({
+        draftId: "d2",
+        currentIndex: 1,
+        picks: [{ team: 1, playerId: "p1" }, { team: 2 }],
+        seats: SEATS,
+        pickSeconds: 600,
+      }),
+    },
+  });
+
+  const out = await handler(batch);
+  assert.equal(out.sent, 2);
+  assert.equal(queries, 1, "the second record's note for the same sub must be served from cache");
 });
 
 test("an expired subscription is deleted, not retried", async () => {
@@ -137,12 +338,13 @@ test("a failing subscription lookup does not throw, and a second record in the s
   const secondRecord = {
     eventName: "MODIFY",
     dynamodb: {
-      OldImage: marshall({ draftId: "d2", currentIndex: 0, picks: [{ team: 1 }, { team: 2 }], seats: SEATS }),
+      OldImage: marshall({ draftId: "d2", currentIndex: 0, picks: [{ team: 1 }, { team: 2 }], seats: SEATS, pickSeconds: 600 }),
       NewImage: marshall({
         draftId: "d2",
         currentIndex: 1,
         picks: [{ team: 1, playerId: "p1" }, { team: 2 }],
         seats: SEATS,
+        pickSeconds: 600,
       }),
     },
   };
