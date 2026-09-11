@@ -1033,3 +1033,45 @@ test("a denied permission renders as blocked and disabled, rather than asking ag
   await expect(toggle).toHaveText("Blocked");
   await expect(toggle).toBeDisabled();
 });
+
+// subscribe() rejecting used to be an unhandled rejection: setNotifyState
+// never ran, and the button silently kept reading "Notify" forever with no
+// sign anything went wrong. The POST failing is one of several ways
+// subscribe() can reject (a malformed key or a not-yet-active worker are
+// the others) -- any of them should land here.
+test("a failing subscribe request renders as a retryable failure, not silence", async ({ page }) => {
+  await page.context().grantPermissions(["notifications"]);
+  const state = makeDraftState({ currentIndex: 0 });
+  mockDraftApis(page, state);
+
+  await page.addInitScript(() => {
+    Object.defineProperty(Notification, "permission", { get: () => "default", configurable: true });
+    const fakeSubscription = {
+      endpoint: "https://push.example.test/fail",
+      toJSON() {
+        return { endpoint: this.endpoint, keys: { p256dh: "fake-p256dh", auth: "fake-auth" } };
+      },
+    };
+    const fakeRegistration = { pushManager: { subscribe: async () => fakeSubscription } };
+    navigator.serviceWorker.register = async () => fakeRegistration;
+    Object.defineProperty(navigator.serviceWorker, "ready", {
+      get: () => Promise.resolve(fakeRegistration),
+      configurable: true,
+    });
+  });
+
+  await page.route(`${API}/push/subscribe`, (route) => route.fulfill({ status: 500, json: { error: "nope" } }));
+
+  await signIn(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await page.getByRole("button", { name: "Pause" }).click();
+
+  const toggle = page.getByTestId("notify-toggle");
+  await expect(toggle).toHaveText("Notify");
+
+  await toggle.click();
+
+  await expect(toggle).toHaveText("Retry");
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).toHaveAttribute("title", "Notifications failed, tap to try again");
+});

@@ -591,24 +591,47 @@ export default function Draft() {
                   type="button"
                   data-testid="notify-toggle"
                   disabled={notifyState === "denied"}
-                  onClick={async () => setNotifyState(await subscribe())}
+                  onClick={async () => {
+                    // subscribe() can reject -- a failing POST, a malformed
+                    // VAPID key breaking atob(), a registration that never
+                    // activates -- and with no catch here that becomes an
+                    // unhandled rejection: setNotifyState never runs, and the
+                    // button silently keeps reading "Notify" forever. Land on
+                    // an explicit failure state instead, and let the click
+                    // retry.
+                    try {
+                      setNotifyState(await subscribe());
+                    } catch {
+                      setNotifyState("error");
+                    }
+                  }}
                   aria-label={
                     notifyState === "granted"
                       ? "Notifications on"
                       : notifyState === "denied"
                         ? "Notifications blocked"
-                        : "Notify me for your turn"
+                        : notifyState === "error"
+                          ? "Notifications failed, tap to try again"
+                          : "Notify me for your turn"
                   }
                   title={
                     notifyState === "granted"
                       ? "Notifications on"
                       : notifyState === "denied"
                         ? "Notifications blocked"
-                        : "Notify me for your turn"
+                        : notifyState === "error"
+                          ? "Notifications failed, tap to try again"
+                          : "Notify me for your turn"
                   }
                   className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600 disabled:opacity-50"
                 >
-                  {notifyState === "granted" ? "On" : notifyState === "denied" ? "Blocked" : "Notify"}
+                  {notifyState === "granted"
+                    ? "On"
+                    : notifyState === "denied"
+                      ? "Blocked"
+                      : notifyState === "error"
+                        ? "Retry"
+                        : "Notify"}
                 </button>
               )}
 
