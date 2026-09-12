@@ -196,6 +196,67 @@ test.describe("Draft page", () => {
     await expect(page.getByText(`Draft: ${DRAFT_ID}`)).toHaveCount(0);
   });
 
+  // The seven header controls that cannot act once the last pick is in.
+  // Keyed the way a user finds them: button text, or the testid where the
+  // control has no visible text of its own.
+  const INERT_WHEN_COMPLETED = [
+    ["Pause", (page) => page.getByRole("button", { name: "Pause" })],
+    ["seat-board", (page) => page.getByTestId("seat-board")],
+    ["Auto Pick", (page) => page.getByRole("button", { name: "Auto Pick" })],
+    ["Sim to End", (page) => page.getByRole("button", { name: "Sim to End" })],
+    ["copy-invite", (page) => page.getByTestId("copy-invite")],
+    ["notify-toggle", (page) => page.getByTestId("notify-toggle")],
+    ["current-pick", (page) => page.getByTestId("current-pick")],
+  ];
+
+  // Disabled says "not now"; absent says "not ever". A finished draft is the
+  // second case, and greying these out spent a whole row saying so. Absence
+  // is the assertion -- toHaveCount(0), not not.toBeVisible() -- because a
+  // control that is merely invisible is still a control.
+  test("a completed draft offers none of the controls it cannot act on", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    const completedState = { ...state, currentIndex: state.picks.length, completed: true };
+
+    page.route(`${API}/players*`, async (route) => {
+      await route.fulfill({ json: { players: MOCK_PLAYERS } });
+    });
+    page.route(`${API}/drafts/${DRAFT_ID}`, async (route) => {
+      await route.fulfill({ json: completedState });
+    });
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    // What the header keeps. Also the anchor: these prove the header
+    // rendered, so the absences below mean something.
+    await expect(page.getByRole("link", { name: /View Results/i })).toBeVisible();
+    await expect(page.getByTestId("my-team")).toBeVisible();
+    await expect(page.getByText("✅ Completed")).toBeVisible();
+
+    for (const [label, locate] of INERT_WHEN_COMPLETED) {
+      await expect(locate(page), `${label} should not render on a completed draft`).toHaveCount(0);
+    }
+
+    // Task 1 removed this unconditionally; a conditional re-introduction
+    // would slip past the live-draft test that covers it.
+    await expect(page.getByText(`Draft: ${DRAFT_ID}`)).toHaveCount(0);
+  });
+
+  // The other half of the pair: without this, inverting the condition (or
+  // rendering `false` where `completed` was meant) would leave the suite green
+  // while the live header lost every control on it.
+  test("a live draft still offers all of them", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    for (const [label, locate] of INERT_WHEN_COMPLETED) {
+      await expect(locate(page), `${label} should render on a live draft`).toHaveCount(1);
+    }
+  });
+
   test("manual pick is sent to API when Team 1 is on clock", async ({ page }) => {
     const state = makeDraftState({ currentIndex: 0 });
 

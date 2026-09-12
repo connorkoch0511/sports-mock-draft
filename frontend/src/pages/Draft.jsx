@@ -464,13 +464,15 @@ export default function Draft() {
             </div>
 
             <div className="flex flex-wrap gap-1.5 items-center justify-start lg:justify-end">
-              <button
-                onClick={togglePause}
-                disabled={busy}
-                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
-              >
-                {paused ? "Resume" : "Pause"}
-              </button>
+              {!completed && (
+                <button
+                  onClick={togglePause}
+                  disabled={busy}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
+                >
+                  {paused ? "Resume" : "Pause"}
+                </button>
+              )}
 
               {/* A visible "Auto-pick from" label plus a select sized to its
                   widest option (a board name) was wide enough to tip this
@@ -491,19 +493,21 @@ export default function Draft() {
                   reclaimed row/gap spacing above is the same order of
                   magnitude and applies to every item in this row, not just
                   this control. */}
-              <select
-                data-testid="seat-board"
-                aria-label="Auto-pick from"
-                title="Auto-pick from"
-                className="max-w-[3rem] truncate rounded-lg border border-zinc-700 bg-zinc-900 px-1 py-1 text-xs text-zinc-200"
-                value={draft.yourBoardId ?? ""}
-                onChange={(e) => setSeatBoard(e.target.value)}
-                disabled={busy || draft.completed}
-              >
-                {boardOptions(myBoards, draft.yourBoardId).map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+              {!completed && (
+                <select
+                  data-testid="seat-board"
+                  aria-label="Auto-pick from"
+                  title="Auto-pick from"
+                  className="max-w-[3rem] truncate rounded-lg border border-zinc-700 bg-zinc-900 px-1 py-1 text-xs text-zinc-200"
+                  value={draft.yourBoardId ?? ""}
+                  onChange={(e) => setSeatBoard(e.target.value)}
+                  disabled={busy}
+                >
+                  {boardOptions(myBoards, draft.yourBoardId).map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              )}
 
               {pausedByOther && (
                 <span data-testid="paused-by" className="text-xs text-zinc-400">
@@ -538,16 +542,18 @@ export default function Draft() {
                 </span>
               )}
 
-              <button
-                onClick={autoPick}
-                disabled={paused || busy || draft.completed || !autoPickAllowed}
-                className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
-                title="Auto-pick for whichever team is on the clock"
-              >
-                Auto Pick
-              </button>
+              {!completed && (
+                <button
+                  onClick={autoPick}
+                  disabled={paused || busy || !autoPickAllowed}
+                  className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
+                  title="Auto-pick for whichever team is on the clock"
+                >
+                  Auto Pick
+                </button>
+              )}
 
-              {humans > 1 ? null : (
+              {humans > 1 || completed ? null : (
                 // Simulating the rest of a draft other people are sitting in
                 // takes their picks away from them; the server refuses this
                 // with 409 once a second human is seated, so the button is
@@ -555,27 +561,29 @@ export default function Draft() {
                 // only fail.
                 <button
                   onClick={simToEnd}
-                  disabled={paused || busy || draft.completed}
+                  disabled={paused || busy}
                   className="rounded-2xl border border-zinc-800 bg-zinc-950/70 px-4 py-2 text-xs text-zinc-200 hover:border-zinc-600 disabled:opacity-50"
                 >
                   Sim to End
                 </button>
               )}
 
-              <button
-                type="button"
-                data-testid="copy-invite"
-                onClick={() =>
-                  navigator.clipboard.writeText(
-                    `${window.location.origin}/draft/${draftId}/join?t=${draft.inviteToken}`
-                  )
-                }
-                className="rounded-2xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600"
-              >
-                Copy invite link
-              </button>
+              {!completed && (
+                <button
+                  type="button"
+                  data-testid="copy-invite"
+                  onClick={() =>
+                    navigator.clipboard.writeText(
+                      `${window.location.origin}/draft/${draftId}/join?t=${draft.inviteToken}`
+                    )
+                  }
+                  className="rounded-2xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-300 hover:border-zinc-600"
+                >
+                  Copy invite link
+                </button>
+              )}
 
-              {notifyState !== "unsupported" && (
+              {notifyState !== "unsupported" && !completed && (
                 // Same reasoning as seat-board's title/aria-label-carries-
                 // the-real-text trick just above: "Notifications blocked" is
                 // 21 characters, and this row is already tight enough that
@@ -653,9 +661,11 @@ export default function Draft() {
               >
                 Your Team: {myTeam}
               </span>
-              <span data-testid="current-pick">
-                <Pill>{currentPickLabel}</Pill>
-              </span>
+              {!completed && (
+                <span data-testid="current-pick">
+                  <Pill>{currentPickLabel}</Pill>
+                </span>
+              )}
               <Pill>
                 {draft.teams} teams • {draft.rounds} rounds
               </Pill>
