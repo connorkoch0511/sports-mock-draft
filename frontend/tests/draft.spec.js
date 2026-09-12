@@ -232,6 +232,9 @@ test.describe("Draft page", () => {
     await expect(page.getByRole("link", { name: /View Results/i })).toBeVisible();
     await expect(page.getByTestId("my-team")).toBeVisible();
     await expect(page.getByText("✅ Completed")).toBeVisible();
+    // The fourth of the four a completed header keeps. Named here so the
+    // anchor set is the whole keep-list, not a subset of it.
+    await expect(page.getByText(`${state.teams} teams`)).toBeVisible();
 
     for (const [label, locate] of INERT_WHEN_COMPLETED) {
       await expect(locate(page), `${label} should not render on a completed draft`).toHaveCount(0);
