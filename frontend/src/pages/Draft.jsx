@@ -653,7 +653,6 @@ export default function Draft() {
               >
                 Your Team: {myTeam}
               </span>
-              <Pill>Draft: {draftId}</Pill>
               <span data-testid="current-pick">
                 <Pill>{currentPickLabel}</Pill>
               </span>

@@ -180,6 +180,22 @@ test.describe("Draft page", () => {
     await expect(page.getByRole("link", { name: /View Results/i })).toBeVisible();
   });
 
+  // The id is in the address bar already, and "Copy invite link" is how a
+  // draft actually gets shared -- this pill was ~36 characters of a row that
+  // has repeatedly run out of width (see boarddraft.spec.js's no-wrap tests).
+  test("the header does not spend a row on the draft id", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+
+    // Anchor first: toHaveCount(0) passes just as happily on a page that
+    // never rendered, so prove the header is up before asserting absence.
+    await expect(page.getByTestId("my-team")).toBeVisible();
+    await expect(page.getByText(`Draft: ${DRAFT_ID}`)).toHaveCount(0);
+  });
+
   test("manual pick is sent to API when Team 1 is on clock", async ({ page }) => {
     const state = makeDraftState({ currentIndex: 0 });
 
