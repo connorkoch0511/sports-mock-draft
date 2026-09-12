@@ -54,12 +54,17 @@ is the headroom that stops it wrapping on a narrower window.
 
 ## How
 
-The controls already know about this state — `Draft.jsx` holds a `completed`
-local, and Auto Pick, Sim to End and Pause each carry
-`disabled={... || draft.completed}` today. The change is to render them
-conditionally rather than disable them, and to drop `|| draft.completed` from
-the `disabled` expressions that remain, since an unrendered control does not
-need disabling.
+`Draft.jsx` already holds a `completed` local, and three of the seven — the
+board select, Auto Pick and Sim to End — carry `disabled={... ||
+draft.completed}` today. For those, the change is to render conditionally
+instead of disabling, dropping the now-redundant `|| draft.completed` from
+the `disabled` expression, since an unrendered control does not need
+disabling.
+
+The other four were never guarded at all. Pause is `disabled={busy}` — which
+is exactly why it stays clickable on a finished draft — and Copy invite link,
+the notify toggle and the current-pick pill have no completed condition
+anywhere. They gain one here for the first time.
 
 The seven, by the handle a test would use for each:
 
