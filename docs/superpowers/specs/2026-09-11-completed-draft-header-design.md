@@ -49,6 +49,12 @@ do nothing.
 and drops: Pause/Resume, the seat-board select, Auto Pick, Sim to End, Copy
 invite link, the notify toggle, and the current-pick indicator.
 
+It also drops the `● Live Draft` badge on the opposite side of the row. That
+badge was missed when this spec first counted the header's contents — it
+enumerated the twelve controls in the right-hand group and overlooked the one
+sitting opposite them. A glowing "Live Draft" beside "✅ Completed" is the
+same defect the rule above names, so it takes the same treatment.
+
 **A live draft** keeps everything it has today, minus the draft id pill. That
 is the headroom that stops it wrapping on a narrower window.
 

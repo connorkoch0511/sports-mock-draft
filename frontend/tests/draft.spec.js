@@ -207,6 +207,8 @@ test.describe("Draft page", () => {
     ["copy-invite", (page) => page.getByTestId("copy-invite")],
     ["notify-toggle", (page) => page.getByTestId("notify-toggle")],
     ["current-pick", (page) => page.getByTestId("current-pick")],
+    // Not a control, but the same rule: it asserts a state that is over.
+    ["Live Draft", (page) => page.getByText("Live Draft")],
   ];
 
   // Disabled says "not now"; absent says "not ever". A finished draft is the

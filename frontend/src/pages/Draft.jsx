@@ -457,10 +457,15 @@ export default function Draft() {
         <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
-              <div className="hidden sm:flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300">
-                <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.5)]" />
-                Live Draft
-              </div>
+              {/* Same rule as the controls opposite: a finished draft is not
+                  live, and a glowing "Live Draft" beside "✅ Completed" is the
+                  badge asserting a state that is terminally false. */}
+              {!completed && (
+                <div className="hidden sm:flex items-center gap-2 rounded-full border border-zinc-800 bg-zinc-950/60 px-3 py-1 text-xs text-zinc-300">
+                  <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.5)]" />
+                  Live Draft
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap gap-1.5 items-center justify-start lg:justify-end">
