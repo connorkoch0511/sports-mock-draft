@@ -443,8 +443,19 @@ export default function Draft() {
   // panels stay direct grid children and RosterPanel's own lg:col-span-2 still
   // applies. Below lg the wrapper is the visibility switch -- display:none,
   // which preserves scrollTop (measured), where visibility/absolute does not.
+  // The active wrapper is a COLUMN flex container: with flex-row, width is the
+  // main axis and an unstretched panel sizes to its own content (measured:
+  // 171px inside a 334px band) -- flex-col makes width the cross axis, where
+  // stretch (the default align-items) does the right thing, same as it
+  // already does for height. The panel itself still needs to claim the
+  // column's main axis (height), which [&>*]:flex-1 does without reaching
+  // into the panel's own className.
   const pane = (id) =>
-    `lg:contents ${tab === id ? "max-lg:flex max-lg:min-h-0 max-lg:flex-1" : "max-lg:hidden"}`;
+    `lg:contents ${
+      tab === id
+        ? "max-lg:flex max-lg:flex-col max-lg:min-h-0 max-lg:flex-1 max-lg:[&>*]:min-h-0 max-lg:[&>*]:flex-1"
+        : "max-lg:hidden"
+    }`;
 
   return (
     <div className="relative min-h-full max-lg:h-full xl:h-full w-full overflow-x-hidden">

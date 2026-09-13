@@ -63,6 +63,36 @@ test.describe("the draft page on a phone", () => {
 
     expect(await list.evaluate((el) => el.scrollTop)).toBe(before);
   });
+
+  // The wrapper's cross axis is height (row direction, stretch) so height was
+  // always right; width is the wrapper's main axis, so a panel that doesn't
+  // explicitly claim it sizes to its own content and sits in half the band.
+  // Measured on the rosters tab at 390x844: wrapper 334px wide, panel 171px --
+  // the Team Rosters panel occupying only the left half of the screen.
+  test("each tab's panel fills its band, not just part of it", async ({ page }) => {
+    await openDraft(page);
+
+    const tabs = [
+      { tab: "tab-board", panel: "panel-big-board" },
+      { tab: "tab-draft", panel: "panel-draft-board" },
+      { tab: "tab-rosters", panel: "panel-rosters" },
+    ];
+
+    const tabBarBox = await page.getByTestId("tab-bar").boundingBox();
+
+    for (const { tab, panel } of tabs) {
+      await page.getByTestId(tab).click();
+      await expect(page.getByTestId(panel)).toBeVisible();
+
+      const { panelRect, wrapperRect } = await page.getByTestId(panel).evaluate((el) => ({
+        panelRect: el.getBoundingClientRect().toJSON(),
+        wrapperRect: el.parentElement.getBoundingClientRect().toJSON(),
+      }));
+
+      expect(panelRect.width).toBeGreaterThanOrEqual(wrapperRect.width - 4);
+      expect(panelRect.bottom).toBeLessThanOrEqual(tabBarBox.y + 4);
+    }
+  });
 });
 
 // The other half of the contract: none of this exists on a desktop.
