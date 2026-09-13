@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { BOARD_ID, makeBoardState } from "./fixtures.js";
+import { BOARD_ID, MOCK_PLAYERS, makeBoardState } from "./fixtures.js";
 import { signIn } from "./auth.js";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -62,6 +62,35 @@ test("dragging the row body reorders the board", async ({ page }) => {
 
 // The deliberate exception. Everything else on the row drags; the name does
 // not, so opening a player never competes with a drag on the same pixel.
+// PointerSensor took the primary button and nothing else; MouseSensor, which
+// replaced it, arms on every button but right-click. Middle-mousedown also
+// opens Chrome's autoscroll on Windows and Linux, so the few pixels of
+// movement arrive without anyone meaning them -- and a drop schedules the
+// save. This pins the restored filter: only the left button reorders.
+test("a middle-button drag reorders nothing", async ({ page }) => {
+  let saved = null;
+  await mockBoard(page, makeBoardState(), { onSave: (b) => { saved = b; } });
+  await signIn(page);
+  await page.goto(`/board/${BOARD_ID}`);
+  await expect(page.getByTestId("board-row").first()).toBeVisible();
+
+  const before = await page
+    .locator('[data-testid="board-row"]')
+    .evaluateAll((els) => els.map((e) => e.dataset.playerId));
+
+  const box = await page.getByTestId("board-row").nth(2).boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down({ button: "middle" });
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - 120, { steps: 12 });
+  await page.mouse.up({ button: "middle" });
+
+  const after = await page
+    .locator('[data-testid="board-row"]')
+    .evaluateAll((els) => els.map((e) => e.dataset.playerId));
+  expect(after).toEqual(before);
+  expect(saved).toBeNull();
+});
+
 test("the name is not a drag handle", async ({ page }) => {
   await mockBoard(page, makeBoardState());
   await signIn(page);
@@ -715,4 +744,114 @@ test("a board is not left behind when saving the order fails", async ({ page }) 
 
   await expect.poll(() => deleted).toBe(true);
   await expect(page).toHaveURL(/\/boards$/);
+});
+
+// A finger has only one gesture for "move the list" and "move this row", so
+// the sensor has to tell them apart by time rather than by distance. These
+// two are a pair on purpose: the swipe test alone would also pass if touch
+// dragging were disabled outright, which is why the long-press test sits
+// beside it.
+test.describe("reordering with a finger", () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } });
+
+  // Playwright has no swipe, and synthetic PointerEvents would not reach a
+  // TouchSensor -- it listens for touchstart. CDP dispatches genuine touch
+  // events, which is also what makes the browser's own scrolling happen, so
+  // the scroll assertion below means something. Chromium-only, which is the
+  // only project this suite runs.
+  async function fingerDrag(page, locator, { dy, holdMs }) {
+    const box = await locator.boundingBox();
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+    if (holdMs) await page.waitForTimeout(holdMs);
+    for (let i = 1; i <= 10; i++) {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [{ x, y: y + (dy * i) / 10 }],
+      });
+      await page.waitForTimeout(16);
+    }
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    await cdp.detach();
+  }
+
+  const orderOf = (page) =>
+    page.locator('[data-testid="board-row"]').evaluateAll((els) => els.map((e) => e.dataset.playerId));
+
+  async function openLongBoard(page) {
+    // The default fixture is ten rows, which barely overflows a phone screen.
+    // A full-length board gives the swipe somewhere to scroll to.
+    await mockBoard(page, makeBoardState({ order: MOCK_PLAYERS.map((p) => p.id) }));
+    await signIn(page);
+    await page.goto(`/board/${BOARD_ID}`);
+    await expect(page.getByTestId("board-row").first()).toBeVisible();
+  }
+
+  test("swiping the list scrolls it and changes nothing", async ({ page }) => {
+    await openLongBoard(page);
+    const before = await orderOf(page);
+
+    await fingerDrag(page, page.getByTestId("board-row").nth(2), { dy: -200, holdMs: 0 });
+
+    expect(await orderOf(page)).toEqual(before);
+    const scrolled = await page.evaluate(
+      () => document.querySelector('[class*="overflow-y-auto"]')?.scrollTop ?? window.scrollY
+    );
+    expect(scrolled).toBeGreaterThan(0);
+  });
+
+  test("holding a row and then dragging reorders it", async ({ page }) => {
+    await openLongBoard(page);
+    const before = await orderOf(page);
+
+    // Longer than the 250ms activation delay, so the drag is armed before
+    // the finger moves at all.
+    const moved = before[2];
+    await fingerDrag(page, page.getByTestId("board-row").nth(2), { dy: -120, holdMs: 400 });
+
+    // Direction matters: "the order changed" would also accept a drag that
+    // went the wrong way. The row was dragged upward, so it must end higher
+    // up the list than it started.
+    await expect.poll(async () => (await orderOf(page)).indexOf(moved)).toBeLessThan(2);
+  });
+
+  // The two tests above are both pinned by `tolerance` -- mutating the delay
+  // to 0 leaves them green, because the swipe's first move exceeds tolerance
+  // and cancels before any timer fires. So neither of them actually holds the
+  // delay in place, and the delay is what makes the hold DELIBERATE: at 0, a
+  // finger that lands, hesitates for a moment and then scrolls activates a
+  // drag instead. That hesitation is an ordinary way to touch a list, not a
+  // gesture anyone means as "reorder this".
+  test("a brief hesitation before scrolling is not a reorder", async ({ page }) => {
+    await openLongBoard(page);
+    const before = await orderOf(page);
+
+    // Long enough to be a real pause, well short of the 250ms that arms the
+    // drag.
+    await fingerDrag(page, page.getByTestId("board-row").nth(2), { dy: -200, holdMs: 100 });
+
+    expect(await orderOf(page)).toEqual(before);
+    // "before scrolling" is half the claim: a change that stopped the
+    // hesitation reordering AND stopped it scrolling would pass without this.
+    const scrolled = await page.evaluate(
+      () => document.querySelector('[class*="overflow-y-auto"]')?.scrollTop ?? window.scrollY
+    );
+    expect(scrolled).toBeGreaterThan(0);
+  });
+
+  // The player's name is the one part of the row that is not a drag handle,
+  // and its guard gained onTouchStart when the sensors changed. Without this
+  // that line could be deleted with the whole suite staying green: the two
+  // tests covering the name drive page.mouse, so they only ever exercise
+  // onMouseDown.
+  test("holding the player's name does not drag the row", async ({ page }) => {
+    await openLongBoard(page);
+    const before = await orderOf(page);
+
+    await fingerDrag(page, page.getByTestId("open-player").nth(2), { dy: -120, holdMs: 400 });
+
+    expect(await orderOf(page)).toEqual(before);
+  });
 });
