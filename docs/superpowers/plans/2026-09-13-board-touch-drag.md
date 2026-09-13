@@ -215,11 +215,28 @@ cd frontend && npx playwright test tests/board.spec.js -g "dragging the row body
 
 Expected: 5 passed, with **no edits to those tests**. If any fails, do not adjust the test — report it. A failure here means mouse behaviour changed, which this design forbids, and the plan is wrong rather than the test.
 
-- [ ] **Step 8: Prove the delay is load-bearing**
+- [ ] **Step 8: Prove the constraints are load-bearing**
 
-House rule: a guard is only covered if removing it turns a test red. Temporarily change the `TouchSensor` delay from `250` to `0`, re-run the two touch tests, and confirm the **swipe** test fails — with no delay the sensor grabs the gesture immediately and scrolling breaks, which is the failure mode the delay exists to prevent. Then restore `250` and re-run to green.
+House rule: a guard is only covered if removing it turns a test red.
 
-Expected: delay 0 → the swipe test fails; restored → 2 passed.
+**Corrected after implementation.** This step originally predicted that
+setting `delay` to 0 would fail the swipe test. It does not — verified three
+times. dnd-kit's `AbstractPointerSensor` never activates synchronously even at
+`delay: 0`; it always schedules a timer, and the swipe's first 20px move
+exceeds `tolerance: 5` and cancels before that timer fires. **`tolerance` is
+what pins the swipe test, not `delay`**, which is why a third test exists.
+
+Run each mutation, then restore:
+
+| Mutation | Expected |
+| --- | --- |
+| `tolerance: 5` → `1000` | `swiping the list scrolls it` FAILS |
+| `delay: 250` → `0` | `a brief hesitation before scrolling` FAILS |
+| restored | 3 passed |
+
+The third test is the one that makes `delay` load-bearing. Without it the
+delay could be deleted and the suite would stay green, while a real finger
+that lands, hesitates and scrolls would reorder the board.
 
 - [ ] **Step 9: Commit**
 

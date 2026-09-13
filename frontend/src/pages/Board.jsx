@@ -3,7 +3,8 @@ import { useLocation, useParams } from "react-router-dom";
 import {
   DndContext,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   closestCenter,
   useSensor,
   useSensors,
@@ -94,7 +95,13 @@ function Row({ row, onOpen }) {
           // The one part of the row that is NOT a drag handle. Everything else
           // reorders; the name stays a plain click target, so opening a player
           // never has to compete with a drag that started on the same pixel.
+          // The sensors listen for mousedown and touchstart, not pointerdown,
+          // so stopping only the latter would quietly turn the name back into
+          // a drag handle. All three stay: pointerdown keeps the guard honest
+          // if the sensors ever change again.
           onPointerDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          onTouchStart={(e) => e.stopPropagation()}
           title={`${row.name} — stats and trends`}
           className="flex-1 cursor-pointer truncate text-left text-sm text-zinc-100 hover:text-cyan-200"
         >
@@ -156,8 +163,15 @@ export default function Board() {
 
   usePageTitle(board ? board.name : "Board");
 
+  // One pointer sensor could not serve both inputs. A mouse scrolls with a
+  // wheel, so four pixels of movement is unambiguously a drag; a finger has
+  // no other way to scroll, so the same four pixels is how you read the list.
+  // dnd-kit picks the sensor by input type, so the mouse keeps exactly the
+  // threshold it had and touch gets a hold instead of a distance: move first
+  // and the browser scrolls, hold still for 250ms and the row lifts.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
