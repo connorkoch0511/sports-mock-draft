@@ -10,6 +10,7 @@ import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
+import TabBar from "../components/draft/TabBar";
 import { skewFrom, remainingSeconds, expireDelayMs, formatCountdown } from "../lib/clock";
 
 // Display fallback only. The server owns the clock; this is what the page
@@ -32,6 +33,7 @@ export default function Draft() {
   const { sub } = useAuth();
   const [draft, setDraft] = useState(null);
   const [players, setPlayers] = useState([]);
+  const [tab, setTab] = useState("board");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [boardRows, setBoardRows] = useState(null);
@@ -437,8 +439,15 @@ export default function Draft() {
   // broken.
   const pausedByOther = paused && draft.pausedBy != null && draft.pausedBy !== sub;
 
+  // `lg:contents` makes the wrapper vanish from the box tree at desktop, so the
+  // panels stay direct grid children and RosterPanel's own lg:col-span-2 still
+  // applies. Below lg the wrapper is the visibility switch -- display:none,
+  // which preserves scrollTop (measured), where visibility/absolute does not.
+  const pane = (id) =>
+    `lg:contents ${tab === id ? "max-lg:flex max-lg:min-h-0 max-lg:flex-1" : "max-lg:hidden"}`;
+
   return (
-    <div className="relative min-h-full xl:h-full w-full overflow-x-hidden">
+    <div className="relative min-h-full max-lg:h-full xl:h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -446,7 +455,7 @@ export default function Draft() {
       </div>
 
       {/* Content */}
-      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full xl:h-full flex flex-col gap-4">
+      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 xl:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
@@ -680,23 +689,31 @@ export default function Draft() {
 
         {/* 3-column app layout */}
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
-            <BigBoardPanel
-              draft={draft}
-              players={players}
-              boardRows={boardRows}
-              boardMeta={boardMeta}
-              boardFailed={boardFailed}
-              myTeam={myTeam}
-              isMyTurn={isMyTurn}
-              paused={paused}
-              canManualPick={canManualPick}
-              makePick={makePick}
-            />
+            <div className={pane("board")}>
+              <BigBoardPanel
+                draft={draft}
+                players={players}
+                boardRows={boardRows}
+                boardMeta={boardMeta}
+                boardFailed={boardFailed}
+                myTeam={myTeam}
+                isMyTurn={isMyTurn}
+                paused={paused}
+                canManualPick={canManualPick}
+                makePick={makePick}
+              />
+            </div>
 
-            <DraftBoardPanel draft={draft} playersById={playersById} />
+            <div className={pane("draft")}>
+              <DraftBoardPanel draft={draft} playersById={playersById} />
+            </div>
 
-            <RosterPanel draft={draft} />
+            <div className={pane("rosters")}>
+              <RosterPanel draft={draft} />
+            </div>
         </div>
+
+        <TabBar active={tab} onChange={setTab} />
       </div>
     </div>
   );
