@@ -69,6 +69,14 @@ test.describe("the draft page on a phone", () => {
   // explicitly claim it sizes to its own content and sits in half the band.
   // Measured on the rosters tab at 390x844: wrapper 334px wide, panel 171px --
   // the Team Rosters panel occupying only the left half of the screen.
+  //
+  // Width alone isn't enough, though: a grid item's default min-width is
+  // min-content, so without max-lg:min-w-0 the wrapper refuses to shrink
+  // below the draft board table's min-w-[620px] and inflates to match it --
+  // "panel width equals wrapper width" then holds at 656px in a 390px
+  // viewport, both wrong together. The viewport-width check below is what
+  // catches that: a fixed offset (root is overflow-x-hidden) rather than an
+  // out-of-bounds scroll.
   test("each tab's panel fills its band, not just part of it", async ({ page }) => {
     await openDraft(page);
 
@@ -79,6 +87,7 @@ test.describe("the draft page on a phone", () => {
     ];
 
     const tabBarBox = await page.getByTestId("tab-bar").boundingBox();
+    const viewportWidth = page.viewportSize().width;
 
     for (const { tab, panel } of tabs) {
       await page.getByTestId(tab).click();
@@ -90,8 +99,19 @@ test.describe("the draft page on a phone", () => {
       }));
 
       expect(panelRect.width).toBeGreaterThanOrEqual(wrapperRect.width - 4);
+      expect(panelRect.width).toBeLessThanOrEqual(viewportWidth);
       expect(panelRect.bottom).toBeLessThanOrEqual(tabBarBox.y + 4);
     }
+
+    // The designed behaviour for a wide table on a narrow screen: the table
+    // scrolls horizontally inside its own panel, rather than the panel (or
+    // the page) growing to fit it.
+    await page.getByTestId("tab-draft").click();
+    const { scrollWidth, clientWidth } = await page.getByTestId("scroll-draft-board").evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(scrollWidth).toBeGreaterThan(clientWidth);
   });
 });
 

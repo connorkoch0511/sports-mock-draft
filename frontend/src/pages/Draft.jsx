@@ -449,11 +449,16 @@ export default function Draft() {
   // stretch (the default align-items) does the right thing, same as it
   // already does for height. The panel itself still needs to claim the
   // column's main axis (height), which [&>*]:flex-1 does without reaching
-  // into the panel's own className.
+  // into the panel's own className. As a grid item the wrapper's default
+  // min-width is min-content (not 0), so without max-lg:min-w-0 it refuses
+  // to shrink below the draft board table's min-w-[620px] and inflates past
+  // the viewport instead of letting that table scroll horizontally inside
+  // its own already-overflow-auto panel (measured: 656px wrapper in a 390px
+  // viewport).
   const pane = (id) =>
     `lg:contents ${
       tab === id
-        ? "max-lg:flex max-lg:flex-col max-lg:min-h-0 max-lg:flex-1 max-lg:[&>*]:min-h-0 max-lg:[&>*]:flex-1"
+        ? "max-lg:flex max-lg:flex-col max-lg:min-h-0 max-lg:min-w-0 max-lg:flex-1 max-lg:[&>*]:min-h-0 max-lg:[&>*]:flex-1"
         : "max-lg:hidden"
     }`;
 
