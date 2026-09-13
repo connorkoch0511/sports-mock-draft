@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Swiping to scroll the big board on a touchscreen scrolls it instead of silently re-ranking it.
+**Goal:** The big board can be reordered on a touchscreen, which today is impossible, without giving up the ability to scroll it.
 
-**Architecture:** Replace dnd-kit's single `PointerSensor` with input-specific `MouseSensor` (unchanged 4px threshold) and `TouchSensor` (250ms hold). Mouse behaviour is byte-identical; touch gains a long-press to drag. One file.
+**Architecture:** Replace dnd-kit's single `PointerSensor` with input-specific `MouseSensor` (unchanged 4px threshold) and `TouchSensor` (250ms hold). Mouse behaviour is byte-identical. On touch, `PointerSensor` currently loses the gesture to `pointercancel` the moment the browser claims it for scrolling; `TouchSensor` works at the touch-event level and `preventDefault`s after its delay, which is what beats that. One file.
+
+**Corrected 13 September.** The first version of this plan described the bug backwards — as swiping *causing* a reorder — because the probe behind it dispatched synthetic `PointerEvent`s that skip the browser's scroll-versus-drag arbitration. The implementer's first run caught it. The code changes below are unchanged; Step 3's expected result is the part that was wrong.
 
 **Tech Stack:** React 19, @dnd-kit/core 6.3, Playwright (Chromium only).
 
@@ -128,11 +130,13 @@ import { BOARD_ID, MOCK_PLAYERS, makeBoardState } from "./fixtures.js";
 cd frontend && npx playwright test tests/board.spec.js -g "swiping the list scrolls it|holding a row and then dragging"
 ```
 
-Expected: **1 failed, 1 passed.**
-- `swiping the list scrolls it and changes nothing` FAILS — the order array differs. This is the bug.
-- `holding a row and then dragging reorders it` PASSES already, because today's `PointerSensor` activates on movement whether or not you held first. It is here to stop a fix that disables touch dragging outright, so it passing now is correct and expected.
+Expected: **1 failed, 1 passed** — and it matters which is which.
+- `holding a row and then dragging reorders it` **FAILS**, because the order never changes. This is the bug: the browser fires `pointercancel` as soon as it claims the gesture for scrolling, and `PointerSensor` abandons the drag there. Holding first does not help — there is no native long-press-to-drag.
+- `swiping the list scrolls it and changes nothing` **PASSES** already. Scrolling is the one thing that does work on touch today. It is here to make sure the fix does not buy touch dragging at the cost of touch scrolling, so it passing now is correct and expected.
 
-If the swipe test passes at this step, stop — the test is not reaching the sensor and proves nothing.
+Confirmed against this exact working tree on 13 September: 1 failed (long-press), 1 passed (swipe).
+
+If the **long-press** test passes at this step, stop and report — the fix is not needed or the test is not reaching the sensor.
 
 - [ ] **Step 4: Swap the sensors**
 
@@ -211,17 +215,17 @@ cd frontend && npx playwright test tests/board.spec.js -g "dragging the row body
 
 Expected: 5 passed, with **no edits to those tests**. If any fails, do not adjust the test — report it. A failure here means mouse behaviour changed, which this design forbids, and the plan is wrong rather than the test.
 
-- [ ] **Step 8: Prove the touch guard is real**
+- [ ] **Step 8: Prove the delay is load-bearing**
 
-House rule: a guard is only covered if removing it turns a test red. Temporarily change the `TouchSensor` delay from `250` to `0`, re-run the two touch tests, and confirm the **swipe** test fails again. Then restore `250` and re-run to green.
+House rule: a guard is only covered if removing it turns a test red. Temporarily change the `TouchSensor` delay from `250` to `0`, re-run the two touch tests, and confirm the **swipe** test fails — with no delay the sensor grabs the gesture immediately and scrolling breaks, which is the failure mode the delay exists to prevent. Then restore `250` and re-run to green.
 
-Expected: delay 0 → 1 failed; restored → 2 passed.
+Expected: delay 0 → the swipe test fails; restored → 2 passed.
 
 - [ ] **Step 9: Commit**
 
 ```bash
 git add frontend/src/pages/Board.jsx frontend/tests/board.spec.js
-git commit -m "fix: scrolling the board with a finger no longer re-ranks it"
+git commit -m "fix: the big board can be reordered with a finger"
 ```
 
 ---
