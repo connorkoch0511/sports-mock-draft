@@ -27,6 +27,15 @@ test.describe("the draft page on a phone", () => {
     await openDraft(page);
     const { scrollHeight, clientHeight } = await scroller(page);
     expect(scrollHeight).toBeLessThanOrEqual(clientHeight + 8);
+
+    // Both axes. The per-panel width checks below catch a panel that
+    // overflows, but nothing else on the page was covered -- and the top bar
+    // is a flex-wrap row that has burst its bounds twice before.
+    const horizontal = await page.evaluate(() => ({
+      docScrollWidth: document.documentElement.scrollWidth,
+      inner: window.innerWidth,
+    }));
+    expect(horizontal.docScrollWidth).toBeLessThanOrEqual(horizontal.inner);
   });
 
   test("each tab shows its own panel and hides the others", async ({ page }) => {

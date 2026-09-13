@@ -458,7 +458,7 @@ export default function Draft() {
   const pane = (id) =>
     `lg:contents ${
       tab === id
-        ? "max-lg:flex max-lg:flex-col max-lg:min-h-0 max-lg:min-w-0 max-lg:flex-1 max-lg:[&>*]:min-h-0 max-lg:[&>*]:flex-1"
+        ? "max-lg:flex max-lg:flex-col max-lg:min-h-0 max-lg:min-w-0 max-lg:flex-1 max-lg:[&>*]:flex-1"
         : "max-lg:hidden"
     }`;
 
