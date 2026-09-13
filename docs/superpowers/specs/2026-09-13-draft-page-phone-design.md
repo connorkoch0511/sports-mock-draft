@@ -106,6 +106,35 @@ These five are all decided once: which board drives your auto-pick, whether
 to notify, who to invite. The research found that Sleeper and ESPN carry no
 equivalents in-draft at all.
 
+### The phone chrome does not exist at desktop
+
+**Corrected during implementation.** The plan said all phone styling would be
+expressed with `max-lg:` variants, which is true of layout but cannot be true
+of existence: CSS has no way to say "do not be in the DOM", and **a
+`display: none` element still matches Playwright locators**.
+
+The strip repeats what the header says — the countdown, `✅ Completed` — so a
+strip merely hidden at desktop made two pre-existing unscoped `getByText`
+assertions resolve to two elements and fail under strict mode. Desktop
+rendered identically; the DOM had gained a hidden twin.
+
+Scoping those two assertions would have fixed today's two collisions and left
+the class of problem in place: every element the strip carries has a twin in
+the header, so each future addition would collide next, paid for by making
+another old test more specific. Instead the strip, the sheet and the tab bar
+are gated on a `useIsPhone()` hook (`matchMedia` via `useSyncExternalStore`)
+and are simply absent above `lg` — the same rule `ControlSheet` already
+followed by returning `null` when closed.
+
+Their `lg:hidden` classes stay as belt-and-braces. The `max-lg:` classes on
+the page root, the content div and `pane()` are genuine styling and are
+unaffected.
+
+A test asserts the chrome's **absence** — `toHaveCount(0)` — at desktop width.
+That does not contradict the visibility rule below: that rule governs tab
+switching, where panels stay mounted deliberately. This governs existence at
+the wrong breakpoint, where count is the right question.
+
 ### Two presentations, one source of truth
 
 Below `lg` the existing header row is hidden and the strip renders; above, the
