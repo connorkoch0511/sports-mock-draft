@@ -11,6 +11,9 @@ import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
 import TabBar from "../components/draft/TabBar";
+import StatusStrip from "../components/draft/StatusStrip";
+import ControlSheet from "../components/draft/ControlSheet";
+import { useIsPhone } from "../lib/useIsPhone";
 import { skewFrom, remainingSeconds, expireDelayMs, formatCountdown } from "../lib/clock";
 
 // Display fallback only. The server owns the clock; this is what the page
@@ -39,6 +42,8 @@ export default function Draft() {
   const [boardRows, setBoardRows] = useState(null);
   const [boardFailed, setBoardFailed] = useState(false);
   const [boardMeta, setBoardMeta] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const isPhone = useIsPhone();
   // Read once at mount: pushState() is cheap (no network) and this control
   // only ever changes in response to this browser's own click below, never
   // from anything the draft's polling could bring back.
@@ -462,6 +467,19 @@ export default function Draft() {
         : "max-lg:hidden"
     }`;
 
+  // The pill ternary in the desktop header answers the same question across
+  // five branches; the strip needs one string, in the same order of
+  // precedence: finished, then stopped, then yours, then whose.
+  const statusLabel = completed
+    ? "✅ Completed"
+    : paused
+      ? "⏸ Paused"
+      : isMyTurn
+        ? `⏱ ${formatCountdown(secondsLeft)} · your pick`
+        : onClockIsBot
+          ? "Auto-picking…"
+          : `Waiting on Team ${currentTeamOnClock}`;
+
   return (
     <div className="relative min-h-full max-lg:h-full xl:h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
@@ -479,7 +497,7 @@ export default function Draft() {
         )}
 
         {/* Top bar */}
-        <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+        <div className="max-lg:hidden rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               {/* Same rule as the controls opposite: a finished draft is not
@@ -703,6 +721,124 @@ export default function Draft() {
           </div>
         </div>
 
+        {isPhone && (
+          <StatusStrip
+            statusLabel={statusLabel}
+            myTeam={myTeam}
+            paused={paused}
+            busy={busy}
+            completed={completed}
+            onTogglePause={togglePause}
+            onOpenSheet={() => setSheetOpen(true)}
+          />
+        )}
+
+        {isPhone && (
+        <ControlSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
+          {/* The same five controls the desktop header carries. They are
+              rendered a second time rather than moved, so each presentation
+              stays simple; the state and handlers behind them are shared. */}
+          {!completed && (
+            // Unlike the desktop header's copy, the sheet has room for a
+            // visible label rather than relying solely on aria-label/title.
+            <label className="flex flex-col gap-1 w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50">
+              <span className="text-xs text-zinc-400">Auto-pick from</span>
+              <select
+                data-testid="seat-board"
+                aria-label="Auto-pick from"
+                title="Auto-pick from"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-zinc-200"
+                value={draft.yourBoardId ?? ""}
+                onChange={(e) => setSeatBoard(e.target.value)}
+                disabled={busy}
+              >
+                {boardOptions(myBoards, draft.yourBoardId).map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {!completed && (
+            <button
+              onClick={autoPick}
+              disabled={paused || busy || !autoPickAllowed}
+              className="w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50"
+              title="Auto-pick for whichever team is on the clock"
+            >
+              Auto Pick
+            </button>
+          )}
+
+          {humans > 1 || completed ? null : (
+            <button
+              onClick={simToEnd}
+              disabled={paused || busy}
+              className="w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50"
+            >
+              Sim to End
+            </button>
+          )}
+
+          {!completed && (
+            <button
+              type="button"
+              data-testid="copy-invite"
+              onClick={() =>
+                navigator.clipboard.writeText(
+                  `${window.location.origin}/draft/${draftId}/join?t=${draft.inviteToken}`
+                )
+              }
+              className="w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50"
+            >
+              Copy invite link
+            </button>
+          )}
+
+          {notifyState !== "unsupported" && !completed && (
+            <button
+              type="button"
+              data-testid="notify-toggle"
+              disabled={notifyState === "denied"}
+              onClick={async () => {
+                try {
+                  setNotifyState(await subscribe());
+                } catch {
+                  setNotifyState("error");
+                }
+              }}
+              aria-label={
+                notifyState === "granted"
+                  ? "Notifications on"
+                  : notifyState === "denied"
+                    ? "Notifications blocked"
+                    : notifyState === "error"
+                      ? "Notifications failed, tap to try again"
+                      : "Notify me for your turn"
+              }
+              title={
+                notifyState === "granted"
+                  ? "Notifications on"
+                  : notifyState === "denied"
+                    ? "Notifications blocked"
+                    : notifyState === "error"
+                      ? "Notifications failed, tap to try again"
+                      : "Notify me for your turn"
+              }
+              className="w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50"
+            >
+              {notifyState === "granted"
+                ? "On"
+                : notifyState === "denied"
+                  ? "Blocked"
+                  : notifyState === "error"
+                    ? "Retry"
+                    : "Notify"}
+            </button>
+          )}
+        </ControlSheet>
+        )}
+
         {/* 3-column app layout */}
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
             <div className={pane("board")}>
@@ -729,7 +865,7 @@ export default function Draft() {
             </div>
         </div>
 
-        <TabBar active={tab} onChange={setTab} />
+        {isPhone && <TabBar active={tab} onChange={setTab} />}
       </div>
     </div>
   );

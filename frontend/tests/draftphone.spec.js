@@ -122,6 +122,61 @@ test.describe("the draft page on a phone", () => {
     }));
     expect(scrollWidth).toBeGreaterThan(clientWidth);
   });
+
+  test("the strip is on every tab, and carries Pause", async ({ page }) => {
+    await openDraft(page);
+
+    for (const t of ["tab-board", "tab-draft", "tab-rosters"]) {
+      await page.getByTestId(t).click();
+      await expect(page.getByTestId("status-strip")).toBeVisible();
+      await expect(
+        page.getByTestId("status-strip").getByRole("button", { name: /Pause|Resume/ })
+      ).toBeVisible();
+    }
+  });
+
+  // Five wrapped rows of controls was half of what made this page unusable.
+  // These are all set-once -- which board drives your auto-pick, whether to
+  // notify, who to invite -- so they belong behind the sheet, not in the way.
+  test("the setup controls are in the sheet, not the strip", async ({ page }) => {
+    await openDraft(page);
+
+    // Closed, the only copies in the DOM are the desktop header's, hidden by
+    // max-lg:hidden -- one match each, so these are unambiguous.
+    const ids = ["seat-board", "copy-invite", "notify-toggle"];
+    for (const id of ids) await expect(page.getByTestId(id)).toBeHidden();
+    await expect(page.getByRole("button", { name: "Auto Pick" })).toBeHidden();
+
+    await page.getByTestId("open-controls").click();
+    const sheet = page.getByTestId("control-sheet");
+    await expect(sheet).toBeVisible();
+
+    // Scoped to the sheet on purpose. With it open there are TWO elements for
+    // each testid -- the header's hidden copy and the sheet's -- and an
+    // unscoped getByTestId would be a strict-mode violation, not a pass.
+    for (const id of ids) await expect(sheet.getByTestId(id)).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Auto Pick" })).toBeVisible();
+    await expect(sheet.getByRole("button", { name: "Sim to End" })).toBeVisible();
+
+    await page.getByTestId("close-controls").click();
+    await expect(page.getByTestId("control-sheet")).toBeHidden();
+  });
+});
+
+test("no strip or sheet button at desktop width", async ({ page }) => {
+  const state = makeDraftState({ currentIndex: 0 });
+  mockDraftApis(page, state);
+  await signIn(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+  // Not just hidden -- absent. A display:none twin would still match these
+  // locators, which is exactly what made pre-existing unscoped getByText
+  // assertions elsewhere ambiguous; see useIsPhone.js.
+  await expect(page.getByTestId("status-strip")).toHaveCount(0);
+  await expect(page.getByTestId("open-controls")).toHaveCount(0);
+  // The desktop header still has its own controls, in place.
+  await expect(page.getByTestId("seat-board")).toBeVisible();
+  await expect(page.getByTestId("copy-invite")).toBeVisible();
 });
 
 // The other half of the contract: none of this exists on a desktop.
@@ -131,7 +186,28 @@ test("no tab bar at desktop width", async ({ page }) => {
   await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
-  await expect(page.getByTestId("tab-bar")).toBeHidden();
+  await expect(page.getByTestId("tab-bar")).toHaveCount(0);
   await expect(page.getByTestId("panel-draft-board")).toBeVisible();
   await expect(page.getByTestId("panel-rosters")).toBeVisible();
+});
+
+// Belt-and-braces for the whole class of bug: the strip repeated the
+// header's text ("✅ Completed", the countdown), and toBeHidden() alone
+// wouldn't have caught it -- a display:none element still matches locators,
+// so an unscoped getByText elsewhere silently became a strict-mode
+// violation. useIsPhone.js keeps this chrome fully out of the desktop DOM,
+// not just hidden by a max-lg: class, so it can't recur as Task 3 adds more
+// to the strip.
+test("the phone chrome is not in the desktop DOM at all", async ({ page }) => {
+  const state = makeDraftState({ currentIndex: 0 });
+  mockDraftApis(page, state);
+  await signIn(page);
+  await page.goto(`/draft/${DRAFT_ID}`);
+  await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+
+  // Not "hidden" -- absent. A display:none twin still matches locators, which
+  // is what made two pre-existing unscoped getByText assertions ambiguous.
+  await expect(page.getByTestId("status-strip")).toHaveCount(0);
+  await expect(page.getByTestId("tab-bar")).toHaveCount(0);
+  await expect(page.getByTestId("open-controls")).toHaveCount(0);
 });
