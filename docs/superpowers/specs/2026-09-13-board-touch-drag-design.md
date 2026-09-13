@@ -71,8 +71,23 @@ useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
 useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
 ```
 
-dnd-kit selects by input type, so **mouse behaviour is unchanged**: the same
-four-pixel threshold on the same whole-row target.
+dnd-kit selects by input type, so the mouse keeps the same four-pixel
+threshold on the same whole-row target — but **"unchanged" needed one repair
+that the whole-branch review caught.**
+
+`PointerSensor` armed on the primary button and nothing else
+(`if (!event.isPrimary || event.button !== 0) return false`). `MouseSensor`
+rejects only right-click (`if (event.button === MouseButton.RightClick)`), so
+the swap silently handed middle-click, back and forward the power to start a
+drag. Since a drop schedules the debounced PUT, a middle-click plus four
+pixels would persist a reorder from a gesture that previously did nothing —
+and on Windows and Linux middle-mousedown opens Chrome's autoscroll, so those
+four pixels arrive without anyone meaning them.
+
+A `PrimaryMouseSensor` subclass restores the original predicate verbatim.
+`isPrimary` has no meaning on a `MouseEvent`, so the button test is the whole
+of it. A test pins it: a middle-button drag reorders nothing and saves
+nothing.
 
 `TouchSensor` works at the touch-event level rather than the pointer level,
 and that is what beats `pointercancel`. Once its delay elapses it calls
@@ -146,6 +161,24 @@ events, which is the mistake that produced the first diagnosis:
 Both are needed, and the asymmetry is the point. One proves reordering starts
 working; the other proves scrolling did not stop.
 
+Two more arrived from the whole-branch review, each closing a guard that could
+otherwise have been deleted with the suite still green:
+
+- `a brief hesitation before scrolling is not a reorder`. The first two tests
+  are both pinned by `tolerance`, not `delay` — mutating the delay to 0 leaves
+  them green, because the swipe's first move exceeds the tolerance and cancels
+  before any timer fires. This one pins the delay, and with it the thing the
+  delay is for: a finger that lands, hesitates and then scrolls is an ordinary
+  way to touch a list, not a request to reorder.
+- `holding the player's name does not drag the row`. The two tests covering
+  the name drive `page.mouse`, so they only ever exercised `onMouseDown`. The
+  new `onTouchStart` guard — the line this spec calls the sharp edge — shipped
+  with nothing behind it until this test.
+
+Every constraint and guard in this change is mutation-checked: `tolerance`,
+`delay`, the primary-button filter, and the name's `onTouchStart`. Each was
+removed in turn and turned its test red.
+
 ## Out of scope
 
 - Any visual change: no grip resizing, no "hold to reorder" hint, no new
@@ -156,3 +189,29 @@ working; the other proves scrolling did not stop.
   fixed.
 - The draft page — 8.2 screens tall on a phone — which is the next project.
 - Tuning the delay and tolerance. They are the platform-conventional values.
+
+## Known and accepted
+
+Raised by the whole-branch review, judged not worth acting on now, written
+down so finding one later is a recollection rather than a discovery.
+
+- **A stylus still cannot reorder the board.** Pen input emits pointer events
+  plus compatibility *mouse* events, never touch events, so it falls through
+  to the mouse sensor's four-pixel threshold — the same threshold this spec
+  argues loses to scroll arbitration on a direct-input device. Pen is no worse
+  than before, but "fixed on a touchscreen" means fingers.
+- **The player's name is a touch dead zone.** It is the one non-draggable part
+  of the row and it is `flex-1`, so roughly a tenth of the row's area does
+  nothing when held. That is a structural consequence of the name being a
+  click target, not an oversight — but it is the part of the row with a name
+  on it, which is what a hand reaches for.
+- **`TouchSensor` registers a non-passive `touchmove` listener on `window` for
+  the whole life of the board page**, not just during a drag. It is dnd-kit's
+  documented iOS Safari requirement and the swipe test proves scrolling still
+  works, but nothing here measures smoothness.
+- **The touch tests sit at the extremes of `tolerance`, never at its
+  boundary.** The hold is perfectly still and the swipes move 20px on the
+  first step; nothing exercises the 3-6px range where `tolerance: 5` actually
+  decides, which is also where a real thumb's jitter lives.
+- **No touch test asserts the save.** `onDragEnd` is input-agnostic and the
+  mouse test covers persistence, so this is breadth rather than a gap.

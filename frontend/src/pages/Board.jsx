@@ -41,6 +41,27 @@ function DeltaBadge({ delta }) {
   );
 }
 
+// MouseSensor arms on every button except right-click, where the PointerSensor
+// it replaces took the primary button and nothing else. Left alone, that would
+// make middle-click, back and forward start a drag on a board row -- and since
+// a drop schedules the debounced PUT, a middle-click plus four pixels would
+// silently persist a reorder from a gesture that used to do nothing at all.
+// On Windows and Linux middle-mousedown also opens Chrome's autoscroll, so the
+// four pixels arrive on their own. This restores the old predicate verbatim;
+// `isPrimary` has no meaning on a MouseEvent, so the button test is all of it.
+class PrimaryMouseSensor extends MouseSensor {
+  static activators = [
+    {
+      eventName: "onMouseDown",
+      handler: ({ nativeEvent: event }, { onActivation }) => {
+        if (event.button !== 0) return false;
+        onActivation?.({ event });
+        return true;
+      },
+    },
+  ];
+}
+
 function Row({ row, onOpen }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: row.playerId });
@@ -48,7 +69,7 @@ function Row({ row, onOpen }) {
   return (
     <li
       ref={setNodeRef}
-      // Pointer listeners on the row, so the whole thing reorders -- rank,
+      // Sensor listeners on the row, so the whole thing reorders -- rank,
       // position, team, delta, the ADP line, the grip, the empty space
       // between them. The grip alone used to be the only draggable target,
       // and it is a dim six-dot glyph that is easy to miss entirely.
@@ -170,7 +191,7 @@ export default function Board() {
   // threshold it had and touch gets a hold instead of a distance: move first
   // and the browser scrolls, hold still for 250ms and the row lifts.
   const sensors = useSensors(
-    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(PrimaryMouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
