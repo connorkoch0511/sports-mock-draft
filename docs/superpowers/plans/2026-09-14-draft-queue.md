@@ -10,6 +10,18 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-14-draft-queue-design.md`
 
+## A note on the stop conditions
+
+"Stop if an existing test needs editing" has misfired three times on this
+project, always the same way: it is meant to catch breakage you did **not**
+intend, and it keeps catching deliberate contract changes instead. A test that
+pins a shape is supposed to fail when the shape deliberately changes — that is
+the test working.
+
+So the rule as it applies here: **a test that fails because it asserts exactly
+what this task set out to change should be updated, deliberately, and named in
+the report.** A test that fails for any other reason is a stop.
+
 ## Global Constraints
 
 - **Filtering on read is the design, not a shortcut.** Never prune a stored queue on the pick path: that is a write per pick per affected seat, on the hot path the shared clock's conditional write already guards, with a race whenever two seats queue the same player. Both the UI and the auto-picker skip ids already in `picked`.
@@ -143,7 +155,16 @@ Beside `yourBoardId` in the `GET /drafts/{draftId}` projection:
 cd backend/src && npm test 2>&1 | grep -E "^ℹ (pass|fail)|^✖" | head
 ```
 
-Expected: all pass, with **no existing test edited**. If one needs editing, stop and report.
+Expected: all pass.
+
+**One existing test will need editing, and should.**
+`"GET /drafts/{id} found returns the full draft object"` asserts
+`deepStrictEqual` on the whole projection, precisely so a field cannot appear
+or disappear unnoticed. Adding `yourQueue` to the projection is this task, so
+add `yourQueue: []` to its expected object and name the change in your report.
+
+Anything *else* needing an edit is the stop condition: it would mean this
+task moved something it was not meant to touch.
 
 - [ ] **Step 6: Commit**
 
