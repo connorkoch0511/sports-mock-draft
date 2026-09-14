@@ -7,12 +7,20 @@ import { useSyncExternalStore } from "react";
 // unscoped getByText in the existing suite into a strict-mode violation. CSS
 // cannot express "do not exist", so this is the one piece of the phone layout
 // that is decided in JS rather than by a max-lg: variant.
-const QUERY = "(max-width: 1023.98px)";
+// Expressed in rem, matching Tailwind 4's own --breakpoint-lg: 64rem. A px
+// query drifts from the classes the moment a user changes their browser's
+// default font size: at Chrome's "Large" (20px) setting `lg` becomes 1280px
+// while a 1024px hook still flips at 1024 -- and every width between renders
+// with no header (max-lg:hidden still matching), no strip, no tab bar and one
+// unreachable panel. Same unit, no drift, by construction.
+const QUERY = "(width < 64rem)";
+
+const mql = () => window.matchMedia(QUERY);
 
 function subscribe(callback) {
-  const mql = window.matchMedia(QUERY);
-  mql.addEventListener("change", callback);
-  return () => mql.removeEventListener("change", callback);
+  const m = mql();
+  m.addEventListener("change", callback);
+  return () => m.removeEventListener("change", callback);
 }
 
 export function useIsPhone() {

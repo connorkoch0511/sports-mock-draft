@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js";
+import { BOARD_ID, DRAFT_ID, makeBoardState, makeDraftState, mockDraftApis } from "./fixtures.js";
 import { signIn } from "./auth.js";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -40,6 +40,27 @@ test.describe("the draft page on a phone", () => {
       inner: window.innerWidth,
     }));
     expect(horizontal.docScrollWidth).toBeLessThanOrEqual(horizontal.inner);
+  });
+
+  // Every other phone test runs a draft with no board attached, which is the
+  // one configuration with slack to spare: measured, scroll-big-board sits at
+  // about 164px against its own min-h-[160px] floor. A board adds the
+  // "drafting off your board" note to a panel with roughly 4px to give, and
+  // attaching a board is the app's central feature. If this fails, the fix is
+  // inside the panel's density, not a number in this test.
+  test("a draft with a board attached still fits the screen", async ({ page }) => {
+    const state = { ...makeDraftState({ currentIndex: 0 }), boardId: BOARD_ID };
+    mockDraftApis(page, state);
+    await page.route(`**/boards/${BOARD_ID}`, (r) => r.fulfill({ json: makeBoardState() }));
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("tab-bar")).toBeVisible();
+
+    const bar = await page.getByTestId("tab-bar").boundingBox();
+    expect(bar.y + bar.height).toBeLessThanOrEqual(844);
+
+    const { scrollHeight, clientHeight } = await scroller(page);
+    expect(scrollHeight).toBeLessThanOrEqual(clientHeight + 8);
   });
 
   test("each tab shows its own panel and hides the others", async ({ page }) => {
@@ -166,11 +187,52 @@ test.describe("the draft page on a phone", () => {
     await expect(sheet).toHaveCount(0);
   });
 
+  // The sheet's own controls have to stay usable for longer than one tick. The
+  // focus effect used to take `onClose` -- an inline arrow recreated on every
+  // render -- so the 1s countdown re-ran it every second, restoring focus and
+  // immediately re-stealing it. Measured before the fix: focus placed on the
+  // board select was back on the panel within 1.6s. The existing "takes focus
+  // on open" test passed BECAUSE of that bug, since the panel was re-focused
+  // whenever it was sampled.
+  test("focus stays where you put it inside the sheet", async ({ page }) => {
+    await openDraft(page);
+    await page.getByTestId("open-controls").click();
+    const sheet = page.getByTestId("control-sheet");
+    await expect(sheet).toBeVisible();
+
+    const select = sheet.getByTestId("seat-board");
+    await select.focus();
+    await expect(select).toBeFocused();
+
+    // Longer than the countdown tick that used to steal it.
+    await page.waitForTimeout(1600);
+    await expect(select).toBeFocused();
+  });
+
+  // Every control in the sheet is gated on !completed, so ⋯ would open a sheet
+  // holding nothing but its grab handle -- and View Results lived only in the
+  // desktop header, leaving a phone user who just finished a draft with no way
+  // to its results except leaving the page entirely.
+  test("a finished draft offers its results, not an empty sheet", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    const completed = { ...state, currentIndex: state.picks.length, completed: true };
+    await page.route("**/players*", (r) => r.fulfill({ json: { players: [] } }));
+    await page.route(`**/drafts/${DRAFT_ID}`, (r) => r.fulfill({ json: completed }));
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("status-strip")).toBeVisible();
+
+    await expect(page.getByTestId("open-controls")).toHaveCount(0);
+    const results = page.getByTestId("strip-results");
+    await expect(results).toBeVisible();
+    await expect(results).toHaveAttribute("href", `/draft/${DRAFT_ID}/results`);
+  });
+
   test("the setup controls are in the sheet, not the strip", async ({ page }) => {
     await openDraft(page);
 
-    // Closed, the only copies in the DOM are the desktop header's, hidden by
-    // max-lg:hidden -- one match each, so these are unambiguous.
+    // The header is absent on a phone, so closed there are zero copies of
+    // these anywhere -- count, not visibility, is the honest assertion.
     const ids = ["seat-board", "copy-invite", "notify-toggle"];
     for (const id of ids) await expect(page.getByTestId(id)).toBeHidden();
     await expect(page.getByRole("button", { name: "Auto Pick" })).toBeHidden();
@@ -179,9 +241,9 @@ test.describe("the draft page on a phone", () => {
     const sheet = page.getByTestId("control-sheet");
     await expect(sheet).toBeVisible();
 
-    // Scoped to the sheet on purpose. With it open there are TWO elements for
-    // each testid -- the header's hidden copy and the sheet's -- and an
-    // unscoped getByTestId would be a strict-mode violation, not a pass.
+    // Scoped to the sheet. There is exactly one copy now that the header is
+    // absent on a phone, so this is belt-and-braces -- but it keeps the
+    // assertion honest if the header ever comes back at this width.
     for (const id of ids) await expect(sheet.getByTestId(id)).toBeVisible();
     await expect(sheet.getByRole("button", { name: "Auto Pick" })).toBeVisible();
     await expect(sheet.getByRole("button", { name: "Sim to End" })).toBeVisible();

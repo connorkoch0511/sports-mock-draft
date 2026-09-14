@@ -44,6 +44,11 @@ export default function Draft() {
   const [boardMeta, setBoardMeta] = useState(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const isPhone = useIsPhone();
+  // Widening past lg unmounts the sheet but keeps this state, so narrowing back
+  // would re-open it unbidden. `tab` surviving is wanted; this is not.
+  useEffect(() => {
+    if (!isPhone) setSheetOpen(false);
+  }, [isPhone]);
   // Read once at mount: pushState() is cheap (no network) and this control
   // only ever changes in response to this browser's own click below, never
   // from anything the draft's polling could bring back.
@@ -739,6 +744,7 @@ export default function Draft() {
             onTogglePause={togglePause}
             onOpenSheet={() => setSheetOpen(true)}
             onTap={() => setTab("board")}
+            resultsHref={`/draft/${draftId}/results`}
           />
         )}
 

@@ -1,5 +1,7 @@
 // What is true right now, and the one control you reach for in a hurry. The
 // clock cannot be a tap away, which is why every draft app pins it.
+import { Link } from "react-router-dom";
+
 export default function StatusStrip({
   statusLabel,
   myTeam,
@@ -10,6 +12,7 @@ export default function StatusStrip({
   onTogglePause,
   onOpenSheet,
   onTap,
+  resultsHref,
 }) {
   return (
     <div
@@ -35,20 +38,36 @@ export default function StatusStrip({
           type="button"
           onClick={onTogglePause}
           disabled={busy}
-          className="rounded-xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200 disabled:opacity-50"
+          className="rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50"
         >
           {paused ? "Resume" : "Pause"}
         </button>
       )}
-      <button
-        type="button"
-        data-testid="open-controls"
-        onClick={onOpenSheet}
-        aria-label="Draft controls"
-        className="rounded-xl border border-zinc-800 px-3 py-1.5 text-xs text-zinc-200"
-      >
-        ⋯
-      </button>
+      {completed ? (
+        // Every control in the sheet is gated on !completed, so ⋯ would open a
+        // sheet holding nothing but its grab handle. The same rule the
+        // completed-draft header follows: do not offer what cannot act. What a
+        // finished draft needs instead is the way out, which until now existed
+        // only in the desktop header -- a phone user who finished a draft had
+        // to leave via My Drafts and come back in.
+        <Link
+          to={resultsHref}
+          data-testid="strip-results"
+          className="rounded-xl bg-emerald-400 px-3 py-2 text-xs font-semibold text-black"
+        >
+          View Results →
+        </Link>
+      ) : (
+        <button
+          type="button"
+          data-testid="open-controls"
+          onClick={onOpenSheet}
+          aria-label="Draft controls"
+          className="rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-200"
+        >
+          ⋯
+        </button>
+      )}
     </div>
   );
 }

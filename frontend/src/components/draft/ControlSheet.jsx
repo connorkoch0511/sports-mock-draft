@@ -5,26 +5,31 @@ import { useEffect, useRef } from "react";
 // mis-tap generator.
 export default function ControlSheet({ open, onClose, children }) {
   const panel = useRef(null);
-  const restoreTo = useRef(null);
 
-  // role="dialog" is a promise about behaviour, not a label. Without these a
-  // keyboard user tabs straight through the dimmed backdrop into the page
-  // behind, and Escape -- the one key everyone tries -- does nothing.
+  // Keyed on `open` ALONE, deliberately. `onClose` is an inline arrow recreated
+  // on every render of Draft, and a live draft re-renders once a second from
+  // the countdown tick -- so including it here tore this effect down and ran it
+  // again every second, restoring focus and then re-stealing it. Measured:
+  // focus placed on the board select was back on the panel within 1.6s, which
+  // made the sheet's headline control impossible to use and would dismiss a
+  // native picker mid-selection. The keydown listener below can take `onClose`
+  // because re-registering a listener costs nothing and moves no focus.
   useEffect(() => {
     if (!open) return undefined;
-    restoreTo.current = document.activeElement;
+    const restoreTo = document.activeElement;
     panel.current?.focus();
+    return () => restoreTo?.focus?.();
+  }, [open]);
 
+  // role="dialog" is a promise about behaviour, not a label. Escape is the key
+  // everyone tries first.
+  useEffect(() => {
+    if (!open) return undefined;
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      // Send focus back where it came from, so dismissing the sheet does not
-      // dump the caret at the top of the document.
-      restoreTo.current?.focus?.();
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
   if (!open) return null;
