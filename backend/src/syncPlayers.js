@@ -188,9 +188,23 @@ exports.handler = async () => {
     statsSeason = resolved.season;
     statsMatched = mergeStats(basePlayers, resolved.stats, resolved.season);
 
-    // Same season the season-totals resolved to, so the log and the summary
-    // line can never describe different years.
-    const logs = await mergeGameLogs(basePlayers, resolved.season);
+    // Both the season the stats resolved to and the calendar season, so the
+    // drill-down's year selector has something to select. They are the same
+    // year for most of the season; when they differ -- which is the whole
+    // autumn, while the new season is still thin -- we want both. Each
+    // season's log still matches its own summary line -- the invariant that
+    // the log and the totals can never describe different years -- it just
+    // now holds for two years instead of one.
+    const currentSeason = STATS_YEAR;
+    const seasons = [...new Set([resolved.season, currentSeason])];
+    let logs = { weeksLoaded: 0, playersWithLog: 0 };
+    for (const season of seasons) {
+      const r = await mergeGameLogs(basePlayers, season);
+      logs = {
+        weeksLoaded: logs.weeksLoaded + r.weeksLoaded,
+        playersWithLog: Math.max(logs.playersWithLog, r.playersWithLog),
+      };
+    }
     gameLogWeeks = logs.weeksLoaded;
     gameLogPlayers = logs.playersWithLog;
 

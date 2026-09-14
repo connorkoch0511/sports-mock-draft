@@ -316,17 +316,38 @@ async function getOne(playerId, query) {
   return { code: res.statusCode, body: JSON.parse(res.body) };
 }
 
-test("one player comes back with the game log", async (t) => {
-  const keys = stubGet(player("4034", 7, { gameLog: GAME_LOG, gameLogSeason: 2025 }));
+test("one player comes back with every stored season", async (t) => {
+  const keys = stubGet(
+    player("4034", 7, {
+      gameLogs: { 2025: GAME_LOG, 2026: [{ wk: 1, pts_ppr: 3 }] },
+      gameLogThrough: { 2025: 18, 2026: 1 },
+    })
+  );
 
   const { code, body } = await getOne("4034", { format: "ppr" });
 
   assert.strictEqual(code, 200);
   assert.strictEqual(body.player.id, "4034");
-  assert.deepStrictEqual(body.player.gameLog, GAME_LOG);
-  assert.strictEqual(body.player.gameLogSeason, 2025);
+  // Both seasons, so the drill-down's year selector has something to select
+  // instead of silently switching which year it shows.
+  assert.deepStrictEqual(Object.keys(body.player.gameLogs).sort(), ["2025", "2026"]);
+  assert.deepStrictEqual(body.player.gameLogs["2025"], GAME_LOG);
+  assert.strictEqual(body.player.gameLogThrough["2026"], 1);
   // The composite key -- a Get against a table partitioned on sport needs both.
   assert.deepStrictEqual(keys[0], { sport: "nfl", playerId: "4034" });
+});
+
+// A deploy can land before the night's sync rewrites the table. Without this
+// the drill-down would show no game log at all until the next run -- a worse
+// bug than carrying a second read path for a day.
+test("an item still in the single-season shape is read as one season", async () => {
+  stubGet(player("4034", 7, { gameLog: GAME_LOG, gameLogSeason: 2025, gameLogThrough: 18 }));
+
+  const { body } = await getOne("4034", { format: "ppr" });
+
+  assert.deepStrictEqual(Object.keys(body.player.gameLogs), ["2025"]);
+  assert.deepStrictEqual(body.player.gameLogs["2025"], GAME_LOG);
+  assert.strictEqual(body.player.gameLogThrough["2025"], 18);
 });
 
 test("the single player uses the requested format's rank and adp", async () => {
@@ -347,13 +368,13 @@ test("an unknown player is a 404, not an empty player", async () => {
 test("a player with no game log simply omits it", async () => {
   stubGet(player("4034", 7, {}));
   const { body } = await getOne("4034");
-  assert.ok(!("gameLog" in body.player), "absent, not an empty array");
+  assert.ok(!("gameLogs" in body.player), "absent, not an empty map");
 });
 
 test("an empty stored game log is not served as a log", async () => {
-  stubGet(player("4034", 7, { gameLog: [], gameLogSeason: 2025 }));
+  stubGet(player("4034", 7, { gameLogs: {}, gameLogSeason: 2025 }));
   const { body } = await getOne("4034");
-  assert.ok(!("gameLog" in body.player));
+  assert.ok(!("gameLogs" in body.player));
 });
 
 // The single player is looked at deliberately, so availability rides along
@@ -383,10 +404,18 @@ test("GET /players never ships a game log", async () => {
   assert.ok(!("gameLogSeason" in body.players[0]));
 });
 
-test("gameLogThrough rides along with the log", async () => {
-  stubGet(player("4034", 7, { gameLog: GAME_LOG, gameLogSeason: 2025, gameLogThrough: 12 }));
+test("gameLogThrough rides along with the log, per season", async () => {
+  stubGet(
+    player("4034", 7, {
+      gameLogs: { 2025: GAME_LOG, 2026: [{ wk: 1, pts_ppr: 3 }] },
+      gameLogThrough: { 2025: 18, 2026: 12 },
+    })
+  );
   const { body } = await getOne("4034");
-  assert.strictEqual(body.player.gameLogThrough, 12);
+  // Per season, not one number: a completed season and one in progress got
+  // different distances through, and the table's gaps depend on which.
+  assert.strictEqual(body.player.gameLogThrough["2025"], 18);
+  assert.strictEqual(body.player.gameLogThrough["2026"], 12);
 });
 
 test("yearsExp rides along on the single player", async () => {
