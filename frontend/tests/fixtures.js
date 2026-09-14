@@ -235,6 +235,23 @@ export const MOCK_GAME_LOG = [
     off_snp: 55, tm_off_snp: 63, pts_ppr: 41.5 },
 ];
 
+// Cameron Latu's real shape: a tight end who suited up for fifteen games and
+// recorded nothing in any of them -- a real, thin snap share (1%-16%) next
+// to a stat line of zero, plus two weeks he did not play at all. This is the
+// fixture "every week renders" needs: a table that quietly dropped his
+// zero-score weeks would look identical to one that dropped his missed
+// weeks, and only a fixture with both kinds of week can tell the two apart.
+// Weeks 6 and 13 are the gaps; the rest of 1-17 are played.
+const ALL_ZERO_SNAP_SHARES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16];
+const ALL_ZERO_PLAYED_WEEKS = [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17];
+export const ALL_ZERO_GAME_LOG = ALL_ZERO_PLAYED_WEEKS.map((wk, i) => ({
+  wk,
+  rec_tgt: 0, rec: 0, rec_yd: 0, rec_td: 0,
+  off_snp: ALL_ZERO_SNAP_SHARES[i],
+  tm_off_snp: 100,
+  pts_ppr: 0,
+}));
+
 // The exact top-level shape backend/src/drafts.js's GET /drafts/{draftId}
 // returns (see the pinned "GET /drafts/{id} found returns the full draft
 // object" test on the backend). Serving `draftState` verbatim -- as this
@@ -320,7 +337,13 @@ export function mockDraftApis(page, draftState) {
     const base = MOCK_PLAYERS.find((p) => p.id === id);
     if (!base) return route.fulfill({ status: 404, json: { error: "Player not found" } });
     await route.fulfill({
-      json: { player: { ...base, gameLog: MOCK_GAME_LOG, gameLogSeason: 2025, gameLogThrough: 18 } },
+      json: {
+        player: {
+          ...base,
+          gameLogs: { 2025: MOCK_GAME_LOG },
+          gameLogThrough: { 2025: 18 },
+        },
+      },
     });
   });
   page.route(`${API_BASE}/drafts/${DRAFT_ID}`, async (route) => {

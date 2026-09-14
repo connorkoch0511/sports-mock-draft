@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { MOCK_GAME_LOG } from "./fixtures.js";
+import { MOCK_GAME_LOG, ALL_ZERO_GAME_LOG } from "./fixtures.js";
 
 const API = "http://localhost:9999";
 const PLAYER = {
@@ -16,7 +16,12 @@ async function mockPlayer(page, over = {}) {
   await page.route(`${API}/players/*`, (r) =>
     r.fulfill({
       json: {
-        player: { ...PLAYER, gameLog: MOCK_GAME_LOG, gameLogSeason: 2025, gameLogThrough: 18, ...over },
+        player: {
+          ...PLAYER,
+          gameLogs: { 2025: MOCK_GAME_LOG },
+          gameLogThrough: { 2025: 18 },
+          ...over,
+        },
       },
     })
   );
@@ -37,6 +42,8 @@ test.describe("the player page", () => {
     await mockPlayer(page);
     await page.goto(`/player/${PLAYER.id}`);
 
+    // The table now lives behind the Game Log tab; Summary opens first.
+    await page.getByTestId("tab-gamelog").click();
     const log = page.getByTestId("player-modal-log");
     await expect(log).toBeVisible();
     await expect(log.locator('[data-week="4"]')).toContainText("140");
@@ -84,6 +91,7 @@ test.describe("the player page", () => {
     );
     await page.goto(`/player/nobody`);
 
+    await page.getByTestId("tab-gamelog").click();
     await expect(page.getByTestId("player-modal-log-error")).toBeVisible();
   });
 
@@ -115,5 +123,107 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("kpi-fpts")).toHaveText("FPTS/GAME—");
     await expect(page.getByTestId("kpi-posrank")).toHaveText("POS RANK—");
     await expect(page.getByTestId("kpi-snapshare")).toHaveText("SNAP SHARE—");
+  });
+
+  // The drill-down used to be one long scroll -- KPIs, draft numbers, an
+  // advice card, then the log. Summary now carries everything but the log,
+  // and it is what a visitor sees first.
+  test("the summary tab is the opening tab and holds the ADP trio and tier", async ({ page }) => {
+    await mockPlayer(page);
+    await page.goto(`/player/${PLAYER.id}`);
+
+    await expect(page.getByTestId("tab-summary")).toHaveAttribute("aria-current", "page");
+    await expect(page.getByTestId("player-page")).toContainText("ADP");
+    await expect(page.getByTestId("player-page")).toContainText("Tier");
+    await expect(page.getByTestId("player-modal-log")).toHaveCount(0);
+  });
+
+  test("the game log tab holds the table", async ({ page }) => {
+    await mockPlayer(page);
+    await page.goto(`/player/${PLAYER.id}`);
+
+    await expect(page.getByTestId("player-modal-log")).toHaveCount(0);
+    await page.getByTestId("tab-gamelog").click();
+    await expect(page.getByTestId("player-modal-log")).toBeVisible();
+  });
+
+  test("switching tabs and back keeps the selected year", async ({ page }) => {
+    await mockPlayer(page, {
+      gameLogs: { 2025: MOCK_GAME_LOG, 2024: MOCK_GAME_LOG },
+      gameLogThrough: { 2025: 18, 2024: 18 },
+    });
+    await page.goto(`/player/${PLAYER.id}`);
+
+    await page.getByTestId("tab-gamelog").click();
+    await page.getByTestId("season-select").selectOption("2024");
+    await page.getByTestId("tab-summary").click();
+    await page.getByTestId("tab-gamelog").click();
+
+    await expect(page.getByTestId("season-select")).toHaveValue("2024");
+  });
+
+  test("the season selector lists exactly the seasons present in gameLogs", async ({ page }) => {
+    await mockPlayer(page, {
+      gameLogs: { 2025: MOCK_GAME_LOG, 2023: MOCK_GAME_LOG },
+      gameLogThrough: { 2025: 18, 2023: 18 },
+    });
+    await page.goto(`/player/${PLAYER.id}`);
+    await page.getByTestId("tab-gamelog").click();
+
+    const options = await page
+      .getByTestId("season-select")
+      .locator("option")
+      .allTextContents();
+    expect(options).toEqual(["2025", "2023"]);
+  });
+
+  // The spec's explicit choice: default to the current calendar season even
+  // though draft season opens it on a nearly-empty year. Matches Yahoo and
+  // Sleeper.
+  //
+  // 2027 is fabricated -- no real player has a log for a season that has not
+  // been played -- but it is what makes this test load-bearing. Sorted
+  // descending, 2027 is `seasons[0]`; if the rule ever degraded to "the most
+  // recent season available" it would win, and picking 2026 instead is what
+  // proves the code checks for the CURRENT season by name rather than just
+  // taking the top of the sorted list.
+  test("opens on the current calendar season when it has games", async ({ page }) => {
+    await mockPlayer(page, {
+      gameLogs: { 2025: MOCK_GAME_LOG, 2026: MOCK_GAME_LOG, 2027: MOCK_GAME_LOG },
+      gameLogThrough: { 2025: 18, 2026: 3, 2027: 1 },
+    });
+    await page.goto(`/player/${PLAYER.id}`);
+    await page.getByTestId("tab-gamelog").click();
+
+    await expect(page.getByTestId("season-select")).toHaveValue("2026");
+  });
+
+  // The one exception: an empty current season is not a useful default, even
+  // though the selector still offers it.
+  test("falls back to the most recent season when the current one has no games", async ({ page }) => {
+    await mockPlayer(page); // only 2025 is stored
+    await page.goto(`/player/${PLAYER.id}`);
+    await page.getByTestId("tab-gamelog").click();
+
+    await expect(page.getByTestId("season-select")).toHaveValue("2025");
+  });
+
+  // Latu's case: fifteen weeks of real zeroes and two he did not play at
+  // all. A table that abridged either kind of week would look identical to
+  // one that abridged the other, so every one of the seventeen must render.
+  test("the game log tab renders every week for an all-zero player, including gaps", async ({ page }) => {
+    await mockPlayer(page, {
+      gameLogs: { 2025: ALL_ZERO_GAME_LOG },
+      gameLogThrough: { 2025: 17 },
+    });
+    await page.goto(`/player/${PLAYER.id}`);
+    await page.getByTestId("tab-gamelog").click();
+
+    await expect(page.getByTestId("game-log-week")).toHaveCount(15);
+    await expect(page.getByTestId("game-log-gap")).toHaveCount(2);
+
+    const wk1 = page.getByTestId("player-modal-log").locator('[data-week="1"]');
+    await expect(wk1).toContainText("0");
+    await expect(wk1).toContainText("1%");
   });
 });
