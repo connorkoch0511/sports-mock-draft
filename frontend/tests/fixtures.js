@@ -8,7 +8,8 @@ export const MOCK_PLAYERS = [
   { id: "p1",  name: "Christian McCaffrey", position: "RB",  team: "SF",  rank: 1,  adp: 1.2,  tier: 1,
     statsSeason: 2025,
     stats: { gp: 3, rush_att: 44, rush_yd: 247, rush_td: 3, rec_tgt: 11, rec: 9,
-             rec_yd: 80, rec_td: 1, off_snp: 117, tm_off_snp: 186, pts_ppr: 67.7 } },
+             rec_yd: 80, rec_td: 1, off_snp: 117, tm_off_snp: 186,
+             pts_ppr: 67.7, pts_half_ppr: 63.2, pts_std: 58.7, pos_rank_ppr: 1 } },
   { id: "p2",  name: "Justin Jefferson",    position: "WR",  team: "MIN", rank: 2,  adp: 2.1,  tier: 1 },
   { id: "p3",  name: "CeeDee Lamb",         position: "WR",  team: "DAL", rank: 3,  adp: 3.0,  tier: 1 },
   { id: "p4",  name: "Tyreek Hill",         position: "WR",  team: "MIA", rank: 4,  adp: 4.3,  tier: 1 },
@@ -227,12 +228,34 @@ export const API_BASE = "http://localhost:9999";
 // and a fixture with every week present could not tell the two apart.
 export const MOCK_GAME_LOG = [
   { wk: 1, rush_att: 14, rush_yd: 82, rush_td: 1, rec_tgt: 5, rec: 4, rec_yd: 31,
-    off_snp: 40, tm_off_snp: 62, pts_ppr: 21.3 },
+    off_snp: 40, tm_off_snp: 62, pts_ppr: 21.3, pts_half_ppr: 19.3, pts_std: 17.3 },
   { wk: 2, rush_att: 9, rush_yd: 25, rec_tgt: 2, rec: 1, rec_yd: 4,
-    off_snp: 22, tm_off_snp: 61, pts_ppr: 4.9 },
+    off_snp: 22, tm_off_snp: 61, pts_ppr: 4.9, pts_half_ppr: 4.4, pts_std: 3.9 },
   { wk: 4, rush_att: 21, rush_yd: 140, rush_td: 2, rec_tgt: 4, rec: 4, rec_yd: 45, rec_td: 1,
-    off_snp: 55, tm_off_snp: 63, pts_ppr: 41.5 },
+    off_snp: 55, tm_off_snp: 63, pts_ppr: 41.5, pts_half_ppr: 39.5, pts_std: 37.5 },
 ];
+
+// Cameron Latu's real shape: a tight end who suited up for fifteen games and
+// recorded nothing in any of them -- a real, thin snap share (1%-16%) next
+// to a stat line of zero, plus two weeks he did not play at all. This is the
+// fixture "every week renders" needs: a table that quietly dropped his
+// zero-score weeks would look identical to one that dropped his missed
+// weeks, and only a fixture with both kinds of week can tell the two apart.
+// Weeks 6 and 13 are the gaps; the rest of 1-17 are played.
+const ALL_ZERO_SNAP_SHARES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 16];
+const ALL_ZERO_PLAYED_WEEKS = [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17];
+export const ALL_ZERO_GAME_LOG = ALL_ZERO_PLAYED_WEEKS.map((wk, i) => ({
+  wk,
+  rec_tgt: 0, rec: 0, rec_yd: 0, rec_td: 0,
+  off_snp: ALL_ZERO_SNAP_SHARES[i],
+  tm_off_snp: 100,
+  // All three, as a real sync stores them (WEEK_FIELDS). A row carrying only
+  // pts_ppr says "standard points were not recorded", which is a different
+  // claim from "he scored nothing" -- and the charts now tell them apart.
+  pts_ppr: 0,
+  pts_half_ppr: 0,
+  pts_std: 0,
+}));
 
 // The exact top-level shape backend/src/drafts.js's GET /drafts/{draftId}
 // returns (see the pinned "GET /drafts/{id} found returns the full draft
@@ -319,7 +342,13 @@ export function mockDraftApis(page, draftState) {
     const base = MOCK_PLAYERS.find((p) => p.id === id);
     if (!base) return route.fulfill({ status: 404, json: { error: "Player not found" } });
     await route.fulfill({
-      json: { player: { ...base, gameLog: MOCK_GAME_LOG, gameLogSeason: 2025, gameLogThrough: 18 } },
+      json: {
+        player: {
+          ...base,
+          gameLogs: { 2025: MOCK_GAME_LOG },
+          gameLogThrough: { 2025: 18 },
+        },
+      },
     });
   });
   page.route(`${API_BASE}/drafts/${DRAFT_ID}`, async (route) => {

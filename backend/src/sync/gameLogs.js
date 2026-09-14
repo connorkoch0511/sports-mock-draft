@@ -67,7 +67,9 @@ function pickWeek(raw, week) {
 }
 
 /**
- * Attaches `gameLog` to every player who played a week in `season`.
+ * Attaches a `season` entry under `gameLogs` to every player who played a
+ * week in `season`, and records how far that season got in `gameLogThrough`.
+ * Callers merge multiple seasons in by calling this once per season.
  *
  * Weeks are fetched one at a time and folded straight into the players, so
  * only one week's payload (~500KB) is ever held at once rather than all 18.
@@ -102,7 +104,7 @@ async function mergeGameLogs(players, season, fetchWeek = fetchWeekStats) {
       weekHadPlay = true;
       const player = byId.get(id);
       if (!player) continue;
-      (player.gameLog ||= []).push(row);
+      ((player.gameLogs ||= {})[season] ||= []).push(row);
     }
     // Tracked from the feed, not from our own players: a week in which only
     // players outside our pool appeared was still a week of football.
@@ -113,10 +115,9 @@ async function mergeGameLogs(players, season, fetchWeek = fetchWeekStats) {
   // stored shape does not depend on the loop above staying sequential.
   let playersWithLog = 0;
   for (const p of players) {
-    if (p.gameLog) {
-      p.gameLog.sort((a, b) => a.wk - b.wk);
-      p.gameLogSeason = season;
-      p.gameLogThrough = lastWeekWithData;
+    if (p.gameLogs?.[season]) {
+      p.gameLogs[season].sort((a, b) => a.wk - b.wk);
+      (p.gameLogThrough ||= {})[season] = lastWeekWithData;
       playersWithLog += 1;
     }
   }

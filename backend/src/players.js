@@ -35,13 +35,20 @@ function toDetail(p, format) {
     out.stats = p.stats;
     out.statsSeason = p.statsSeason ?? null;
   }
-  if (Array.isArray(p.gameLog) && p.gameLog.length > 0) {
-    out.gameLog = p.gameLog;
-    out.gameLogSeason = p.gameLogSeason ?? null;
-    // How far the season had actually got when this was synced. The table
-    // renders gaps up to here and no further, so a mid-season log does not
-    // report weeks nobody has played as games this player missed.
-    out.gameLogThrough = p.gameLogThrough ?? null;
+  // Two shapes for one deploy's worth of time. The sync rewrites every item
+  // nightly, so the single-season keys vanish with the next run -- but a
+  // deploy can land before that run, and a game log blank for a day is a
+  // worse bug than a little tolerance here.
+  if (p.gameLogs && typeof p.gameLogs === "object" && Object.keys(p.gameLogs).length > 0) {
+    out.gameLogs = p.gameLogs;
+    // How far each season had got when it was synced. The table renders gaps
+    // up to here and no further, so a mid-season log does not report weeks
+    // nobody has played as games this player missed.
+    out.gameLogThrough =
+      p.gameLogThrough && typeof p.gameLogThrough === "object" ? p.gameLogThrough : {};
+  } else if (Array.isArray(p.gameLog) && p.gameLog.length > 0 && p.gameLogSeason) {
+    out.gameLogs = { [p.gameLogSeason]: p.gameLog };
+    out.gameLogThrough = { [p.gameLogSeason]: p.gameLogThrough ?? null };
   }
   if (p.injuryStatus) out.injuryStatus = p.injuryStatus;
   if (p.injuryBodyPart) out.injuryBodyPart = p.injuryBodyPart;

@@ -103,6 +103,19 @@ function attachAdpBySource(players, maps) {
   return matched;
 }
 
+// Always two, never one. The obvious expression here was
+// `[...new Set([resolved.season, STATS_YEAR])]`, which collapses to a single
+// season the moment the two agree -- and `resolveStatsSeason` returns
+// STATS_YEAR itself as soon as the new season overtakes the old one on
+// coverage, which is roughly week four onward, every year. Since the sync
+// writes whole items with PutRequest and never reads what is there, that
+// night's run would REPLACE {2025, 2026} with {2026}: last season's log gone
+// from the table, the drill-down's year selector down to one option, and the
+// feature silently reverted to what it replaced.
+function seasonsToFetch(statsYear) {
+  return [statsYear, statsYear - 1];
+}
+
 exports.handler = async () => {
   const table = process.env.PLAYERS_TABLE;
 
@@ -188,9 +201,22 @@ exports.handler = async () => {
     statsSeason = resolved.season;
     statsMatched = mergeStats(basePlayers, resolved.stats, resolved.season);
 
-    // Same season the season-totals resolved to, so the log and the summary
-    // line can never describe different years.
-    const logs = await mergeGameLogs(basePlayers, resolved.season);
+    // Both the season the stats resolved to and the calendar season, so the
+    // drill-down's year selector has something to select. They are the same
+    // year for most of the season; when they differ -- which is the whole
+    // autumn, while the new season is still thin -- we want both. Each
+    // season's log still matches its own summary line -- the invariant that
+    // the log and the totals can never describe different years -- it just
+    // now holds for two years instead of one.
+    const seasons = seasonsToFetch(STATS_YEAR);
+    let logs = { weeksLoaded: 0, playersWithLog: 0 };
+    for (const season of seasons) {
+      const r = await mergeGameLogs(basePlayers, season);
+      logs = {
+        weeksLoaded: logs.weeksLoaded + r.weeksLoaded,
+        playersWithLog: Math.max(logs.playersWithLog, r.playersWithLog),
+      };
+    }
     gameLogWeeks = logs.weeksLoaded;
     gameLogPlayers = logs.playersWithLog;
 
@@ -308,6 +334,7 @@ exports.handler = async () => {
 
 // SAM invokes syncPlayers.handler, so it must remain exported. The rest are
 // re-exported from their modules so the existing tests keep one import site.
+module.exports.seasonsToFetch = seasonsToFetch;
 module.exports.FETCH_TIMEOUT_MS = FETCH_TIMEOUT_MS;
 module.exports.fetchSeasonStats = fetchSeasonStats;
 module.exports.STATS_FIELDS = STATS_FIELDS;

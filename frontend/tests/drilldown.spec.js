@@ -60,6 +60,7 @@ test.describe("player drill-down", () => {
   test("the game log shows a week he played", async ({ page }) => {
     await openDraft(page);
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     const log = page.getByTestId("player-modal-log");
     await expect(log).toBeVisible();
@@ -75,6 +76,7 @@ test.describe("player drill-down", () => {
   test("a week he missed reads as did not play, not as zeroes", async ({ page }) => {
     await openDraft(page);
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     const gaps = page.getByTestId("game-log-gap");
     await expect(gaps.first()).toContainText("did not play");
@@ -93,6 +95,7 @@ test.describe("player drill-down", () => {
   test("a stat he did not record in a week he played shows as 0", async ({ page }) => {
     await openDraft(page);
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     const wk2 = page.getByTestId("player-modal-log").locator('[data-week="2"]');
     await expect(wk2).toContainText("25");
@@ -102,6 +105,7 @@ test.describe("player drill-down", () => {
   test("snap share is a percentage of the team's snaps", async ({ page }) => {
     await openDraft(page);
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     // Week 1: 40 of 62 offensive snaps.
     const wk1 = page.getByTestId("player-modal-log").locator('[data-week="1"]');
@@ -158,6 +162,7 @@ test.describe("player drill-down", () => {
     await page.getByRole("button", { name: "Pause" }).click();
 
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     await expect(page.getByTestId("player-modal-no-log")).toBeVisible();
     await expect(page.getByTestId("player-modal-log")).toHaveCount(0);
@@ -176,6 +181,7 @@ test.describe("player drill-down", () => {
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     await expect(page.getByTestId("player-modal-no-log")).toContainText("rookie");
     await expect(page.getByTestId("player-modal-no-log")).not.toContainText("did not play");
@@ -192,6 +198,7 @@ test.describe("player drill-down", () => {
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     await expect(page.getByTestId("player-modal-no-log")).toContainText("did not play");
     await expect(page.getByTestId("player-modal-no-log")).not.toContainText("rookie");
@@ -205,6 +212,7 @@ test.describe("player drill-down", () => {
     await page.getByRole("button", { name: "Pause" }).click();
 
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     await expect(page.getByTestId("player-modal-log-error")).toBeVisible();
     // The row's own data survives, so the dialog still identifies the player.
@@ -227,11 +235,13 @@ test.describe("player drill-down", () => {
     await openDraft(page);
 
     await rowFor(page, "Josh Allen").getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
     const qb = page.getByTestId("player-modal-log");
     await expect(qb.locator("th").filter({ hasText: "INT" })).toBeVisible();
     await page.getByTestId("player-modal-close").click();
 
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
     const rb = page.getByTestId("player-modal-log");
     await expect(rb.locator("th").filter({ hasText: "CAR" })).toBeVisible();
     await expect(rb.locator("th").filter({ hasText: "INT" })).toHaveCount(0);
@@ -264,7 +274,12 @@ test.describe("player drill-down", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openDraft(page);
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
-    await expect(page.getByTestId("player-modal-log")).toBeVisible();
+    // Summary, which is the tab the modal actually opens on, and the only one
+    // that shows the charts. The shot used to click through to Game Log, so
+    // the README advertised a table and the charts appeared in no committed
+    // screenshot at all.
+    await expect(page.getByTestId("player-kpis")).toBeVisible();
+    await expect(page.getByTestId("weekly-points-chart")).toBeVisible();
 
     await page.screenshot({ path: `${SCREENSHOTS}/player.png`, fullPage: false });
   });
@@ -278,7 +293,8 @@ test.describe("player drill-down", () => {
         json: {
           player: {
             id: "p1", name: MCCAFFREY, position: "RB", team: "SF",
-            gameLog: MOCK_GAME_LOG, gameLogSeason: 2025, gameLogThrough: 5,
+            gameLogs: { 2025: MOCK_GAME_LOG },
+            gameLogThrough: { 2025: 5 },
           },
         },
       })
@@ -287,12 +303,31 @@ test.describe("player drill-down", () => {
     await page.goto(`/draft/${DRAFT_ID}`);
     await page.getByRole("button", { name: "Pause" }).click();
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+    await page.getByTestId("tab-gamelog").click();
 
     const log = page.getByTestId("player-modal-log");
     // Weeks 1-5 only: three played, weeks 3 and 5 genuinely missed.
     await expect(log.locator('[data-week="5"]')).toHaveCount(1);
     await expect(log.locator('[data-week="6"]')).toHaveCount(0);
     await expect(page.getByTestId("game-log-gap")).toHaveCount(2);
+  });
+
+  // The one place "Why he is here" actually renders -- the page has no
+  // reasons to show. Summary is the tab it opens on, and the log stays
+  // behind Game Log until asked for.
+  test("Summary is the opening tab and holds the ADP trio, tier and the advice card", async ({ page }) => {
+    await openDraft(page);
+    await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+
+    const modal = page.getByTestId("player-modal");
+    await expect(page.getByTestId("tab-summary")).toHaveAttribute("aria-current", "page");
+    await expect(modal).toContainText("ADP");
+    await expect(modal).toContainText("Tier");
+    await expect(modal.getByTestId("starting-point")).toBeVisible();
+    await expect(page.getByTestId("player-modal-log")).toHaveCount(0);
+
+    await page.getByTestId("tab-gamelog").click();
+    await expect(page.getByTestId("player-modal-log")).toBeVisible();
   });
 
   test("the card and the dialog both show where the player started", async ({ page }) => {

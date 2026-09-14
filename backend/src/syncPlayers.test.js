@@ -480,8 +480,8 @@ test("a team aggregate is never merged onto a player", async () => {
                       TEAM_CHI: { gp: 1, rec: 22, pts_ppr: 154.58 } } };
   const res = await mergeGameLogs(players, 2025, async (_s, w) => week[w] || {});
 
-  assert.deepStrictEqual(players[0].gameLog, [{ wk: 1, rec: 2, pts_ppr: 9.9 }]);
-  assert.strictEqual(players[1].gameLog, undefined, "TEAM_CHI must get no game log");
+  assert.deepStrictEqual(players[0].gameLogs[2025], [{ wk: 1, rec: 2, pts_ppr: 9.9 }]);
+  assert.strictEqual(players[1].gameLogs, undefined, "TEAM_CHI must get no game log");
   assert.strictEqual(res.playersWithLog, 1);
 });
 
@@ -494,10 +494,10 @@ test("mergeGameLogs builds an ascending log across the season", async () => {
     return {};
   });
 
-  assert.deepStrictEqual(players[0].gameLog.map((r) => r.wk), [1, 5]);
-  assert.strictEqual(players[0].gameLogSeason, 2025);
+  assert.deepStrictEqual(players[0].gameLogs[2025].map((r) => r.wk), [1, 5]);
+  assert.deepStrictEqual(Object.keys(players[0].gameLogs), ["2025"]);
   assert.strictEqual(res.weeksLoaded, SEASON_WEEKS);
-  assert.ok(!players[0].gameLog.some((r) => r.wk === 3), "week 3 must be a gap");
+  assert.ok(!players[0].gameLogs[2025].some((r) => r.wk === 3), "week 3 must be a gap");
 });
 
 test("a week that fails to fetch is skipped, not fatal", async () => {
@@ -508,15 +508,14 @@ test("a week that fails to fetch is skipped, not fatal", async () => {
   });
 
   assert.strictEqual(res.weeksLoaded, SEASON_WEEKS - 1);
-  assert.strictEqual(players[0].gameLog.length, SEASON_WEEKS - 1);
-  assert.ok(!players[0].gameLog.some((r) => r.wk === 2));
+  assert.strictEqual(players[0].gameLogs[2025].length, SEASON_WEEKS - 1);
+  assert.ok(!players[0].gameLogs[2025].some((r) => r.wk === 2));
 });
 
 test("a player who never played gets no gameLog key at all", async () => {
   const players = [{ id: "7" }];
   await mergeGameLogs(players, 2025, async () => ({ 7: { gp: 0 } }));
-  assert.strictEqual(players[0].gameLog, undefined);
-  assert.strictEqual(players[0].gameLogSeason, undefined);
+  assert.strictEqual(players[0].gameLogs, undefined);
 });
 
 // Mid-season, weeks 12-18 have not been played. Rendering them as "did not
@@ -528,7 +527,7 @@ test("gameLogThrough marks how far the season had got", async () => {
   );
 
   assert.strictEqual(res.lastWeekWithData, 5);
-  assert.strictEqual(players[0].gameLogThrough, 5);
+  assert.strictEqual(players[0].gameLogThrough[2025], 5);
 });
 
 test("a week is counted as played even when nobody in our pool appeared", async () => {
@@ -542,8 +541,40 @@ test("a week is counted as played even when nobody in our pool appeared", async 
   });
 
   assert.strictEqual(res.lastWeekWithData, 6);
-  assert.strictEqual(players[0].gameLogThrough, 6);
-  assert.strictEqual(players[0].gameLog.length, 5);
+  assert.strictEqual(players[0].gameLogThrough[2025], 6);
+  assert.strictEqual(players[0].gameLogs[2025].length, 5);
+});
+
+// The season window must not depend on which season the coverage rule picked.
+// `[...new Set([resolved.season, STATS_YEAR])]` collapsed to ONE season from
+// about week four of every season -- and a whole-item PutRequest then erases
+// the other. The "keeps both seasons" test below could never catch it: it
+// calls mergeGameLogs twice itself, so it proves the storage shape and never
+// touches the handler's choice of years.
+test("always fetches two seasons, whichever one the coverage rule picked", () => {
+  const { seasonsToFetch } = require("./syncPlayers");
+  assert.deepStrictEqual(seasonsToFetch(2026), [2026, 2025]);
+  assert.strictEqual(seasonsToFetch(2026).length, 2);
+  assert.strictEqual(new Set(seasonsToFetch(2026)).size, 2, "never collapses to one");
+});
+
+test("keeps both seasons, keyed by year", async () => {
+  const players = [{ id: "1", name: "A" }];
+  const fetchWeek = async (season, week) =>
+    week <= 2
+      ? { "1": { gp: 1, pts_ppr: season === 2026 ? 10 : 20, off_snp: 30, tm_off_snp: 60 } }
+      : {};
+
+  await mergeGameLogs(players, 2026, fetchWeek);
+  await mergeGameLogs(players, 2025, fetchWeek);
+
+  assert.deepEqual(Object.keys(players[0].gameLogs).sort(), ["2025", "2026"]);
+  assert.equal(players[0].gameLogs["2026"][0].pts_ppr, 10);
+  assert.equal(players[0].gameLogs["2025"][0].pts_ppr, 20);
+  assert.equal(players[0].gameLogThrough["2026"], 2);
+  // The single-season keys are gone: two seasons cannot share one of them.
+  assert.equal(players[0].gameLog, undefined);
+  assert.equal(players[0].gameLogSeason, undefined);
 });
 
 test("a rookie's experience is recorded so an empty log can be explained", () => {

@@ -49,6 +49,20 @@ export function columnsFor(position) {
  * The "did not play" case never reaches here: those weeks are absent from the
  * log entirely and the table renders them as gaps.
  */
+/**
+ * The same read as `statValue`, but absent comes back as null.
+ *
+ * `statValue` returns 0 for a missing field, which is right for a table cell
+ * -- a blank column reads as a zero and nobody is misled. It is wrong for a
+ * chart, where a zero is a drawn mark claiming "he scored nothing this week"
+ * and absence should draw no mark at all. Same distinction `snapShare` below
+ * already makes, for the same reason.
+ */
+export function statOrNull(row, key) {
+  const v = row?.[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
 export function statValue(row, key) {
   const v = row?.[key];
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
