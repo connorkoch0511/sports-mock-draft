@@ -274,8 +274,12 @@ test.describe("player drill-down", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await openDraft(page);
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
-    await page.getByTestId("tab-gamelog").click();
-    await expect(page.getByTestId("player-modal-log")).toBeVisible();
+    // Summary, which is the tab the modal actually opens on, and the only one
+    // that shows the charts. The shot used to click through to Game Log, so
+    // the README advertised a table and the charts appeared in no committed
+    // screenshot at all.
+    await expect(page.getByTestId("player-kpis")).toBeVisible();
+    await expect(page.getByTestId("weekly-points-chart")).toBeVisible();
 
     await page.screenshot({ path: `${SCREENSHOTS}/player.png`, fullPage: false });
   });

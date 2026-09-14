@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { apiGet } from "../../lib/api";
 import { ReasonList, SCORED_NOTHING, NOT_EVALUATED, ADVICE_BASIS } from "./ReasonList";
-import { columnsFor, statValue, snapShare, withByeGaps, gapLabel } from "./gameLog";
+import { columnsFor, statValue, statOrNull, snapShare, withByeGaps, gapLabel } from "./gameLog";
 import { computeKpis } from "./playerKpis";
 import { StartingPoint } from "./StartingPoint";
 import { WeeklyChart } from "./WeeklyChart";
@@ -247,7 +247,7 @@ export function PlayerDetail({
                 // bars were hard-coded to PPR, so a standard league read
                 // "FPTS/GAME 9.0" above weeks averaging 15 -- two scoring
                 // systems, unlabelled, an inch apart.
-                valueOf={(row) => statValue(row, POINTS_FIELD[format] ?? "pts_ppr")}
+                valueOf={(row) => statOrNull(row, POINTS_FIELD[format] ?? "pts_ppr")}
               />
             </div>
             <div className="rounded-2xl border border-zinc-900 bg-black/40 px-3 py-2">

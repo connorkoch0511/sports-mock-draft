@@ -228,11 +228,11 @@ export const API_BASE = "http://localhost:9999";
 // and a fixture with every week present could not tell the two apart.
 export const MOCK_GAME_LOG = [
   { wk: 1, rush_att: 14, rush_yd: 82, rush_td: 1, rec_tgt: 5, rec: 4, rec_yd: 31,
-    off_snp: 40, tm_off_snp: 62, pts_ppr: 21.3 },
+    off_snp: 40, tm_off_snp: 62, pts_ppr: 21.3, pts_half_ppr: 19.3, pts_std: 17.3 },
   { wk: 2, rush_att: 9, rush_yd: 25, rec_tgt: 2, rec: 1, rec_yd: 4,
-    off_snp: 22, tm_off_snp: 61, pts_ppr: 4.9 },
+    off_snp: 22, tm_off_snp: 61, pts_ppr: 4.9, pts_half_ppr: 4.4, pts_std: 3.9 },
   { wk: 4, rush_att: 21, rush_yd: 140, rush_td: 2, rec_tgt: 4, rec: 4, rec_yd: 45, rec_td: 1,
-    off_snp: 55, tm_off_snp: 63, pts_ppr: 41.5 },
+    off_snp: 55, tm_off_snp: 63, pts_ppr: 41.5, pts_half_ppr: 39.5, pts_std: 37.5 },
 ];
 
 // Cameron Latu's real shape: a tight end who suited up for fifteen games and
@@ -249,7 +249,12 @@ export const ALL_ZERO_GAME_LOG = ALL_ZERO_PLAYED_WEEKS.map((wk, i) => ({
   rec_tgt: 0, rec: 0, rec_yd: 0, rec_td: 0,
   off_snp: ALL_ZERO_SNAP_SHARES[i],
   tm_off_snp: 100,
+  // All three, as a real sync stores them (WEEK_FIELDS). A row carrying only
+  // pts_ppr says "standard points were not recorded", which is a different
+  // claim from "he scored nothing" -- and the charts now tell them apart.
   pts_ppr: 0,
+  pts_half_ppr: 0,
+  pts_std: 0,
 }));
 
 // The exact top-level shape backend/src/drafts.js's GET /drafts/{draftId}

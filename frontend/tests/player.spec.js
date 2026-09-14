@@ -77,7 +77,7 @@ test.describe("the player page", () => {
   // not each player's peak, which drew 16% and 96% as the identical line.
   test("snap share is scaled against 100, not the player's own best week", async ({ page }) => {
     await mockPlayer(page, {
-      gameLogs: { 2025: [{ wk: 1, pts_ppr: 0, off_snp: 6, tm_off_snp: 60 }] },
+      gameLogs: { 2025: [{ wk: 1, pts_ppr: 0, pts_half_ppr: 0, pts_std: 0, off_snp: 6, tm_off_snp: 60 }] },
       gameLogThrough: { 2025: 18 },
     });
     await page.goto(`/player/${PLAYER.id}?format=ppr`);
@@ -106,7 +106,8 @@ test.describe("the player page", () => {
   test("a season of zeros says so, rather than looking empty", async ({ page }) => {
     const zeros = Array.from({ length: 15 }, (_, i) => ({
       wk: i + 1,
-      rec: 0, rec_tgt: 0, rec_yd: 0, rec_td: 0, pts_ppr: 0,
+      rec: 0, rec_tgt: 0, rec_yd: 0, rec_td: 0,
+      pts_ppr: 0, pts_half_ppr: 0, pts_std: 0,
       off_snp: [3, 5, 9, 2, 7, 4, 10, 1, 6, 8, 2, 5, 3, 9, 4][i],
       tm_off_snp: 62,
     }));
@@ -290,14 +291,22 @@ test.describe("the player page", () => {
   // proves the code checks for the CURRENT season by name rather than just
   // taking the top of the sorted list.
   test("opens on the current calendar season when it has games", async ({ page }) => {
+    // Derived, not hard-coded: a literal 2026 here would start failing on
+    // 1 January 2027 for a rule that is still working correctly. The
+    // fabricated `current + 1` is the load-bearing part and stays.
+    const current = new Date().getFullYear();
     await mockPlayer(page, {
-      gameLogs: { 2025: MOCK_GAME_LOG, 2026: MOCK_GAME_LOG, 2027: MOCK_GAME_LOG },
-      gameLogThrough: { 2025: 18, 2026: 3, 2027: 1 },
+      gameLogs: {
+        [current - 1]: MOCK_GAME_LOG,
+        [current]: MOCK_GAME_LOG,
+        [current + 1]: MOCK_GAME_LOG,
+      },
+      gameLogThrough: { [current - 1]: 18, [current]: 3, [current + 1]: 1 },
     });
     await page.goto(`/player/${PLAYER.id}`);
     await page.getByTestId("tab-gamelog").click();
 
-    await expect(page.getByTestId("season-select")).toHaveValue("2026");
+    await expect(page.getByTestId("season-select")).toHaveValue(String(current));
   });
 
   // The one exception: an empty current season is not a useful default, even
