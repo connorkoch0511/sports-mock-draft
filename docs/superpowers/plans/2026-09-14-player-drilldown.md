@@ -37,6 +37,33 @@ noise to the template and implies a risk that is not there.
 beginning unless given `--start-time`, and those runs predated game logs
 entirely. Measure the right window.)
 
+## Corrections
+
+Recorded as they were found, because this plan has been wrong in the same
+way more than once — confident about design, careless about how the project
+actually runs.
+
+1. **The sync budget risk was invented.** The backend half was built around
+   two seasons threatening a 120-second timeout. Measured: the whole sync
+   runs 6.7–7.5s, doubling lands near 14s. Corrected before any code, and the
+   timeout raise, the template edit and the `sam validate` step were dropped.
+   The bad number came from `filter-log-events` without `--start-time`, which
+   reads a log group from its beginning.
+2. **Tasks 1 and 2 are not separable.** `players.js` reads the keys Task 1
+   deletes, so Task 1 alone leaves the drill-down with no game log at all.
+   They landed as one commit.
+3. **Task 1's stop condition was too blunt.** "Stop if an existing test needs
+   editing" catches unintended breakage; here the contract change *is* the
+   task, so six tests asserting the single-season shape changed deliberately.
+4. **The backend test command was wrong** — `cd backend && node --test
+   src/__tests__/` names a directory that does not exist. It is
+   `cd backend/src && npm test`.
+5. **Task 3's unit tests were written for vitest**, which this project does
+   not use. Corrected to `node --test` before dispatch.
+6. **Task 1's fixture omitted `gp`**, which `pickWeek` requires, so its test
+   could not have passed regardless of the implementation. Found by the
+   implementer.
+
 ## Global Constraints
 
 - **No projections, anywhere.** Charts plot what happened: a player with
@@ -51,7 +78,11 @@ entirely. Measure the right window.)
   `pts_std`), never PPR for everyone.
 - The drill-down is a modal over the now-tabbed draft page: it must fit
   390×844 and never overflow horizontally.
-- Backend suite is `node --test`; run it from `backend/`. Frontend is
+- Backend suite is **`cd backend/src && npm test`** (README:213). Tests are
+  colocated as `backend/src/*.test.js`; there is no `__tests__` directory and
+  no `backend/package.json`. Frontend unit tests are also `node --test`, via
+  `npm run test:unit` from `frontend/` — **not vitest**. Frontend browser
+  tests are
   Playwright — the controller owns the full suite (`caffeinate -i npm test`,
   total compared with `npx playwright test --list`); implementers run focused
   `-g` subsets only.
@@ -62,8 +93,8 @@ entirely. Measure the right window.)
 ### Task 1: Measure the sync, then store two seasons
 
 **Files:**
-- Modify: `backend/src/sync/gameLogs.js`, `backend/src/syncPlayers.js`, `backend/src/__tests__`
-- Test: `backend/src/__tests__/syncPlayers.test.js` (or the existing game-log test file)
+- Modify: `backend/src/sync/gameLogs.js`, `backend/src/syncPlayers.js`, `backend/src/syncPlayers.test.js`
+- Test: `backend/src/syncPlayers.test.js` (colocated; there is no __tests__ dir)
 
 **Interfaces:**
 - Produces: player items carrying `gameLogs: { [season]: rows }` and
@@ -113,7 +144,7 @@ test("keeps both seasons, keyed by year", async () => {
 - [ ] **Step 3: Run it and watch it fail**
 
 ```bash
-cd backend && node --test src/__tests__/ 2>&1 | tail -20
+cd backend/src && npm test 2>&1 | tail -20
 ```
 
 Expected: FAIL — `gameLogs` is undefined; the current code writes `gameLog`.
@@ -179,7 +210,7 @@ to fetch both seasons rests on that margin.
 - [ ] **Step 7: Run the backend suite**
 
 ```bash
-cd backend && node --test src/__tests__/ 2>&1 | tail -8
+cd backend/src && npm test 2>&1 | tail -8
 ```
 
 Expected: all pass, including the new test. Report the pass count; it must
@@ -190,7 +221,7 @@ single-season keys are load-bearing somewhere this plan did not account for.
 - [ ] **Step 8: Commit**
 
 ```bash
-git add backend/src/sync/gameLogs.js backend/src/syncPlayers.js backend/src/__tests__
+git add backend/src/sync/gameLogs.js backend/src/syncPlayers.js backend/src/syncPlayers.test.js
 git commit -m "feat: the sync keeps two seasons of game logs"
 ```
 
@@ -250,7 +281,7 @@ plan's `detailOf` is a stand-in for it.
 - [ ] **Step 2: Run and watch them fail**
 
 ```bash
-cd backend && node --test src/__tests__/ 2>&1 | tail -20
+cd backend/src && npm test 2>&1 | tail -20
 ```
 
 Expected: FAIL on both — `out.gameLogs` is undefined.
@@ -285,7 +316,7 @@ with:
 - [ ] **Step 4: Run the suite**
 
 ```bash
-cd backend && node --test src/__tests__/ 2>&1 | tail -8
+cd backend/src && npm test 2>&1 | tail -8
 ```
 
 Expected: all pass, no existing test edited.
@@ -293,7 +324,7 @@ Expected: all pass, no existing test edited.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/src/players.js backend/src/__tests__
+git add backend/src/players.js backend/src/players.test.js
 git commit -m "feat: the player detail returns every stored season"
 ```
 
