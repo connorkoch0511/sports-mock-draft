@@ -144,6 +144,31 @@ export function PlayerDetail({
       role="tab"/role="tablist" pair, to match how the rest of the app marks
       the active one (aria-current, not aria-selected).
     */}
+    {/*
+      Above the tabs, not inside Summary: this is the glanceable answer and it
+      stays true whichever tab you are reading. Yahoo and Sleeper both pin
+      their equivalent row above their tab bars for the same reason -- you
+      should not have to leave the game log to remember what he averages.
+
+      Production, not draft position. ADP, rank and tier are right for a
+      first-rounder and an em dash for most of the pool; what a player
+      actually did is a fact for everyone with a game log, including a
+      fourth-string tight end who never scores.
+    */}
+    <div data-testid="player-kpis" className="mt-4 grid grid-cols-3 gap-2">
+      <Stat
+        label="FPTS/GAME"
+        testId="kpi-fpts"
+        value={kpis.fptsPerGame != null ? kpis.fptsPerGame.toFixed(1) : "—"}
+      />
+      <Stat label="POS RANK" testId="kpi-posrank" value={kpis.posRank ?? "—"} />
+      <Stat
+        label="SNAP SHARE"
+        testId="kpi-snapshare"
+        value={kpis.snapShare != null ? `${Math.round(kpis.snapShare * 100)}%` : "—"}
+      />
+    </div>
+
     <div
       data-testid="player-tabs"
       aria-label="Player detail views"
@@ -169,31 +194,7 @@ export function PlayerDetail({
 
     {activeTab === "summary" ? (
       <>
-        {/*
-          Production, not draft position. ADP, rank and tier are right for a
-          first-rounder and an em dash for most of the pool -- what a player
-          actually did is a fact for everyone with a game log, including a
-          fourth-string tight end who never scores.
-        */}
-        <div data-testid="player-kpis" className="mt-4 grid grid-cols-3 gap-2">
-          <Stat
-            label="FPTS/GAME"
-            testId="kpi-fpts"
-            value={kpis.fptsPerGame != null ? kpis.fptsPerGame.toFixed(1) : "—"}
-          />
-          <Stat
-            label="POS RANK"
-            testId="kpi-posrank"
-            value={kpis.posRank ?? "—"}
-          />
-          <Stat
-            label="SNAP SHARE"
-            testId="kpi-snapshare"
-            value={kpis.snapShare != null ? `${Math.round(kpis.snapShare * 100)}%` : "—"}
-          />
-        </div>
-
-        <div className="mt-2 grid grid-cols-3 gap-2">
+        <div className="mt-4 grid grid-cols-3 gap-2">
           <Stat label="ADP" value={p.adp ?? "—"} />
           <Stat label="Rank" value={p.rank ?? "—"} />
           <Stat label="Tier" value={p.tier ?? "—"} />

@@ -38,6 +38,24 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("player-page")).toContainText("DET");
   });
 
+  // The KPI row is the glanceable answer and belongs above the tabs, not
+  // inside one of them -- Yahoo and Sleeper both pin their equivalent there.
+  // Without this assertion the row can drift back inside Summary and every
+  // other test still passes, which is exactly what happened once.
+  test("the KPI row stays put when you change tabs", async ({ page }) => {
+    await mockPlayer(page);
+    await page.goto(`/player/${PLAYER.id}`);
+
+    await expect(page.getByTestId("player-kpis")).toBeVisible();
+    const onSummary = await page.getByTestId("kpi-fpts").textContent();
+
+    await page.getByTestId("tab-gamelog").click();
+    await expect(page.getByTestId("player-modal-log")).toBeVisible();
+
+    await expect(page.getByTestId("player-kpis")).toBeVisible();
+    expect(await page.getByTestId("kpi-fpts").textContent()).toBe(onSummary);
+  });
+
   test("shows the same game log the dialog does", async ({ page }) => {
     await mockPlayer(page);
     await page.goto(`/player/${PLAYER.id}`);
