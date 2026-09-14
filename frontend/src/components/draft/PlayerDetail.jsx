@@ -4,6 +4,7 @@ import { ReasonList, SCORED_NOTHING, NOT_EVALUATED, ADVICE_BASIS } from "./Reaso
 import { columnsFor, statValue, snapShare, withByeGaps, gapLabel } from "./gameLog";
 import { computeKpis } from "./playerKpis";
 import { StartingPoint } from "./StartingPoint";
+import { WeeklyChart } from "./WeeklyChart";
 
 const SEASON_WEEKS = 18;
 
@@ -209,6 +210,40 @@ export function PlayerDetail({
               emptyText={playersWereEvaluated ? SCORED_NOTHING : NOT_EVALUATED}
             />
             <p className="text-[11px] leading-snug text-zinc-500">{ADVICE_BASIS}</p>
+          </div>
+        ) : null}
+
+        {/*
+          Two charts, neither of which predicts anything -- see WeeklyChart's
+          own comment. `log` (this season's played weeks only) feeds both, so
+          a week with no row here draws no mark on either chart; a bye or an
+          injury is blank space, not a zero. `through` gives both charts the
+          season's real length so a three-game rookie's marks sit bunched at
+          the start of the axis instead of stretched across weeks that have
+          not happened.
+        */}
+        {playedWeeks > 0 ? (
+          <div className="mt-4 space-y-3">
+            <div className="rounded-2xl border border-zinc-900 bg-black/40 px-3 py-2">
+              <WeeklyChart
+                testId="weekly-points-chart"
+                label={`Weekly points — ${season}`}
+                kind="bars"
+                rows={log}
+                weeks={through}
+                valueOf={(row) => statValue(row, "pts_ppr")}
+              />
+            </div>
+            <div className="rounded-2xl border border-zinc-900 bg-black/40 px-3 py-2">
+              <WeeklyChart
+                testId="snap-share-chart"
+                label={`Snap share — ${season}`}
+                kind="line"
+                rows={log}
+                weeks={through}
+                valueOf={snapShare}
+              />
+            </div>
           </div>
         ) : null}
       </>

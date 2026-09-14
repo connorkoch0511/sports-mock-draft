@@ -244,4 +244,65 @@ test.describe("the player page", () => {
     await expect(wk1).toContainText("0");
     await expect(wk1).toContainText("1%");
   });
+
+  // The rule this whole feature rests on: a chart is more convincing than
+  // prose, so it is more dangerous to get wrong. A mark for a week nobody
+  // played would visually assert a game that never happened.
+  test.describe("summary tab charts", () => {
+    test("the weekly points chart draws one bar per played week, not one per week in the season", async ({ page }) => {
+      // MOCK_GAME_LOG plays weeks 1, 2 and 4 of an 18-week season -- three
+      // played weeks, one real gap (week 3) sitting between two of them.
+      await mockPlayer(page);
+      await page.goto(`/player/${PLAYER.id}`);
+
+      const chart = page.getByTestId("weekly-points-chart");
+      await expect(chart).toBeVisible();
+      await expect(chart.getByTestId("chart-mark")).toHaveCount(MOCK_GAME_LOG.length);
+      // Week 3 is the gap in the fixture: it must produce no mark at all,
+      // not a mark sitting at zero.
+      await expect(chart.locator('[data-week="3"]')).toHaveCount(0);
+    });
+
+    test("the snap share chart draws one point per played week", async ({ page }) => {
+      await mockPlayer(page);
+      await page.goto(`/player/${PLAYER.id}`);
+
+      const chart = page.getByTestId("snap-share-chart");
+      await expect(chart).toBeVisible();
+      await expect(chart.getByTestId("chart-mark")).toHaveCount(MOCK_GAME_LOG.length);
+    });
+
+    // Latu's case again: fifteen played weeks, every one of them a real
+    // zero. A chart that dropped these marks would look identical to one
+    // for a player who never took the field, which is a different fact.
+    test("an all-zero player still gets a bar at zero height for every played week, axis intact", async ({ page }) => {
+      await mockPlayer(page, {
+        gameLogs: { 2025: ALL_ZERO_GAME_LOG },
+        gameLogThrough: { 2025: 17 },
+      });
+      await page.goto(`/player/${PLAYER.id}`);
+
+      const chart = page.getByTestId("weekly-points-chart");
+      const marks = chart.getByTestId("chart-mark");
+      await expect(marks).toHaveCount(ALL_ZERO_GAME_LOG.length);
+
+      const heights = await marks.evaluateAll((els) => els.map((el) => Number(el.getAttribute("height"))));
+      expect(heights.every((h) => h === 0)).toBe(true);
+
+      // toBeVisible() is unreliable for a thin SVG <line>: Chromium's
+      // bounding box for the stroke is non-empty but Playwright's hit-test
+      // at its center still misses a 1px horizontal stroke. Presence in the
+      // DOM is the actual claim under test -- the axis is drawn, not erased
+      // because every value is zero.
+      await expect(chart.getByTestId("chart-axis")).toHaveCount(1);
+    });
+
+    test("each chart names the season it covers", async ({ page }) => {
+      await mockPlayer(page);
+      await page.goto(`/player/${PLAYER.id}`);
+
+      await expect(page.getByTestId("weekly-points-chart")).toContainText("2025");
+      await expect(page.getByTestId("snap-share-chart")).toContainText("2025");
+    });
+  });
 });
