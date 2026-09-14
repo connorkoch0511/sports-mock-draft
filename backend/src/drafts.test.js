@@ -684,6 +684,9 @@ test("GET /drafts/{id} found returns the full draft object", async () => {
     // No seat-level boardId on this fixture, so the effective board for
     // team 2 falls back to the draft's own -- see boardIdForTeam.
     yourBoardId: "board-1",
+    // No queue stored on this seat in the fixture, so it reports empty
+    // rather than undefined -- see yourQueue.
+    yourQueue: [],
     inviteToken: "invite-abc123",
     picked: ["p1"],
     currentIndex: 1,
@@ -2116,6 +2119,54 @@ test("an unseated caller gets 404, not 403", async () => {
   stubSend({ Item: ownedDraft(ME.sub) });
   const res = await handler(evt("POST", "/drafts/d1/seat-board", { draftId: "d1", body: { boardId: null }, claims: THEM }));
   assert.equal(res.statusCode, 404);
+});
+
+test("a seat's queue is stored, and comes back on the draft", async () => {
+  const d = ownedDraft(ME.sub);
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "UpdateCommand") {
+      d.seats[0].queue = cmd.input.ExpressionAttributeValues[":q"];
+      return {};
+    }
+    return { Item: d };
+  });
+  const res = await handler(
+    evt("POST", "/drafts/d1/queue", { draftId: "d1", body: { queue: ["4034", "6786"] }, claims: ME })
+  );
+  assert.strictEqual(res.statusCode, 200);
+
+  const getRes = await handler(evt("GET", "/drafts/d1", { draftId: "d1", claims: ME }));
+  assert.deepStrictEqual(JSON.parse(getRes.body).yourQueue, ["4034", "6786"]);
+});
+
+// The same guard /seat-board has: a queue is per-seat, and writing one for a
+// seat you do not hold would let anyone steer anyone else's expired clock.
+test("a queue cannot be written for a seat that is not yours", async () => {
+  stubSend({ Item: ownedDraft(ME.sub) });
+  const res = await handler(
+    evt("POST", "/drafts/d1/queue", { draftId: "d1", body: { queue: ["4034"] }, claims: THEM })
+  );
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("a queue is rejected when it is not a list of player ids", async () => {
+  for (const bad of [{ queue: "4034" }, { queue: [1, 2] }, { queue: [{ id: "x" }] }]) {
+    const res = await handler(evt("POST", "/drafts/d1/queue", { draftId: "d1", body: bad, claims: ME }));
+    assert.strictEqual(res.statusCode, 400);
+  }
+});
+
+// A queue is a shortlist, not a second big board. An unbounded array is a
+// payload and an item-size problem for no benefit.
+test("a queue longer than 50 is rejected", async () => {
+  const res = await handler(
+    evt("POST", "/drafts/d1/queue", {
+      draftId: "d1",
+      body: { queue: Array.from({ length: 51 }, (_, i) => `p${i}`) },
+      claims: ME,
+    })
+  );
+  assert.strictEqual(res.statusCode, 400);
 });
 
 test("GET reports the effective board for your seat", async () => {
