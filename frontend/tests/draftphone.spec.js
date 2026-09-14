@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { DRAFT_ID, makeDraftState, mockDraftApis } from "./fixtures.js";
 import { signIn } from "./auth.js";
+import { fileURLToPath } from "url";
+import path from "path";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
 
 // Everything phone-shaped lives in this file so the rest of the suite keeps
 // running at the desktop viewport that is the design's regression net.
@@ -185,6 +189,42 @@ test.describe("the draft page on a phone", () => {
     await page.getByTestId("close-controls").click();
     await expect(page.getByTestId("control-sheet")).toBeHidden();
   });
+
+  // ESPN's clock turns gold when you are up. The strip has to say "you" in a
+  // way that survives being glanced at, and it has to be the shortest route
+  // to the board -- the notification-to-pick path is one tap.
+  test("your turn is visible in the strip, and tapping it goes to the board", async ({ page }) => {
+    await openDraft(page);
+    await expect(page.getByTestId("strip-status")).toContainText("your pick");
+    await expect(page.getByTestId("status-strip")).toHaveAttribute("data-your-turn", "true");
+
+    await page.getByTestId("tab-rosters").click();
+    await expect(page.getByTestId("panel-rosters")).toBeVisible();
+
+    await page.getByTestId("strip-status").click();
+    await expect(page.getByTestId("panel-big-board")).toBeVisible();
+  });
+
+  // The opposite of helpful: moving somebody's view while they are reading.
+  // The strip and the push notification already tell them.
+  test("the turn changing does not move you off the tab you are on", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 1 });
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("tab-bar")).toBeVisible();
+
+    await page.getByTestId("tab-rosters").click();
+    await expect(page.getByTestId("panel-rosters")).toBeVisible();
+
+    // Advance the draft under the page the way the 3s poll would see it.
+    state.currentIndex = 0;
+    await page.waitForTimeout(4000);
+
+    await expect(page.getByTestId("strip-status")).toContainText("your pick");
+    await expect(page.getByTestId("panel-rosters")).toBeVisible();
+    await expect(page.getByTestId("panel-big-board")).toBeHidden();
+  });
 });
 
 test("no strip or sheet button at desktop width", async ({ page }) => {
@@ -237,4 +277,18 @@ test("the phone chrome is not in the desktop DOM at all", async ({ page }) => {
   // ...and the header it replaces is present, which is what makes the
   // absences above meaningful rather than a page that failed to render.
   await expect(page.getByTestId("desktop-header")).toHaveCount(1);
+});
+
+test.describe("phone screenshot", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("draft page on a phone", async ({ page }) => {
+    const state = makeDraftState({ currentIndex: 0 });
+    mockDraftApis(page, state);
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("tab-bar")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Big Board" })).toBeVisible();
+    await page.screenshot({ path: `${SCREENSHOTS}/draft-phone.png` });
+  });
 });

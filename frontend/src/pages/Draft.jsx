@@ -735,8 +735,10 @@ export default function Draft() {
             paused={paused}
             busy={busy}
             completed={completed}
+            isMyTurn={isMyTurn}
             onTogglePause={togglePause}
             onOpenSheet={() => setSheetOpen(true)}
+            onTap={() => setTab("board")}
           />
         )}
 

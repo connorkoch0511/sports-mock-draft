@@ -6,17 +6,29 @@ export default function StatusStrip({
   paused,
   busy,
   completed,
+  isMyTurn,
   onTogglePause,
   onOpenSheet,
+  onTap,
 }) {
   return (
     <div
       data-testid="status-strip"
-      className="lg:hidden shrink-0 flex items-center gap-2 rounded-2xl border border-zinc-800/70 bg-zinc-950/80 px-3 py-2 backdrop-blur"
+      data-your-turn={isMyTurn ? "true" : "false"}
+      className={`lg:hidden shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur ${
+        isMyTurn
+          ? "border-cyan-300/60 bg-cyan-300/10"
+          : "border-zinc-800/70 bg-zinc-950/80"
+      }`}
     >
-      <span data-testid="strip-status" className="text-sm text-zinc-100">
+      <button
+        type="button"
+        data-testid="strip-status"
+        onClick={onTap}
+        className={`text-left text-sm ${isMyTurn ? "text-cyan-200 font-semibold" : "text-zinc-100"}`}
+      >
         {statusLabel}
-      </span>
+      </button>
       <span className="ml-auto text-xs text-zinc-400">Team {myTeam}</span>
       {!completed && (
         <button
