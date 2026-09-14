@@ -21,6 +21,18 @@ draft engine underneath it.
 ### Live Draft Board
 ![Draft](screenshots/draft.png)
 
+### Live Draft Board (phone)
+
+Below the `lg` breakpoint, the same page becomes a bottom tab bar with a
+pinned status strip: one panel on screen at a time instead of the full
+desktop layout stacked into 8 screens of scrolling. The strip highlights on
+your turn and is itself the shortest way back to the board — tap it and the
+Big Board tab comes forward. It never switches you there automatically:
+moving someone's view while they're reading a roster is worse than a strip
+they have to glance at.
+
+![Draft (phone)](screenshots/draft-phone.png)
+
 ### Player drill-down
 
 Click any player — on the draft board or in a big board — for their season

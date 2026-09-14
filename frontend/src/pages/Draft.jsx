@@ -10,6 +10,10 @@ import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
+import TabBar from "../components/draft/TabBar";
+import StatusStrip from "../components/draft/StatusStrip";
+import ControlSheet from "../components/draft/ControlSheet";
+import { useIsPhone } from "../lib/useIsPhone";
 import { skewFrom, remainingSeconds, expireDelayMs, formatCountdown } from "../lib/clock";
 
 // Display fallback only. The server owns the clock; this is what the page
@@ -32,11 +36,19 @@ export default function Draft() {
   const { sub } = useAuth();
   const [draft, setDraft] = useState(null);
   const [players, setPlayers] = useState([]);
+  const [tab, setTab] = useState("board");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [boardRows, setBoardRows] = useState(null);
   const [boardFailed, setBoardFailed] = useState(false);
   const [boardMeta, setBoardMeta] = useState(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const isPhone = useIsPhone();
+  // Widening past lg unmounts the sheet but keeps this state, so narrowing back
+  // would re-open it unbidden. `tab` surviving is wanted; this is not.
+  useEffect(() => {
+    if (!isPhone) setSheetOpen(false);
+  }, [isPhone]);
   // Read once at mount: pushState() is cheap (no network) and this control
   // only ever changes in response to this browser's own click below, never
   // from anything the draft's polling could bring back.
@@ -437,8 +449,44 @@ export default function Draft() {
   // broken.
   const pausedByOther = paused && draft.pausedBy != null && draft.pausedBy !== sub;
 
+  // `lg:contents` makes the wrapper vanish from the box tree at desktop, so the
+  // panels stay direct grid children and RosterPanel's own lg:col-span-2 still
+  // applies. Below lg the wrapper is the visibility switch -- display:none,
+  // which preserves scrollTop (measured), where visibility/absolute does not.
+  // The active wrapper is a COLUMN flex container: with flex-row, width is the
+  // main axis and an unstretched panel sizes to its own content (measured:
+  // 171px inside a 334px band) -- flex-col makes width the cross axis, where
+  // stretch (the default align-items) does the right thing, same as it
+  // already does for height. The panel itself still needs to claim the
+  // column's main axis (height), which [&>*]:flex-1 does without reaching
+  // into the panel's own className. As a grid item the wrapper's default
+  // min-width is min-content (not 0), so without max-lg:min-w-0 it refuses
+  // to shrink below the draft board table's min-w-[620px] and inflates past
+  // the viewport instead of letting that table scroll horizontally inside
+  // its own already-overflow-auto panel (measured: 656px wrapper in a 390px
+  // viewport).
+  const pane = (id) =>
+    `lg:contents ${
+      tab === id
+        ? "max-lg:flex max-lg:flex-col max-lg:min-h-0 max-lg:min-w-0 max-lg:flex-1 max-lg:[&>*]:flex-1"
+        : "max-lg:hidden"
+    }`;
+
+  // The pill ternary in the desktop header answers the same question across
+  // five branches; the strip needs one string, in the same order of
+  // precedence: finished, then stopped, then yours, then whose.
+  const statusLabel = completed
+    ? "✅ Completed"
+    : paused
+      ? "⏸ Paused"
+      : isMyTurn
+        ? `⏱ ${formatCountdown(secondsLeft)} · your pick`
+        : onClockIsBot
+          ? "Auto-picking…"
+          : `Waiting on Team ${currentTeamOnClock}`;
+
   return (
-    <div className="relative min-h-full xl:h-full w-full overflow-x-hidden">
+    <div className="relative min-h-full max-lg:h-full xl:h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -446,7 +494,7 @@ export default function Draft() {
       </div>
 
       {/* Content */}
-      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full xl:h-full flex flex-col gap-4">
+      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 xl:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
@@ -454,7 +502,13 @@ export default function Draft() {
         )}
 
         {/* Top bar */}
-        <div className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+        {/* Absent on a phone, not merely hidden -- the same rule the strip
+            follows at desktop, applied in the other direction. A display:none
+            element still matches locators, so a header left in the phone DOM
+            would duplicate every value the strip shows. The max-lg:hidden
+            stays as belt-and-braces. */}
+        {!isPhone && (
+        <div data-testid="desktop-header" className="max-lg:hidden rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               {/* Same rule as the controls opposite: a finished draft is not
@@ -677,26 +731,156 @@ export default function Draft() {
             </div>
           </div>
         </div>
+        )}
+
+        {isPhone && (
+          <StatusStrip
+            statusLabel={statusLabel}
+            myTeam={myTeam}
+            paused={paused}
+            busy={busy}
+            completed={completed}
+            isMyTurn={isMyTurn}
+            onTogglePause={togglePause}
+            onOpenSheet={() => setSheetOpen(true)}
+            onTap={() => setTab("board")}
+            resultsHref={`/draft/${draftId}/results`}
+          />
+        )}
+
+        {isPhone && (
+        <ControlSheet open={sheetOpen} onClose={() => setSheetOpen(false)}>
+          {/* The same five controls the desktop header carries. They are
+              rendered a second time rather than moved, so each presentation
+              stays simple; the state and handlers behind them are shared. */}
+          {!completed && (
+            // Unlike the desktop header's copy, the sheet has room for a
+            // visible label rather than relying solely on aria-label/title.
+            <label className="flex flex-col gap-1 w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50">
+              <span className="text-xs text-zinc-400">Auto-pick from</span>
+              <select
+                data-testid="seat-board"
+                aria-label="Auto-pick from"
+                title="Auto-pick from"
+                className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-2 py-2 text-sm text-zinc-200"
+                value={draft.yourBoardId ?? ""}
+                onChange={(e) => setSeatBoard(e.target.value)}
+                disabled={busy}
+              >
+                {boardOptions(myBoards, draft.yourBoardId).map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          {!completed && (
+            <button
+              onClick={autoPick}
+              disabled={paused || busy || !autoPickAllowed}
+              className="w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50"
+              title="Auto-pick for whichever team is on the clock"
+            >
+              Auto Pick
+            </button>
+          )}
+
+          {humans > 1 || completed ? null : (
+            <button
+              onClick={simToEnd}
+              disabled={paused || busy}
+              className="w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50"
+            >
+              Sim to End
+            </button>
+          )}
+
+          {!completed && (
+            <button
+              type="button"
+              data-testid="copy-invite"
+              onClick={() =>
+                navigator.clipboard.writeText(
+                  `${window.location.origin}/draft/${draftId}/join?t=${draft.inviteToken}`
+                )
+              }
+              className="w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50"
+            >
+              Copy invite link
+            </button>
+          )}
+
+          {notifyState !== "unsupported" && !completed && (
+            <button
+              type="button"
+              data-testid="notify-toggle"
+              disabled={notifyState === "denied"}
+              onClick={async () => {
+                try {
+                  setNotifyState(await subscribe());
+                } catch {
+                  setNotifyState("error");
+                }
+              }}
+              aria-label={
+                notifyState === "granted"
+                  ? "Notifications on"
+                  : notifyState === "denied"
+                    ? "Notifications blocked"
+                    : notifyState === "error"
+                      ? "Notifications failed, tap to try again"
+                      : "Notify me for your turn"
+              }
+              title={
+                notifyState === "granted"
+                  ? "Notifications on"
+                  : notifyState === "denied"
+                    ? "Notifications blocked"
+                    : notifyState === "error"
+                      ? "Notifications failed, tap to try again"
+                      : "Notify me for your turn"
+              }
+              className="w-full rounded-xl border border-zinc-800 px-3 py-3 text-sm text-zinc-200 text-left disabled:opacity-50"
+            >
+              {notifyState === "granted"
+                ? "On"
+                : notifyState === "denied"
+                  ? "Blocked"
+                  : notifyState === "error"
+                    ? "Retry"
+                    : "Notify"}
+            </button>
+          )}
+        </ControlSheet>
+        )}
 
         {/* 3-column app layout */}
         <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
-            <BigBoardPanel
-              draft={draft}
-              players={players}
-              boardRows={boardRows}
-              boardMeta={boardMeta}
-              boardFailed={boardFailed}
-              myTeam={myTeam}
-              isMyTurn={isMyTurn}
-              paused={paused}
-              canManualPick={canManualPick}
-              makePick={makePick}
-            />
+            <div className={pane("board")}>
+              <BigBoardPanel
+                draft={draft}
+                players={players}
+                boardRows={boardRows}
+                boardMeta={boardMeta}
+                boardFailed={boardFailed}
+                myTeam={myTeam}
+                isMyTurn={isMyTurn}
+                paused={paused}
+                canManualPick={canManualPick}
+                makePick={makePick}
+              />
+            </div>
 
-            <DraftBoardPanel draft={draft} playersById={playersById} />
+            <div className={pane("draft")}>
+              <DraftBoardPanel draft={draft} playersById={playersById} />
+            </div>
 
-            <RosterPanel draft={draft} />
+            <div className={pane("rosters")}>
+              <RosterPanel draft={draft} />
+            </div>
         </div>
+
+        {isPhone && <TabBar active={tab} onChange={setTab} />}
       </div>
     </div>
   );
