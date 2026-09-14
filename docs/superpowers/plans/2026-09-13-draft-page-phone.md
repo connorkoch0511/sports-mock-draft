@@ -10,6 +10,46 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-13-draft-page-phone-design.md`
 
+## Corrections
+
+**This plan's code blocks were wrong five times.** They are left as written so
+the record is honest, but do not copy them — read the shipped files. Every
+defect below reached a green test suite before something else caught it.
+
+1. **`pane()` was `max-lg:flex`** (row direction), so width was the main axis
+   and panels sized to content: Team Rosters rendered at 171px inside a 334px
+   wrapper. Caught by rendering the page, not by tests. Shipped version adds
+   `flex-col` and `[&>*]:flex-1`.
+2. **`pane()` had `min-h-0` but no `min-w-0`.** A grid item defaults to
+   `min-width: auto`, so the Draft Board inflated to 656px in a 390px viewport
+   with ~266px clipped and unreachable. The test written for defect 1 passed
+   on this — both numbers were 656.
+3. **Task 2 Step 5 hid the header with `max-lg:hidden` and nothing else, and
+   Step 3's `ControlSheet` had no focus handling.** A `display: none` element
+   still matches Playwright locators, so the strip's text made two
+   *pre-existing* unscoped `getByText` assertions ambiguous. The shipped
+   version gates the phone chrome **and** the desktop header on `useIsPhone()`
+   so each is absent from the other's DOM. Task 2's note about duplicate
+   testids needing scoped assertions is therefore obsolete.
+4. **`ControlSheet`'s focus effect depended on `onClose`**, an inline arrow
+   recreated every render, while a live draft re-renders once a second from
+   the countdown tick — so it restored and re-stole focus every second, making
+   the sheet's own controls unusable. Its test passed *because* of the bug.
+   Shipped version splits the effects, as `PlayerModal` already did.
+5. **The plan's central premise was false.** It states the suite runs at
+   1280×720 so every existing test exercises desktop. `tests/draftlayout.spec.js`
+   already ran at 390×844, 768×1024 and 1024×768, and was never part of the
+   "desktop net" this plan named. Its shared helper asserted `panel-rosters`
+   visible, which tabs make false below `lg`. Editing it was correct — the rule
+   protects *desktop*, and those two run at phone and tablet widths where the
+   design deliberately changed — but the plan should have known the file
+   existed.
+
+The lesson the branch actually taught: **code and tests both looked right while
+the rendered page was wrong**, repeatedly. Render the page and measure real
+geometry; a diff review cannot see this class of defect, and a test can be
+written that passes because of it.
+
 ## Global Constraints
 
 - **The desktop layout must not change.** The suite runs at 1280×720, above the 1024px `lg` breakpoint, so every existing draft test exercises desktop. **If any existing test needs editing, STOP and report** — that means desktop moved, which the design forbids. This includes the two header no-wrap tests in `boarddraft.spec.js`.

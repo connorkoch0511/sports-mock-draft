@@ -9,7 +9,11 @@ async function openPausedDraft(page) {
   await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
-  await expect(page.getByTestId("panel-rosters")).toBeVisible();
+  // Big Board rather than rosters: below lg the page is tabbed and only the
+  // active tab's panel is visible, and Big Board is the one that opens. At
+  // desktop widths all three are up, so this is a readiness signal that holds
+  // in both layouts.
+  await expect(page.getByTestId("panel-big-board")).toBeVisible();
 }
 
 test.describe("Draft layout", () => {
@@ -127,11 +131,17 @@ test.describe("Draft layout", () => {
     await expect(last).toBeInViewport();
   });
 
-  // Below xl the three-column layout does not apply, so the height must NOT be
-  // bound -- the page falls back to document flow and the routes wrapper
-  // scrolls it. Binding the height at these widths compresses each stacked
-  // panel to a fraction of the viewport; at 390px it collapsed the Big Board
-  // to 0px and no player was clickable.
+  // This guarded a real bug: binding the shell's height at small widths used to
+  // compress each stacked panel to a fraction of the viewport, collapsing the
+  // Big Board to 0px at 390px with no player clickable.
+  //
+  // The premise has since changed and the guard has not. Below lg the height
+  // IS bound now, deliberately -- the page is tabbed, shows one panel at a
+  // time and fits one screen, which is what stops it running 8.2 screens deep
+  // on a phone (see docs/superpowers/specs/2026-09-13-draft-page-phone-design.md).
+  // What survives is the assertion that actually mattered: however the layout
+  // is arranged at these widths, the Big Board still lists players you can
+  // reach. At 1024 the desktop layout applies and all three panels stack.
   for (const [width, height] of [
     [390, 844],
     [768, 1024],

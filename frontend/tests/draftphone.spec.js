@@ -55,6 +55,11 @@ test.describe("the draft page on a phone", () => {
     await signIn(page);
     await page.goto(`/draft/${DRAFT_ID}`);
     await expect(page.getByTestId("tab-bar")).toBeVisible();
+    // Wait for the board's own note before measuring. The board fetch resolves
+    // after the page is interactive and adds height to the panel, so measuring
+    // on tab-bar alone races it -- this test failed once in a full-suite run
+    // and passed in isolation, which is exactly that shape.
+    await expect(page.getByTestId("board-active-note")).toBeVisible();
 
     const bar = await page.getByTestId("tab-bar").boundingBox();
     expect(bar.y + bar.height).toBeLessThanOrEqual(844);
