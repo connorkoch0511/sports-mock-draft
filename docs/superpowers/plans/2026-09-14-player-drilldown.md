@@ -14,28 +14,28 @@
 
 **How does the sync avoid re-fetching a season that never changes?**
 
-It does not. We fetch both seasons every night and raise the Lambda timeout.
+It does not, and it does not need to.
 
-The investigation that settles it: `syncPlayers.js:250` writes with
-`PutRequest`, a **full item replace**, and the sync never reads existing
-items. So a one-off backfill script is impossible — the next nightly run
-erases it. The only ways to keep a stored season are to fetch it again, or to
-read all ~900 items back and carry their rows forward before writing.
+Two findings settle it. First, the caching scheme was impossible:
+`syncPlayers.js:250` writes with `PutRequest`, a **full item replace**, and
+the sync never reads existing items — so a one-off backfill script would be
+erased by the next nightly run, and keeping a stored season would require
+reading all ~900 items back and carrying their rows forward.
 
-The read-and-carry-forward version is more efficient and considerably more
-code: a paginated scan of several MB, a rule for deciding when the stored
-copy is trustworthy, and a new failure mode where a partial scan silently
-drops history for the players it missed. Fetching twice costs eighteen extra
-HTTP calls of a feed we already fetch, on a job that runs once a night with
-nothing waiting on it.
+Second, and decisively: **the cost it was meant to avoid is not real.**
+Measured from the last fourteen days of CloudWatch `REPORT` lines, the whole
+sync runs in **6.7–7.5 seconds** — including today's eighteen week-fetches,
+three ADP feeds and ~900 writes — against a **120-second** timeout. Doubling
+the log fetches lands near fourteen seconds. Eight times the headroom.
 
-**`SyncPlayersFunction`'s 120-second timeout is the only real obstacle, and it
-is an arbitrary number, not a physical one.** Raise it. Task 1 measures the
-actual duration first so the new value is chosen from evidence.
+So: fetch both seasons every night, change nothing about the infrastructure,
+and do not raise the timeout — adjusting it against a measured 8× margin adds
+noise to the template and implies a risk that is not there.
 
-If the measured duration ever makes this painful, carrying rows forward is
-the optimization — recorded here so the reasoning is not lost, and
-deliberately not built now.
+(The first version of this plan raised it to 300s, on a number read from the
+**oldest** invocations in the log group: `filter-log-events` scans from the
+beginning unless given `--start-time`, and those runs predated game logs
+entirely. Measure the right window.)
 
 ## Global Constraints
 
@@ -62,7 +62,7 @@ deliberately not built now.
 ### Task 1: Measure the sync, then store two seasons
 
 **Files:**
-- Modify: `backend/src/sync/gameLogs.js`, `backend/src/syncPlayers.js`, `backend/template.yaml`
+- Modify: `backend/src/sync/gameLogs.js`, `backend/src/syncPlayers.js`, `backend/src/__tests__`
 - Test: `backend/src/__tests__/syncPlayers.test.js` (or the existing game-log test file)
 
 **Interfaces:**
@@ -71,19 +71,21 @@ deliberately not built now.
 
 - [ ] **Step 1: Measure what the sync costs today**
 
-Before changing anything, get the number the timeout decision rests on.
-
 ```bash
-cd backend && aws logs filter-log-events \
-  --log-group-name /aws/lambda/$(aws cloudformation describe-stack-resource \
-    --stack-name sports-mock-draft --logical-resource-id SyncPlayersFunction \
-    --query 'StackResourceDetail.PhysicalResourceId' --output text) \
-  --filter-pattern 'REPORT' --max-items 10 \
-  --query 'events[].message' --output text
+cd backend && START=$(( ($(date +%s) - 14*86400) * 1000 )) && \
+aws logs filter-log-events \
+  --log-group-name "/aws/lambda/sports-mock-draft-SyncPlayersFunction-NSde3jAi0n9f" \
+  --start-time $START --filter-pattern 'REPORT RequestId' \
+  --query 'events[].message' --output text | sed 's/\t/|/g' | grep -oE "Duration: [0-9.]+ ms" | tail -8
 ```
 
-Record the `Duration` and `Max Memory Used` values in your report. If no
-REPORT lines are available, say so — do not guess a number.
+**`--start-time` is not optional.** Without it `filter-log-events` scans from
+the beginning of the log group and returns the oldest invocations — which is
+how the first version of this plan came to believe the sync took 3.5 seconds
+and predated game logs.
+
+Expected, from the controller's own run: durations of **6.7–7.5 seconds**,
+interleaved with ~250–400ms `Init Duration` lines. Record what you see.
 
 - [ ] **Step 2: Write the failing test**
 
@@ -165,23 +167,14 @@ with:
     }
 ```
 
-- [ ] **Step 6: Raise the timeout**
+- [ ] **Step 6: Confirm the duration still fits**
 
-In `backend/template.yaml`, `SyncPlayersFunction`:
-
-```yaml
-      Timeout: 120
-```
-
-becomes:
-
-```yaml
-      # Two seasons of game logs is ~36 week-fetches, against ~18 before, on
-      # top of three ADP feeds that can take ~40s between them. Nothing waits
-      # on this job -- it runs once a night -- so the ceiling is generous
-      # rather than tight. See Step 1's measured duration in the task report.
-      Timeout: 300
-```
+No infrastructure change: the measurement in Step 1 is the reason. Record in
+your report the durations you read and the new expected figure, and state
+plainly whether doubling the fetches keeps the run comfortably inside the
+120-second timeout. **If your Step 1 numbers disagree with the 6.7–7.5s this
+plan measured, stop and report rather than proceeding** — the whole decision
+to fetch both seasons rests on that margin.
 
 - [ ] **Step 7: Run the backend suite**
 
@@ -194,18 +187,10 @@ be the previous count plus the tests you added, with **no existing test
 edited**. If an existing test needed editing, STOP and report — it means the
 single-season keys are load-bearing somewhere this plan did not account for.
 
-- [ ] **Step 8: Validate the template**
+- [ ] **Step 8: Commit**
 
 ```bash
-cd backend && sam validate --lint 2>&1 | tail -3
-```
-
-Expected: valid.
-
-- [ ] **Step 9: Commit**
-
-```bash
-git add backend/src/sync/gameLogs.js backend/src/syncPlayers.js backend/template.yaml backend/src/__tests__
+git add backend/src/sync/gameLogs.js backend/src/syncPlayers.js backend/src/__tests__
 git commit -m "feat: the sync keeps two seasons of game logs"
 ```
 

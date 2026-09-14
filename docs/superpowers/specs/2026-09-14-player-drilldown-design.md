@@ -118,26 +118,32 @@ shape appears with the next run. `players.js` should tolerate the old shape
 until then and return the new one, so a deploy that lands before a sync does
 not blank the tab.
 
-### A completed season is immutable — fetch it once
+### Fetch both seasons every night. The budget is not the problem.
 
-This is the decision that makes the cost acceptable. `mergeGameLogs` fetches
-eighteen weeks one at a time; doing that for two seasons doubles it to
-thirty-six, and **`SyncPlayersFunction` has a 120-second timeout** already
-shared with the ADP feeds, which can take ~40s of it in the worst case.
+**Corrected before implementation, by measuring.** This section previously
+argued that doubling to ~36 week-fetches would threaten
+`SyncPlayersFunction`'s 120-second timeout, and built a scheme around fetching
+a completed season only once because "a finished season never changes".
 
-But a finished season never changes. So: fetch the current season every
-night, and fetch the previous one **only when it is not already stored**.
-Steady-state cost is then unchanged at eighteen fetches, with one expensive
-night when the previous season is first backfilled.
+The real numbers, from the last fourteen days of CloudWatch `REPORT` lines:
+**the whole sync runs in 6.7–7.5 seconds**, and that already includes today's
+eighteen week-fetches plus three ADP feeds and ~900 item writes. Doubling the
+log fetches lands somewhere near fourteen seconds against a 120-second
+ceiling — more than eight times the headroom.
 
-That requires knowing what is already stored, which the sync does not read
-today. **Whether to read the existing items or to run the backfill as a
-one-off script is the implementation's main open question** — and the plan
-must answer it before any code, because getting it wrong means either a
-timeout every night or a sync that silently never backfills.
+So: fetch both seasons nightly, change no infrastructure, and drop the
+caching scheme entirely. The timeout does not need raising either; altering
+it "for safety" against a measured 8× margin is noise in the template.
 
-Either way, **measure the real duration before and after.** The 120s budget
-is the constraint, and no design argument substitutes for the number.
+Two notes on how the earlier number went wrong, because the mistake is
+reusable. `filter-log-events` scans a log group from its **beginning** unless
+given `--start-time`, so the first attempt read the oldest invocations in the
+group — from when the function still had 512MB and before game logs existed —
+and reported 3.5s for a sync that no longer resembled the current one. And
+the caching scheme it was meant to justify was impossible anyway:
+`syncPlayers.js` writes with `PutRequest`, a full item replace, and never
+reads existing items, so nothing survives a night that the run does not
+itself write.
 
 ## Testing
 
