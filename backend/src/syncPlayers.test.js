@@ -545,6 +545,19 @@ test("a week is counted as played even when nobody in our pool appeared", async 
   assert.strictEqual(players[0].gameLogs[2025].length, 5);
 });
 
+// The season window must not depend on which season the coverage rule picked.
+// `[...new Set([resolved.season, STATS_YEAR])]` collapsed to ONE season from
+// about week four of every season -- and a whole-item PutRequest then erases
+// the other. The "keeps both seasons" test below could never catch it: it
+// calls mergeGameLogs twice itself, so it proves the storage shape and never
+// touches the handler's choice of years.
+test("always fetches two seasons, whichever one the coverage rule picked", () => {
+  const { seasonsToFetch } = require("./syncPlayers");
+  assert.deepStrictEqual(seasonsToFetch(2026), [2026, 2025]);
+  assert.strictEqual(seasonsToFetch(2026).length, 2);
+  assert.strictEqual(new Set(seasonsToFetch(2026)).size, 2, "never collapses to one");
+});
+
 test("keeps both seasons, keyed by year", async () => {
   const players = [{ id: "1", name: "A" }];
   const fetchWeek = async (season, week) =>

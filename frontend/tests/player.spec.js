@@ -38,6 +38,21 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("player-page")).toContainText("DET");
   });
 
+  // No browser test had ever loaded a half-PPR league, which is how a table
+  // keyed on "half" instead of the app's own "half-ppr" survived: the unit
+  // test asserted a format string the application never produces, and every
+  // Playwright case used ppr or the standard default.
+  test("a half-PPR league is scored as half-PPR", async ({ page }) => {
+    await mockPlayer(page, {
+      stats: { gp: 10, pts_ppr: 150, pts_half_ppr: 120, pts_std: 90, off_snp: 100, tm_off_snp: 200 },
+    });
+    await page.goto(`/player/${PLAYER.id}?format=half-ppr`);
+
+    // 120 / 10, not 150 / 10 and not 90 / 10. The wrong one renders a number
+    // that looks perfectly reasonable, which is why this asserts the value.
+    await expect(page.getByTestId("kpi-fpts")).toContainText("12.0");
+  });
+
   // Fifteen bars of zero height is mathematically right and reads as an empty
   // box -- indistinguishable from having no data at all. Those are different
   // claims, and conflating them is the exact failure this app once spent a day

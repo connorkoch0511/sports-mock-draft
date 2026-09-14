@@ -3,9 +3,14 @@
 // fourth-string tight end actually has: what he scored, where that ranked,
 // and how often he was on the field.
 
-const POINTS_FIELD = {
+// Keyed on the app's own format vocabulary -- FORMATS in
+// backend/src/sync/normalize.js, and the <option value> set in NewDraft. A
+// table keyed on "half" matched nothing, so every half-PPR drafter was shown
+// STANDARD points under an FPTS/GAME label: a wrong number rather than an
+// absent one, which is the worse failure of the two.
+export const POINTS_FIELD = {
   ppr: "pts_ppr",
-  half: "pts_half_ppr",
+  "half-ppr": "pts_half_ppr",
   standard: "pts_std",
 };
 
@@ -15,7 +20,11 @@ export function computeKpis(detail, format) {
   const s = detail?.stats;
   const gp = num(s?.gp);
 
-  const points = num(s?.[POINTS_FIELD[format] ?? POINTS_FIELD.standard]);
+  // No silent fallback. An unrecognised format means we do not know which
+  // scoring column to divide, and "we do not know" is an em dash -- not
+  // another league's points wearing this league's label.
+  const field = POINTS_FIELD[format];
+  const points = field ? num(s?.[field]) : null;
   const fptsPerGame = gp && gp > 0 && points !== null ? points / gp : null;
 
   // PPR only: the feed publishes no equivalent for the other formats, and a
