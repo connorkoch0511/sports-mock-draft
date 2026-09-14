@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { apiGet } from "../../lib/api";
 import { ReasonList, SCORED_NOTHING, NOT_EVALUATED, ADVICE_BASIS } from "./ReasonList";
 import { columnsFor, statValue, snapShare, withByeGaps, gapLabel } from "./gameLog";
+import { computeKpis } from "./playerKpis";
 import { StartingPoint } from "./StartingPoint";
 
 const SEASON_WEEKS = 18;
 
-function Stat({ label, value }) {
+function Stat({ label, value, testId }) {
   return (
-    <div className="rounded-xl border border-zinc-900 bg-black/40 px-2 py-1.5">
+    <div data-testid={testId} className="rounded-xl border border-zinc-900 bg-black/40 px-2 py-1.5">
       <div className="text-[10px] uppercase tracking-wide text-zinc-500">{label}</div>
       <div className="text-sm text-zinc-200 tabular-nums">{value}</div>
     </div>
@@ -63,6 +64,7 @@ export function PlayerDetail({
   const p = detail || player;
   const log = detail?.gameLog || [];
   const cols = columnsFor(p.position);
+  const kpis = computeKpis(detail, format);
   // Only as far as the season actually got. Rendering all 18 weeks mid-season
   // would label unplayed weeks "did not play", which accuses the player of
   // missing games nobody has played. Falls back to the full season for a log
@@ -105,7 +107,33 @@ export function PlayerDetail({
       {trailing}
     </div>
 
-    <div className="mt-4 grid grid-cols-3 gap-2">
+    {/*
+      Production, not draft position. ADP, rank and tier are right for a
+      first-rounder and an em dash for most of the pool -- what a player
+      actually did is a fact for everyone with a game log, including a
+      fourth-string tight end who never scores. Task 4 moves the trio below
+      into a Summary tab; until then it stays directly under the KPIs so
+      nothing here is lost between tasks.
+    */}
+    <div data-testid="player-kpis" className="mt-4 grid grid-cols-3 gap-2">
+      <Stat
+        label="FPTS/GAME"
+        testId="kpi-fpts"
+        value={kpis.fptsPerGame != null ? kpis.fptsPerGame.toFixed(1) : "—"}
+      />
+      <Stat
+        label="POS RANK"
+        testId="kpi-posrank"
+        value={kpis.posRank ?? "—"}
+      />
+      <Stat
+        label="SNAP SHARE"
+        testId="kpi-snapshare"
+        value={kpis.snapShare != null ? `${Math.round(kpis.snapShare * 100)}%` : "—"}
+      />
+    </div>
+
+    <div className="mt-2 grid grid-cols-3 gap-2">
       <Stat label="ADP" value={p.adp ?? "—"} />
       <Stat label="Rank" value={p.rank ?? "—"} />
       <Stat label="Tier" value={p.tier ?? "—"} />
