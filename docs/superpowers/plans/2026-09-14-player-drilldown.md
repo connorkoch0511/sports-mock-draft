@@ -198,6 +198,18 @@ git commit -m "feat: the sync keeps two seasons of game logs"
 
 ### Task 2: The API returns both seasons
 
+> **Merged into Task 1 during execution.** These two are not independently
+> shippable: `players.js` reads the very keys Task 1 deletes, so Task 1 alone
+> leaves the drill-down with no game log at all until Task 2 lands. They ship
+> as one commit. The steps below stand as written; they are simply performed
+> in Task 1's working tree.
+>
+> The same discovery showed Task 1's "stop if an existing test needs editing"
+> condition was too blunt. That rule catches *unintended* breakage; here the
+> contract change is the task, so the five tests asserting the old
+> single-season shape change deliberately and are listed in the report.
+
+
 **Files:**
 - Modify: `backend/src/players.js`
 - Test: the existing players tests
