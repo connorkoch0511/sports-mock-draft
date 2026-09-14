@@ -57,8 +57,16 @@ export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId }) 
   const color = kind === "bars" ? "#22d3ee" : "#a78bfa";
   const barWidth = 6;
 
+  // A player who appeared fifteen times and scored nothing draws fifteen bars
+  // of zero height -- which is mathematically right and reads as an empty box,
+  // indistinguishable from having no data at all. Those are different claims,
+  // and this is the app that spent a day making a panel say LESS rather than
+  // conflate them. So say it in words. The marks are still rendered beneath,
+  // because the count of them is the season he actually played.
+  const allZero = points.length > 0 && points.every((pt) => pt.value === 0);
+
   return (
-    <div data-testid={testId}>
+    <div data-testid={testId} className="relative">
       {label ? <div className="mb-1 text-[11px] text-zinc-500">{label}</div> : null}
       {/*
         preserveAspectRatio scales the fixed 300x100 drawing down to whatever
@@ -66,6 +74,14 @@ export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId }) 
         no horizontal overflow, and the viewBox's own margins leave room for
         the outermost marks instead of clipping a bar sitting at week 1 or 18.
       */}
+      {allZero && (
+        <div
+          data-testid="chart-all-zero"
+          className="pointer-events-none absolute inset-x-0 bottom-0 top-5 flex items-center justify-center text-xs text-zinc-500"
+        >
+          {`No ${kind === "bars" ? "points" : "snaps"} in ${points.length} games`}
+        </div>
+      )}
       <svg
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         preserveAspectRatio="xMidYMid meet"

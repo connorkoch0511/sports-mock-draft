@@ -38,6 +38,29 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("player-page")).toContainText("DET");
   });
 
+  // Fifteen bars of zero height is mathematically right and reads as an empty
+  // box -- indistinguishable from having no data at all. Those are different
+  // claims, and conflating them is the exact failure this app once spent a day
+  // fixing in the advice panel. The marks stay; the words say which it is.
+  test("a season of zeros says so, rather than looking empty", async ({ page }) => {
+    const zeros = Array.from({ length: 15 }, (_, i) => ({
+      wk: i + 1,
+      rec: 0, rec_tgt: 0, rec_yd: 0, rec_td: 0, pts_ppr: 0,
+      off_snp: [3, 5, 9, 2, 7, 4, 10, 1, 6, 8, 2, 5, 3, 9, 4][i],
+      tm_off_snp: 62,
+    }));
+    await mockPlayer(page, {
+      stats: { gp: 15, off_snp: 78, tm_off_snp: 930, pts_ppr: 0, pts_std: 0 },
+      gameLogs: { 2025: zeros },
+      gameLogThrough: { 2025: 18 },
+    });
+    await page.goto(`/player/${PLAYER.id}`);
+
+    await expect(page.getByTestId("chart-all-zero")).toContainText("No points in 15 games");
+    // The marks are still there: the count of them is the season he played.
+    await expect(page.getByTestId("chart-mark")).not.toHaveCount(0);
+  });
+
   // The KPI row is the glanceable answer and belongs above the tabs, not
   // inside one of them -- Yahoo and Sleeper both pin their equivalent there.
   // Without this assertion the row can drift back inside Summary and every
