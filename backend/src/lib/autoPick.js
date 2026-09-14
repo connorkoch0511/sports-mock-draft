@@ -166,7 +166,21 @@ async function autoPickAndAdvance({
   const rankOf =
     (await loadBoardRank({ ddb, boardsTable, boardId: boardIdForTeam(d, teamNum) })) || consensusRank;
 
-  const best = pickBestForTeam(d, teamNum, players, rankOf);
+  // The queue outranks everything, including the roster guard inside
+  // pickBestForTeam. That guard stops the picker wrecking a roster while it
+  // is GUESSING; a queue is the user having said exactly what they want, and
+  // a feature that second-guesses that is not worth having.
+  //
+  // Filtered, never pruned: a queued player somebody else drafted is skipped
+  // here, and disappears from the owner's list on their next render, with no
+  // write and no cross-seat race. See the spec.
+  const seat = (d.seats || []).find((s) => s?.team === teamNum);
+  const pickedSet = new Set(d.picked || []);
+  const queued = (seat?.queue || []).find((id) => !pickedSet.has(id) && byId[id]);
+
+  const best = queued
+    ? byId[queued]
+    : pickBestForTeam(d, teamNum, players, rankOf);
   if (!best) return { ok: false, code: "empty" };
 
   d.picks[d.currentIndex].playerId = best.id;
