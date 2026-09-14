@@ -138,6 +138,30 @@ test.describe("the draft page on a phone", () => {
   // Five wrapped rows of controls was half of what made this page unusable.
   // These are all set-once -- which board drives your auto-pick, whether to
   // notify, who to invite -- so they belong behind the sheet, not in the way.
+  // The mirror of the desktop absence test. A header merely hidden on a phone
+  // would leave every value the strip shows duplicated in the DOM -- the same
+  // hazard, pointed the other way, and the strip gains more in Task 3.
+  test("the desktop header is not in the phone DOM at all", async ({ page }) => {
+    await openDraft(page);
+    await expect(page.getByTestId("desktop-header")).toHaveCount(0);
+    await expect(page.getByTestId("status-strip")).toBeVisible();
+  });
+
+  // role="dialog" is a promise about behaviour. Escape is the key everyone
+  // tries first, and focus has to land inside rather than behind the backdrop.
+  test("the sheet takes focus and closes on Escape", async ({ page }) => {
+    await openDraft(page);
+    await page.getByTestId("open-controls").click();
+
+    const sheet = page.getByTestId("control-sheet");
+    await expect(sheet).toBeVisible();
+    await expect(sheet).toHaveAttribute("aria-modal", "true");
+    await expect(sheet).toBeFocused();
+
+    await page.keyboard.press("Escape");
+    await expect(sheet).toHaveCount(0);
+  });
+
   test("the setup controls are in the sheet, not the strip", async ({ page }) => {
     await openDraft(page);
 
@@ -210,4 +234,7 @@ test("the phone chrome is not in the desktop DOM at all", async ({ page }) => {
   await expect(page.getByTestId("status-strip")).toHaveCount(0);
   await expect(page.getByTestId("tab-bar")).toHaveCount(0);
   await expect(page.getByTestId("open-controls")).toHaveCount(0);
+  // ...and the header it replaces is present, which is what makes the
+  // absences above meaningful rather than a page that failed to render.
+  await expect(page.getByTestId("desktop-header")).toHaveCount(1);
 });

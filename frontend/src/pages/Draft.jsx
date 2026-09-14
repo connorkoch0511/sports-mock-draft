@@ -497,7 +497,13 @@ export default function Draft() {
         )}
 
         {/* Top bar */}
-        <div className="max-lg:hidden rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+        {/* Absent on a phone, not merely hidden -- the same rule the strip
+            follows at desktop, applied in the other direction. A display:none
+            element still matches locators, so a header left in the phone DOM
+            would duplicate every value the strip shows. The max-lg:hidden
+            stays as belt-and-braces. */}
+        {!isPhone && (
+        <div data-testid="desktop-header" className="max-lg:hidden rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               {/* Same rule as the controls opposite: a finished draft is not
@@ -720,6 +726,7 @@ export default function Draft() {
             </div>
           </div>
         </div>
+        )}
 
         {isPhone && (
           <StatusStrip
