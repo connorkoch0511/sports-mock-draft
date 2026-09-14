@@ -5,6 +5,7 @@ import { columnsFor, statValue, snapShare, withByeGaps, gapLabel } from "./gameL
 import { computeKpis } from "./playerKpis";
 import { StartingPoint } from "./StartingPoint";
 import { WeeklyChart } from "./WeeklyChart";
+import { POINTS_FIELD } from "./playerKpis";
 
 const SEASON_WEEKS = 18;
 
@@ -156,7 +157,18 @@ export function PlayerDetail({
       actually did is a fact for everyone with a game log, including a
       fourth-string tight end who never scores.
     */}
-    <div data-testid="player-kpis" className="mt-4 grid grid-cols-3 gap-2">
+    {/*
+      The season these three describe. They come from `stats`, whose year the
+      coverage rule picks and flips mid-autumn -- which is the very "you
+      cannot tell which year you are reading" problem this redesign set out to
+      fix, and it would have been reintroduced one row higher.
+    */}
+    {p.statsSeason ? (
+      <div data-testid="kpi-season" className="mt-3 text-[11px] text-zinc-500">
+        Season totals — {p.statsSeason}
+      </div>
+    ) : null}
+    <div data-testid="player-kpis" className="mt-1 grid grid-cols-3 gap-2">
       <Stat
         label="FPTS/GAME"
         testId="kpi-fpts"
@@ -231,7 +243,11 @@ export function PlayerDetail({
                 kind="bars"
                 rows={log}
                 weeks={through}
-                valueOf={(row) => statValue(row, "pts_ppr")}
+                // The league's own scoring, matching the KPI row above. The
+                // bars were hard-coded to PPR, so a standard league read
+                // "FPTS/GAME 9.0" above weeks averaging 15 -- two scoring
+                // systems, unlabelled, an inch apart.
+                valueOf={(row) => statValue(row, POINTS_FIELD[format] ?? "pts_ppr")}
               />
             </div>
             <div className="rounded-2xl border border-zinc-900 bg-black/40 px-3 py-2">
@@ -242,6 +258,9 @@ export function PlayerDetail({
                 rows={log}
                 weeks={through}
                 valueOf={snapShare}
+                // 0-100, fixed: auto-scaling drew a 16% ceiling and a 96%
+                // ceiling as the same line at the top of the box.
+                domainMax={100}
               />
             </div>
           </div>

@@ -53,6 +53,52 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("kpi-fpts")).toContainText("12.0");
   });
 
+  // A lost fumble is -2. A bar computed from max(baseline - y, 0) rendered
+  // nothing for those weeks -- a mark present in the DOM and absent from the
+  // screen, which reads as "did not play". Count assertions sailed over it.
+  test("a negative week is drawn, not swallowed", async ({ page }) => {
+    await mockPlayer(page, {
+      gameLogs: { 2025: [
+        { wk: 1, pts_ppr: 12, off_snp: 30, tm_off_snp: 60 },
+        { wk: 2, pts_ppr: -2, off_snp: 20, tm_off_snp: 60 },
+      ] },
+      gameLogThrough: { 2025: 18 },
+    });
+    await page.goto(`/player/${PLAYER.id}?format=ppr`);
+
+    const negative = page.getByTestId("weekly-points-chart").locator('[data-week="2"]');
+    await expect(negative).toHaveCount(1);
+    // Rendered, not merely present: height is the whole point.
+    const h = Number(await negative.getAttribute("height"));
+    expect(h).toBeGreaterThan(0);
+  });
+
+  // Snap share is a percentage, so the scale must be the percentage's own --
+  // not each player's peak, which drew 16% and 96% as the identical line.
+  test("snap share is scaled against 100, not the player's own best week", async ({ page }) => {
+    await mockPlayer(page, {
+      gameLogs: { 2025: [{ wk: 1, pts_ppr: 0, off_snp: 6, tm_off_snp: 60 }] },
+      gameLogThrough: { 2025: 18 },
+    });
+    await page.goto(`/player/${PLAYER.id}?format=ppr`);
+
+    const mark = page.getByTestId("snap-share-chart").locator('[data-week="1"]');
+    await expect(mark).toHaveCount(1);
+    // 10% must sit near the bottom of the plot. Auto-scaled it would be at
+    // the very top, since it is this player's maximum.
+    const cy = Number(await mark.getAttribute("cy"));
+    expect(cy).toBeGreaterThan(60);
+  });
+
+  // The KPI trio comes from `stats`, whose season the coverage rule flips
+  // mid-autumn. Unlabelled, it recreates the "which year am I reading?"
+  // problem this redesign exists to fix, one row higher.
+  test("the KPI row says which season it describes", async ({ page }) => {
+    await mockPlayer(page, { statsSeason: 2025 });
+    await page.goto(`/player/${PLAYER.id}?format=ppr`);
+    await expect(page.getByTestId("kpi-season")).toContainText("2025");
+  });
+
   // Fifteen bars of zero height is mathematically right and reads as an empty
   // box -- indistinguishable from having no data at all. Those are different
   // claims, and conflating them is the exact failure this app once spent a day

@@ -43,16 +43,26 @@ function xFor(wk, totalWeeks) {
  * `label`: short caption, expected to name the season.
  * `testId`: data-testid on the chart's own container.
  */
-export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId }) {
+export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId, domainMax }) {
   const points = (rows || [])
     .map((row) => ({ wk: row.wk, value: valueOf(row) }))
     .filter((p) => typeof p.value === "number" && Number.isFinite(p.value));
 
-  // Math.max(1, ...) rather than Math.max(...): an all-zero season (or an
-  // empty one) must not divide by zero, and a floor of 1 keeps a real zero
-  // plotted flush against the baseline instead of undefined.
-  const maxValue = Math.max(1, ...points.map((p) => p.value));
-  const yFor = (value) => BASELINE - (value / maxValue) * PLOT_HEIGHT;
+  // `domainMax` fixes the top of the scale for a bounded measure. Snap share
+  // is a percentage: auto-scaling it to each player's own peak drew a 16%
+  // ceiling and a 96% ceiling as the identical line touching the top of the
+  // box, so a fourth-stringer and a bell-cow looked the same. Points have no
+  // natural ceiling and keep auto-scaling.
+  const values = points.map((p) => p.value);
+  const maxValue = domainMax ?? Math.max(1, ...values);
+  // Weekly points go negative -- a lost fumble is -2 -- and a bar computed as
+  // max(baseline - y, 0) rendered nothing at all for those weeks, which reads
+  // as "did not play". The floor is the data's own minimum so a negative week
+  // is drawn, downward, from the zero line.
+  const minValue = Math.min(0, ...values);
+  const span = maxValue - minValue || 1;
+  const yFor = (value) => BASELINE - ((value - minValue) / span) * PLOT_HEIGHT;
+  const zeroY = yFor(0);
 
   const color = kind === "bars" ? "#22d3ee" : "#a78bfa";
   const barWidth = 6;
@@ -64,6 +74,10 @@ export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId }) 
   // conflate them. So say it in words. The marks are still rendered beneath,
   // because the count of them is the season he actually played.
   const allZero = points.length > 0 && points.every((pt) => pt.value === 0);
+  // Rows exist but none of them carries this measure -- snap counts are not
+  // recorded for every player. An axis with no marks and no words is the same
+  // empty box the all-zero note exists to prevent, for the opposite reason.
+  const noneRecorded = points.length === 0 && (rows || []).length > 0;
 
   return (
     <div data-testid={testId} className="relative">
@@ -74,12 +88,14 @@ export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId }) 
         no horizontal overflow, and the viewBox's own margins leave room for
         the outermost marks instead of clipping a bar sitting at week 1 or 18.
       */}
-      {allZero && (
+      {(allZero || noneRecorded) && (
         <div
           data-testid="chart-all-zero"
           className="pointer-events-none absolute inset-x-0 bottom-0 top-5 flex items-center justify-center text-xs text-zinc-500"
         >
-          {`No ${kind === "bars" ? "points" : "snaps"} in ${points.length} games`}
+          {noneRecorded
+            ? `${kind === "bars" ? "Points" : "Snap counts"} not recorded`
+            : `No ${kind === "bars" ? "points" : "snaps"} in ${points.length} games`}
         </div>
       )}
       <svg
@@ -109,8 +125,11 @@ export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId }) 
         {kind === "bars" ? (
           points.map((p) => {
             const x = xFor(p.wk, weeks) - barWidth / 2;
-            const y = yFor(p.value);
-            const height = Math.max(BASELINE - y, 0);
+            const v = yFor(p.value);
+            // From the zero line, up or down, so a negative week is visible
+            // as a negative week rather than as nothing.
+            const y = Math.min(v, zeroY);
+            const height = Math.abs(v - zeroY);
             return (
               <rect
                 key={p.wk}
