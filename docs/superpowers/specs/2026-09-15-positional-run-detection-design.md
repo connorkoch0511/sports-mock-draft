@@ -1,5 +1,13 @@
 # A run on a position is an argument for taking one
 
+> **The baseline in this spec was measured and replaced.** See
+> `2026-09-15-run-baseline-redesign.md`. Audited against 8,640 simulated picks
+> on the live pool, the expected-rate model here fired on 61% of round 2 and 0%
+> of rounds 5-15 — the inverse of the worked example below. Everything else in
+> this document still holds: why this is a factor and not a banner, why your own
+> picks are excluded, and why the sentence must be true of the Draft Board.
+
+
 The advice engine reasons about scarcity — how many startable players at a
 position are expected to survive to your next pick — but it has no notion of
 *momentum*. It cannot tell that most of the recent picks were running backs. The
