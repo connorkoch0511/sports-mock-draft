@@ -334,40 +334,52 @@ test("an unranked reconstruction can't form a trustworthy top-K, so it stays sil
   );
 });
 
-test("the user's own interleaved picks widen K past window.length", () => {
+test("the user's own interleaved picks widen K past window.length, and belong in the reconstruction", () => {
   // K counts picks by ANY seat since the window began; the window (and its
-  // count) only ever counts other teams'. Every other fixture in this file
-  // has K === window.length, so it can't tell K's slice from window.length's.
-  // Here two of the user's own picks (mine1, mine2) land inside the window's
-  // span, so K is 10 while window.length stays 8 -- and the reconstructed
-  // board's best 10 is a genuinely bigger, differently-shared slice than its
-  // best 8.
+  // count) only ever counts other teams'. Two mutations both leave every
+  // other fixture in this file green, because every other fixture has
+  // K === window.length AND every taken player the reconstruction needs
+  // comes from `others` anyway:
+  //   (a) using window.length instead of K for bestK and the expected share;
+  //   (b) using `others` instead of `made` for windowStartIdx and takenSince.
+  // This fixture is built so BOTH change the verdict, because the user's own
+  // two picks (mine1, mine2) are ranked WORSE than everything else here --
+  // 12th and 13th of 13 -- so they never occupy a seat inside the board's
+  // best 10 themselves. What they do is cost two seats: K is 10 instead of
+  // 8, so the reconstruction reaches two slots deeper into the board than
+  // window.length would, and those two extra slots (ranks 9-10) are RB.
+  // Drop mine1/mine2 from the count entirely (mutation b) or just from the
+  // slice size (mutation a) and both send K back to 8, losing exactly those
+  // two RB seats.
   //
-  // The other-team picks (o1..o8) are 5 RB, 3 WR -- observed 5/8 = 0.625,
-  // same as the other RB-run fixtures. The reconstructed board is ranked so
-  // that:
-  //   - top 8  (ranks 1-8):  2 RB, 6 WR -- expected 2/8  = 0.25, threshold 0.4375
-  //   - top 10 (ranks 1-10): 4 RB, 6 WR -- expected 4/10 = 0.4,  threshold 0.7
-  // At the correct K = 10, 0.625 does not clear 0.7: no run. Using
-  // window.length (8) for both the slice and the denominator instead of K --
-  // one of the two mutations the finding names -- would compute the top-8
-  // numbers instead, clear 0.4375, and fire. That's the bug this pins.
+  // The other-team picks (o1..o5, o6..o8) are 5 RB, 3 WR -- observed
+  // 5/8 = 0.625, same as the other RB-run fixtures. The reconstructed board
+  // (available's 3 fillers plus all 10 taken, ranked 1-13) works out to:
+  //   - top 8  (ranks 1-8):  2 RB (o1, o2), 6 WR -- expected 0.25,  threshold 0.4375
+  //   - top 10 (ranks 1-10): 4 RB (o1-o4),  6 WR -- expected 0.4,   threshold 0.7
+  //   - o5 (RB, rank 11) and both mine picks (ranks 12-13) sit outside top 10
+  //     entirely, so removing mine1/mine2 from the pool doesn't touch top 10's
+  //     membership -- it only lets K fall back to 8, at which point top 10
+  //     shrinks to top 8 and loses exactly o3 and o4.
+  // At the correct K = 10, 0.625 does not clear 0.7: no run. Either mutation
+  // computes the top-8 numbers instead (2 RB, expected 0.25) and fires.
   const wrA1 = { id: "wrA1", position: "WR", rank: 1 };
   const wrA2 = { id: "wrA2", position: "WR", rank: 3 };
-  const available = [wrA1, wrA2];
+  const wrA3 = { id: "wrA3", position: "WR", rank: 5 };
+  const available = [wrA1, wrA2, wrA3];
 
   const o1 = rankedPick(2, "o1", "RB", 2);
-  const mine1 = rankedPick(1, "mine1", "WR", 4);
-  const o6 = rankedPick(7, "o6", "WR", 5);
-  const o7 = rankedPick(8, "o7", "WR", 6);
-  const o8 = rankedPick(9, "o8", "WR", 7);
-  const o2 = rankedPick(3, "o2", "RB", 8);
+  const o2 = rankedPick(3, "o2", "RB", 4);
+  const o6 = rankedPick(7, "o6", "WR", 6);
+  const o7 = rankedPick(8, "o7", "WR", 7);
+  const o8 = rankedPick(9, "o8", "WR", 8);
   const o3 = rankedPick(4, "o3", "RB", 9);
   const o4 = rankedPick(5, "o4", "RB", 10);
-  // Unranked: irrelevant to the top-10 reconstruction, but still counted in
-  // the window (o5) and still correctly excluded as the user's own (mine2).
-  const o5 = pick(6, "o5", "RB");
-  const mine2 = pick(1, "mine2", "WR");
+  const o5 = rankedPick(6, "o5", "RB", 11);
+  // The user's own picks, both ranked worse than every other-team pick and
+  // every available filler -- outside the board's best 10 either way.
+  const mine1 = rankedPick(1, "mine1", "WR", 12);
+  const mine2 = rankedPick(1, "mine2", "WR", 13);
 
   const made = [o1, mine1, o2, mine2, o3, o4, o5, o6, o7, o8];
   const runs = detectRuns({ made, mySlot: 1, available });
@@ -375,6 +387,7 @@ test("the user's own interleaved picks widen K past window.length", () => {
   assert.strictEqual(
     runs.get("RB"),
     undefined,
-    "using window.length instead of K would fire on the top-8 numbers"
+    "reading K as window.length, or takenSince/windowStartIdx from `others`, " +
+      "would both lose o3 and o4 from the top 10 and fire on the top-8 numbers"
   );
 });
