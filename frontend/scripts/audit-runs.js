@@ -148,8 +148,36 @@ function otherTeamWindow(made, seat) {
   return made.filter((p) => Number(p.team) !== seat).slice(-RUN_WINDOW);
 }
 
+/**
+ * How many players carrying a finite consensus rank are still on the board at
+ * the START of each round -- sampled once per round, not once per pick.
+ *
+ * This is not decoration. Only 118 of the live pool's 889 players are ranked,
+ * and detectRuns reconstructs the board it compares against by sorting with
+ * compareRank, which ties every unranked player. Once fewer ranked players
+ * remain than the window's K, the reconstruction cannot be trusted and the
+ * factor deliberately stays silent. Printing this column beside the firing
+ * rate is what lets a reader tell "silent because nothing departed from the
+ * board" apart from "silent because the board has no opinion left".
+ */
+function rankedRemainingByRound(players, picks) {
+  const totalRanked = players.filter((p) => Number.isFinite(p?.rank)).length;
+  const byRound = new Map();
+  let taken = 0;
+  let idx = 0;
+  for (let round = 1; round <= ROUNDS; round++) {
+    byRound.set(round, totalRanked - taken);
+    while (idx < picks.length && picks[idx].round === round) {
+      if (Number.isFinite(picks[idx].player?.rank)) taken += 1;
+      idx += 1;
+    }
+  }
+  return byRound;
+}
+
 function auditDraft(players, picks, label) {
   const results = [];
+  const rankedAtRound = rankedRemainingByRound(players, picks);
   for (let seat = 1; seat <= TEAMS; seat++) {
     for (let at = 0; at < picks.length; at++) {
       const made = picks.slice(0, at);
@@ -193,6 +221,7 @@ function auditDraft(players, picks, label) {
         fired: texts.size > 0,
         reasons: [...texts.values()],
         onRecommendation,
+        rankedRemaining: rankedAtRound.get(picks[at].round) ?? null,
         made,
       });
     }
@@ -249,20 +278,28 @@ function summarise(results, title) {
     console.log(`  ${count} of ${RUN_WINDOW}  ${String(n).padStart(5)}  weight ${weight}`);
   }
 
-  console.log("\nby round");
+  console.log("\nby round  (ranked = players with a consensus rank still on the");
+  console.log("           board at the START of the round; the baseline goes");
+  console.log("           silent once fewer than K of them remain)");
   const perRound = new Map();
   for (const r of results) {
-    const cell = perRound.get(r.round) || { total: 0, fired: 0 };
+    const cell = perRound.get(r.round) || { total: 0, fired: 0, ranked: 0, rankedN: 0 };
     cell.total += 1;
     if (r.fired) cell.fired += 1;
+    if (Number.isFinite(r.rankedRemaining)) {
+      cell.ranked += r.rankedRemaining;
+      cell.rankedN += 1;
+    }
     perRound.set(r.round, cell);
   }
+  console.log(`  ${"rd".padEnd(4)} ${"fired/total".padEnd(12)} ${"rate".padStart(6)}  ${"ranked".padStart(6)}`);
   for (const round of [...perRound.keys()].sort((a, b) => a - b)) {
-    const { total: t, fired: f } = perRound.get(round);
+    const { total: t, fired: f, ranked, rankedN } = perRound.get(round);
     const bar = "#".repeat(Math.round((f / t) * 40));
+    const avgRanked = rankedN === 0 ? "n/a" : String(Math.round(ranked / rankedN));
     console.log(
-      `  r${String(round).padStart(2)}  ${String(f).padStart(4)}/${String(t).padEnd(4)} ` +
-        `${pct(f, t).padStart(6)}  ${bar}`
+      `  r${String(round).padStart(2)}  ${(String(f).padStart(4) + "/" + String(t).padEnd(4)).padEnd(12)} ` +
+        `${pct(f, t).padStart(6)}  ${avgRanked.padStart(6)}  ${bar}`
     );
   }
   return fired;

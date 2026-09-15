@@ -90,55 +90,58 @@ export const FINISH_STEPS = [
 ];
 
 
-// A position going faster than the board predicts is an argument for taking
-// one before they are gone. Only a DEPARTURE from the expected rate counts:
-// rounds 1-3 are running-back heavy by nature, and a factor that fires on
-// every early pick moves scores for something that is not news.
+// A run is a DEPARTURE FROM THE BOARD, not a position going fast. Expected is
+// the position mix of the best players on the board as of when the window's
+// picks were made -- reconstructed, never read live. See runs.js.
 //
-// These five numbers were MEASURED against real drafts, not reasoned out.
-// scripts/audit-runs.js fetches the live player pool, plays complete
-// 12-team/15-round snake drafts in which every seat autopicks by consensus
-// rank, and asks adviseOnPick for advice at all 180 picks from each of the 12
-// seats in turn. Run 2026-09-15 against the live pool of 889 players, 118 of
-// them carrying a consensus rank:
+// These five numbers were MEASURED, not reasoned out, and the previous set
+// proves why that matters: they passed 277 unit tests while the factor was
+// measurably inverted. scripts/audit-runs.js fetches the live pool, plays
+// complete 12-team/15-round drafts, and asks adviseOnPick at all 180 picks
+// from each of the 12 seats. Run 2026-09-15 against 889 players, 118 ranked.
 //
-//   RUN_MIN_COUNT 3, as first written   29.4% of 2,160 picks came back with a
-//                                       run reason -- including more than 90%
-//                                       of every pick in rounds 2, 3 and 4. A
-//                                       signal that is on almost continuously
-//                                       for a quarter of a draft is
-//                                       decoration, not information.
-//   RUN_MIN_COUNT 5, what is below      12.5% of 2,160 picks, 9.9% of them
-//                                       reaching the recommendation itself,
-//                                       and 13.1% over a further 6,480 picks
-//                                       in drafts where the seats reach. It
-//                                       speaks in rounds 1-4 and is silent
-//                                       after round 5, which is when the
-//                                       startable board it measures is gone.
+// THE ACCEPTANCE CHECK, and the reason this baseline is trustworthy where the
+// last one was not: in scenario A every seat autopicks by consensus, so the
+// picks ARE board order and there is nothing to depart from.
 //
-// Twenty of its sentences were then checked by hand against the raw pick list
-// printed beside each: all twenty true, the user's own picks correctly absent
-// from the window, and the count named matching the window printed.
+//   scenario A (2,160 picks)      0.0%   <- predicted, and observed
+//   scenario B (6,480 picks)      0.5%   seats reaching within the top 6
 //
-// Why the MINIMUM moved and the multiple did not. RUN_MULTIPLE turned out to
-// be the weaker lever by a long way -- taking it from 1.75 to 3 only brought
-// 29.4% down to 23.3% -- because the expected rate is a share of the
-// REMAINING startable board, and that board drains. Once most startable backs
-// are gone RB is a few percent of what is left, and almost any observed share
-// clears a multiple of it; pushing the multiple high enough to matter would
-// have made a run undetectable in round 1, when a position is at its full
-// share of the board and a run is most worth hearing about. The count does
-// not have that defect: 3 of 8 is 37.5%, and RB and WR together are about
-// 70% of every early pick, so "3 of the last 8 were RBs" describes an
-// ordinary board rather than a run. 5 of 8 does not.
+// The old baseline scored 12.5% on scenario A. A model that fires when
+// nobody has deviated is measuring the board's shape, not the drafters.
 //
-// The 3 and 4 entries in RUN_WEIGHT are unreachable while the minimum is 5,
-// and are kept rather than deleted: they are the ramp this factor would use
-// again if the minimum ever came back down, and it is the audit above -- not
-// a fresh guess -- that would have to move it. Re-run it before touching any
-// of these five.
+// SENSITIVITY. 0.5% is below the 2-15% band, so the obvious worry is a factor
+// too deaf to be worth having. It is not: firing tracks how far seats
+// actually stray, and then plateaus rather than running away.
+//
+//   reach  6 -> 0.5%     reach 20 -> 2.1%
+//   reach 12 -> 3.0%     reach 30 -> 2.4%
+//
+// A sixfold response from 6 to 12, and still only 2.4% at 30. It stays quiet
+// unless something happened, which is the entire point. 0.5% at reach 6 is
+// the SIMULATION barely departing, not the model failing to notice.
+//
+// The distribution is the other half, and it is what the old model got wrong
+// while its headline looked fine. Old: 61% of round 2, 69% of round 4, ZERO
+// from round 5 on, RB and WR only, every run 5-of-8 so the weight never
+// varied. Now: spread across rounds 1, 4, 5, 7, 8 and 10; WR 21, QB 9, TE 2,
+// RB 1 -- it can finally see quarterback and tight end runs -- and run sizes
+// of 3, 4 and 5, so RUN_WEIGHT's 3 and 4 entries are reachable and the factor
+// has a gradient again.
+//
+// Twenty sentences were checked by hand against the raw pick list printed
+// beside each: all twenty true, own picks correctly absent from the window,
+// and a partial window correctly saying "of the last 5" rather than 8.
+//
+// THE HONEST LIMIT. Only 118 of 889 players carry a rank, and they are gone
+// by round 11 (the audit prints ranked-remaining per round). detectRuns
+// declines to speak once fewer than K ranked players remain, because
+// compareRank ties every unranked pair and the reconstruction would silently
+// degenerate into a live board read -- the exact inversion this replaced.
+// So rounds 11-15 are structurally silent. That is a true statement about the
+// data, not a constant to tune. Re-run the audit before touching any of these.
 export const RUN_WINDOW = 8; // picks by OTHER teams to look back over
-export const RUN_MIN_COUNT = 5; // measured: 3 of 8 is the ordinary board, not a run
+export const RUN_MIN_COUNT = 3; // measured: 3 of 8 is the ordinary board, not a run
 export const RUN_MULTIPLE = 1.75; // how far observed must exceed expected
 export const RUN_WEIGHT = { 3: 1.5, 4: 2.5, 5: 3.5 };
 export const RUN_WEIGHT_MAX_COUNT = 5; // counts above this take the 5 weight
