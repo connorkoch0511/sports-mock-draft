@@ -123,7 +123,7 @@ export function BigBoardPanel({
   const currentTeamOnClock = draft?.picks?.[draft?.currentIndex]?.team ?? draft?.currentTeam ?? null;
 
   return (
-      <div data-testid="panel-big-board" className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col">
+      <div data-testid="panel-big-board" className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 space-y-3 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Big Board</h2>
           <div className="text-xs text-zinc-400">
@@ -178,10 +178,17 @@ export function BigBoardPanel({
           the worst possible moment to delete the answer. It prints the
           position and team, so it is never pointing at nothing.
         */}
+        {/* A flex child defaults to min-height:auto, so this card refused to
+            shrink and pushed the player list past the panel's bottom edge --
+            where, the box being overflow:visible, it painted over the queue
+            strip and off the screen. min-h-0 lets it yield height, and it
+            scrolls rather than clipping, so no reason is lost. It only shrinks
+            where the panel cannot hold it: at 900 tall and up, nothing here
+            changes. */}
         {isMyTurn && recommendation ? (
           <div
             data-testid="advice-card"
-            className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 space-y-2"
+            className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 space-y-2 min-h-0 overflow-auto"
           >
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">

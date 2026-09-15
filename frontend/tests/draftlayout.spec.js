@@ -240,4 +240,29 @@ test.describe("Draft layout", () => {
       expect(visibleRows, "player rows visible in the Big Board").toBeGreaterThan(2);
     });
   }
+
+  // The panel boxes are `overflow: visible`, so content that does not fit
+  // them does not clip -- it paints straight through whatever is beneath.
+  // Height-binding the desktop layout at lg made that reachable: at 1280x720
+  // the Big Board's own content ran 178px past its bottom edge and drew over
+  // the queue strip and off the screen, which is what the README screenshot
+  // caught. A panel whose scrollHeight exceeds its clientHeight is spilling;
+  // a scroll container inside it (scroll-big-board) is allowed to, and does.
+  for (const [width, height] of [
+    [1280, 720],
+    [1280, 800],
+    [1440, 900],
+  ]) {
+    test(`no panel paints outside its own box at ${width}x${height}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await openPausedDraft(page);
+
+      for (const id of ["panel-big-board", "panel-draft-board", "panel-rosters", "panel-queue"]) {
+        const spill = await page
+          .getByTestId(id)
+          .evaluate((el) => el.scrollHeight - el.clientHeight);
+        expect(spill, `${id} content past its own bottom edge`).toBeLessThanOrEqual(1);
+      }
+    });
+  }
 });
