@@ -182,10 +182,14 @@ test("the count includes picks of players nobody would start", () => {
 });
 
 test("only the last RUN_WINDOW picks are considered", () => {
-  // Six RBs, but all of them older than the window, followed by 8 non-RB
-  // picks by others. Nothing should be running.
+  // Eight RBs, all of them older than the window, followed by 8 non-RB picks
+  // by others. Nothing should be running.
+  //
+  // Eight and not six: with six, widening RUN_WINDOW to 20 gives 6/14 = 0.4286
+  // against a 0.4375 threshold, so the mutation in Task 3 would survive by a
+  // hundredth. Eight gives 8/16 = 0.5 and the mutation turns this red.
   const made = [
-    ...Array.from({ length: 6 }, (_, i) => pick(2, i + 1, "RB")),
+    ...Array.from({ length: 8 }, (_, i) => pick(2, i + 1, "RB")),
     pick(2, 20, "WR"), pick(3, 21, "WR"), pick(4, 22, "WR"), pick(5, 23, "TE"),
     pick(6, 24, "WR"), pick(7, 25, "WR"), pick(8, 26, "TE"), pick(9, 27, "WR"),
   ];
@@ -604,9 +608,11 @@ For each of the four, make the change, run `cd frontend && npm run test:unit`, r
 | # | Change in `weights.js` | Must turn red |
 |---|---|---|
 | 1 | `RUN_WINDOW` 8 → 20 | "only the last RUN_WINDOW picks are considered" |
-| 2 | `RUN_MIN_COUNT` 3 → 1 | "a position going at its expected rate is not a run" |
+| 2 | `RUN_MIN_COUNT` 3 → 1 | **Expect this to SURVIVE.** See the note below, then write the test in Step 2. |
 | 3 | `RUN_MULTIPLE` 1.75 → 0.5 | "a position going at its expected rate is not a run" |
 | 4 | `RUN_WEIGHT` `{3: 1.5, ...}` → `{3: 0, 4: 0, 5: 0}` | at least one test in `pickAdvice.test.js` asserting a run reason exists |
+
+**On mutation 2.** `RUN_MIN_COUNT` is expected to survive, and the reason is worth understanding before you write its test. In "a position going at its expected rate is not a run" the count is 2 *and* the observed share is below the threshold — two independent reasons not to fire — so lowering the minimum changes nothing there. Nothing in the Task 1 set has a low count paired with a high ratio, which is the only shape `RUN_MIN_COUNT` alone governs. The test to add is exactly that shape: two picks at a position out of a short window, where the ratio clears `RUN_MULTIPLE` comfortably and only the minimum count is holding the factor back.
 
 - [ ] **Step 2: Add a test for any mutation that survived**
 
