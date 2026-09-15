@@ -147,11 +147,11 @@ export function QueuePanel({ queue, playersById, picked, onRemove, onReorder }) 
   return (
     <div
       data-testid="panel-queue"
-      // lg:col-span-3 sits HERE and not on the pane wrapper: that wrapper is
-      // `lg:contents` above lg, so it has no box for a span to apply to. The
+      // xl:col-span-3 sits HERE and not on the pane wrapper: that wrapper is
+      // `xl:contents` above xl, so it has no box for a span to apply to. The
       // cap keeps this a strip -- the row is auto-height, so without it three
       // queued players take 296px and leave the three panels above 208.
-      className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col lg:col-span-3 lg:max-h-[132px]"
+      className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col xl:col-span-3 xl:max-h-[132px]"
     >
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Queue</h2>
@@ -164,7 +164,7 @@ export function QueuePanel({ queue, playersById, picked, onRemove, onReorder }) 
           it is a full tab with the opposite budget, and stays a list. */}
       <div
         data-testid="scroll-queue"
-        className="mt-3 flex-1 min-h-0 overflow-auto pr-1 space-y-2 lg:space-y-0 lg:flex lg:gap-2 lg:overflow-x-auto lg:overflow-y-hidden"
+        className="mt-3 flex-1 min-h-0 overflow-auto pr-1 space-y-2 xl:space-y-0 xl:flex xl:gap-2 xl:overflow-x-auto xl:overflow-y-hidden"
       >
         {live.length === 0 ? (
           // The point of this panel: an empty queue is a normal, common state

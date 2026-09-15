@@ -502,7 +502,7 @@ export default function Draft() {
   // broken.
   const pausedByOther = paused && draft.pausedBy != null && draft.pausedBy !== sub;
 
-  // `lg:contents` makes the wrapper vanish from the box tree at desktop, so the
+  // `xl:contents` makes the wrapper vanish from the box tree at desktop, so the
   // panels stay direct grid children of the real grid, so each one occupies a
   // track of its own. Below lg the wrapper is the visibility switch -- display:none,
   // which preserves scrollTop (measured), where visibility/absolute does not.
@@ -513,16 +513,16 @@ export default function Draft() {
   // already does for height. The panel itself still needs to claim the
   // column's main axis (height), which [&>*]:flex-1 does without reaching
   // into the panel's own className. As a grid item the wrapper's default
-  // min-width is min-content (not 0), so without max-lg:min-w-0 it refuses
+  // min-width is min-content (not 0), so without max-xl:min-w-0 it refuses
   // to shrink below the draft board table's min-w-[620px] and inflates past
   // the viewport instead of letting that table scroll horizontally inside
   // its own already-overflow-auto panel (measured: 656px wrapper in a 390px
   // viewport).
   const pane = (id) =>
-    `lg:contents ${
+    `xl:contents ${
       tab === id
-        ? "max-lg:flex max-lg:flex-col max-lg:min-h-0 max-lg:min-w-0 max-lg:flex-1 max-lg:[&>*]:flex-1"
-        : "max-lg:hidden"
+        ? "max-xl:flex max-xl:flex-col max-xl:min-h-0 max-xl:min-w-0 max-xl:flex-1 max-xl:[&>*]:flex-1"
+        : "max-xl:hidden"
     }`;
 
   // The pill ternary in the desktop header answers the same question across
@@ -539,7 +539,7 @@ export default function Draft() {
           : `Waiting on Team ${currentTeamOnClock}`;
 
   return (
-    <div className="relative min-h-full max-lg:h-full lg:h-full w-full overflow-x-hidden">
+    <div className="relative min-h-full max-xl:h-full xl:h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -557,7 +557,7 @@ export default function Draft() {
           precise about: the track RATIOS hold at every width from lg up, but
           their pixel widths still step here. One layout, two container sizes.
         */}
-      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 lg:h-full flex flex-col gap-4">
+      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-xl:h-full max-xl:px-3 max-xl:py-3 xl:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
@@ -584,11 +584,11 @@ export default function Draft() {
         {/* Absent on a phone, not merely hidden -- the same rule the strip
             follows at desktop, applied in the other direction. A display:none
             element still matches locators, so a header left in the phone DOM
-            would duplicate every value the strip shows. The max-lg:hidden
+            would duplicate every value the strip shows. The max-xl:hidden
             stays as belt-and-braces. */}
         {!isPhone && (
-        <div data-testid="desktop-header" className="max-lg:hidden rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div data-testid="desktop-header" className="max-xl:hidden rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-3">
               {/* Same rule as the controls opposite: a finished draft is not
                   live, and a glowing "Live Draft" beside "✅ Completed" is the
@@ -601,7 +601,7 @@ export default function Draft() {
               )}
             </div>
 
-            <div className="flex flex-wrap gap-1.5 items-center justify-start lg:justify-end">
+            <div className="flex flex-wrap gap-1.5 items-center justify-start xl:justify-end">
               {!completed && (
                 <button
                   onClick={togglePause}
@@ -936,13 +936,13 @@ export default function Draft() {
         {/* Three tracks and two rows, at every width from lg up: Big Board,
             Draft Board, Rosters across row one, and the queue spanning all
             three on an auto-height row beneath them. Below lg this is tabbed
-            instead, via `pane` -- which uses lg:contents, so the wrapper has
+            instead, via `pane` -- which uses xl:contents, so the wrapper has
             no box and any grid placement has to live on the panel itself
             (that is why the queue's col-span sits in QueuePanel, not here).
             There is no width at which the track or row count changes, which
             is the property that keeps the wrapped-row failure from
             recurring. */}
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto] flex-1 min-h-0 min-w-0">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_minmax(0,1fr)] xl:grid-rows-[minmax(0,1fr)_auto] flex-1 min-h-0 min-w-0">
             <div className={pane("board")}>
               <BigBoardPanel
                 draft={draft}

@@ -34,7 +34,7 @@ export default function ControlSheet({ open, onClose, children }) {
 
   if (!open) return null;
   return (
-    <div className="lg:hidden fixed inset-0 z-40 flex flex-col justify-end">
+    <div className="xl:hidden fixed inset-0 z-40 flex flex-col justify-end">
       <button
         type="button"
         aria-label="Close controls"

@@ -9,7 +9,7 @@ async function openPausedDraft(page, overrides = {}) {
   await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
-  // Big Board rather than rosters: below lg the page is tabbed and only the
+  // Big Board rather than rosters: below xl the page is tabbed and only the
   // active tab's panel is visible, and Big Board is the one that opens. At
   // desktop widths all three are up, so this is a readiness signal that holds
   // in both layouts.
@@ -37,13 +37,13 @@ test.describe("Draft layout", () => {
   // when content overflows inside it -- so "the document does not scroll"
   // alone would pass with the layout still broken.
   // This ran at 1600 and 1728 only, back when those were the sole widths the
-  // page was height-bound at. It is bound from lg up now, so the loop runs
-  // from lg up -- and 1024 and 1280 are the interesting entries, not the two
-  // widest and most forgiving ones. A test that only ever sees the case with
-  // the most room to spare is not guarding anything: 1024 is where the three
-  // tracks are tightest, and it was outside this loop while the layout that
-  // made it tightest was being written.
-  for (const width of [1024, 1280, 1440, 1600, 1728]) {
+  // page was height-bound at. It is bound wherever the columns apply now, so
+  // the loop runs from the first of those widths -- and 1280 is the
+  // interesting entry, not the two widest and most forgiving ones. A test
+  // that only ever sees the case with the most room to spare is not guarding
+  // anything: 1280 is where the three tracks are tightest, and the bottom of
+  // a band is where a proportional grid fails first.
+  for (const width of [1280, 1440, 1600, 1728]) {
     test(`panels stay inside the viewport at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await openPausedDraft(page);
@@ -123,7 +123,7 @@ test.describe("Draft layout", () => {
   // strip is now pinned from both ends, and by the thing it exists to show
   // rather than by its own height: a queued player has to be fully inside the
   // scrolling area, which is false at any height that cannot hold a chip.
-  for (const width of [1024, 1280, 1440, 1536, 1728]) {
+  for (const width of [1280, 1440, 1536, 1728]) {
     test(`the queue is on screen without scrolling at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await openPausedDraft(page, { yourQueue: ["p1", "p2"] });
@@ -235,7 +235,7 @@ test.describe("Draft layout", () => {
   // on a phone (see docs/superpowers/specs/2026-09-13-draft-page-phone-design.md).
   // What survives is the assertion that actually mattered: however the layout
   // is arranged at these widths, the Big Board still lists players you can
-  // reach. At 1024 the desktop layout applies: three columns, not a stack.
+  // reach. All three of these are tabbed now, 1024 included.
   for (const [width, height] of [
     [390, 844],
     [768, 1024],
@@ -278,6 +278,41 @@ test.describe("Draft layout", () => {
           .getByTestId(id)
           .evaluate((el) => el.scrollHeight - el.clientHeight);
         expect(spill, `${id} content past its own bottom edge`).toBeLessThanOrEqual(1);
+      }
+    });
+  }
+
+  // Nothing asserted WHERE the tabs stop and the columns start, so the
+  // boundary could drift a breakpoint in either direction in silence. It
+  // matters at both ends: one pixel below, every panel must be reachable
+  // through the tab bar, and one pixel above, all three must be on screen at
+  // once. 1279 and 1280 are the two widths that can tell those apart.
+  //
+  // It sits at xl and not lg because three columns at 1024 gave the Big Board
+  // a 277px track and a 36px search box -- narrower than two characters --
+  // while the Draft Board's table ran 52% behind a horizontal scroll. Tabbed,
+  // the same panel measures 936px there.
+  for (const [width, tabbed] of [
+    [1279, true],
+    [1280, false],
+  ]) {
+    test(`at ${width}px the page is ${tabbed ? "tabbed" : "three columns"}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openPausedDraft(page, { yourQueue: ["p1"] });
+
+      const bar = page.getByTestId("tab-bar");
+      if (tabbed) {
+        await expect(bar).toBeVisible();
+        // Tabbed means one panel at a time, and it gets the whole width --
+        // which is the entire reason the boundary moved up to xl.
+        const board = await page.getByTestId("panel-big-board").boundingBox();
+        expect(board.width, "tabbed panel width").toBeGreaterThan(width * 0.8);
+        await expect(page.getByTestId("panel-draft-board")).toBeHidden();
+      } else {
+        await expect(bar).toBeHidden();
+        for (const id of ["panel-big-board", "panel-draft-board", "panel-rosters", "panel-queue"]) {
+          await expect(page.getByTestId(id)).toBeVisible();
+        }
       }
     });
   }

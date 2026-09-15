@@ -18,7 +18,7 @@ export default function StatusStrip({
     <div
       data-testid="status-strip"
       data-your-turn={isMyTurn ? "true" : "false"}
-      className={`lg:hidden shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur ${
+      className={`xl:hidden shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur ${
         isMyTurn
           ? "border-cyan-300/60 bg-cyan-300/10"
           : "border-zinc-800/70 bg-zinc-950/80"

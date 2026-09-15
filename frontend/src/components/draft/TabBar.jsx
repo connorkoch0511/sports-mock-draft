@@ -19,7 +19,7 @@ export default function TabBar({ active, onChange }) {
     <nav
       data-testid="tab-bar"
       aria-label="Draft views"
-      className="lg:hidden shrink-0 grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/80 p-1 backdrop-blur"
+      className="xl:hidden shrink-0 grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/80 p-1 backdrop-blur"
     >
       {TABS.map((t) => (
         <button
