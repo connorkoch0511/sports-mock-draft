@@ -230,6 +230,25 @@ test("a share between expected and expected * RUN_MULTIPLE is not a run (isolate
   assert.strictEqual(runs.get("RB"), undefined);
 });
 
+// Every RUN_MULTIPLE-focused fixture above pairs a low observed share with a
+// low count, so it can't tell whether RUN_MIN_COUNT is doing anything: lower
+// the minimum and the ratio still blocks those fixtures on its own. This is
+// the shape only RUN_MIN_COUNT gates -- a count below the minimum, paired
+// with a ratio that clears RUN_MULTIPLE by a wide margin.
+test("a low count that clears RUN_MULTIPLE by a wide margin is still not a run (isolates RUN_MIN_COUNT)", () => {
+  // Only two picks have been made, by others, both RB. window.length = 2,
+  // count = 2 -- below RUN_MIN_COUNT (3). Observed 2/2 = 1.0 against expected
+  // 10/40 = 0.25 clears expected * RUN_MULTIPLE (0.4375) by a wide margin
+  // (128% over), so nothing but the minimum count is holding this back.
+  const made = [pick(2, 1, "RB"), pick(3, 2, "RB")];
+  const available = board({ RB: 10, WR: 20, TE: 10 });
+  const runs = detectRuns({
+    made, mySlot: 1, available, startable: startableOf(available),
+  });
+
+  assert.strictEqual(runs.get("RB"), undefined);
+});
+
 test("mySlot null counts every pick as someone else's -- nothing to exclude as your own", () => {
   // No known seat for the user (e.g. the board is being read before the user
   // has joined a seat) means detectRuns cannot exclude anything as "your own
