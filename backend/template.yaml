@@ -401,6 +401,14 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuth
+        SeatQueue:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/queue
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
         SimToEnd:
           Type: HttpApi
           Properties:

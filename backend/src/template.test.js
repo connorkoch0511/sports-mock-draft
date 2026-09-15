@@ -123,12 +123,57 @@ test("the expected mutating routes are all present", () => {
     "POST /drafts/{draftId}/join",
     "POST /drafts/{draftId}/pause",
     "POST /drafts/{draftId}/pick",
+    "POST /drafts/{draftId}/queue",
     "POST /drafts/{draftId}/seat-board",
     "POST /drafts/{draftId}/sim-to-end",
     "POST /push/subscribe",
     "POST /yahoo/leagues",
     "PUT /boards/{boardId}",
   ]);
+});
+
+// The list above is maintained by hand, so it catches a route ADDED without
+// being declared here -- and cannot catch the opposite, which is what actually
+// happened: POST /drafts/{draftId}/queue was written in drafts.js, tested,
+// reviewed, merged and DEPLOYED with no HttpApi event anywhere in the
+// template. The handler was live and unreachable; every request to it would
+// have been a 404 from API Gateway, and nothing went red, because the
+// Playwright suite mocks every API route and the backend tests call the
+// handler function directly. Both layers were green about a feature that did
+// not work.
+//
+// This asks the other direction: every path suffix drafts.js dispatches on
+// must exist as a route. Reading the source with a regex is crude, but the
+// dispatch lines are uniform (`method === "POST" && draftId &&
+// path.endsWith("/x")`) and a crude cross-check across the two layers beats a
+// precise check inside one of them.
+test("every sub-path drafts.js handles is a declared route", () => {
+  const src = fs.readFileSync(path.resolve(__dirname, "drafts.js"), "utf8");
+  const handled = [...src.matchAll(/path\.endsWith\("(\/[a-z-]+)"\)/g)]
+    .map((m) => m[1])
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .sort();
+
+  // If the dispatch style changes this finds nothing and passes vacuously,
+  // which is the same failure it exists to prevent.
+  assert.ok(
+    handled.length >= 7,
+    `expected to find drafts.js's dispatch suffixes, found ${handled.length}`
+  );
+
+  const declared = new Set(
+    httpRoutes(loadTemplate())
+      .filter((r) => typeof r.path === "string" && r.path.startsWith("/drafts/{draftId}/"))
+      .map((r) => r.path.slice("/drafts/{draftId}".length))
+  );
+
+  const missing = handled.filter((suffix) => !declared.has(suffix));
+  assert.deepStrictEqual(
+    missing,
+    [],
+    `drafts.js handles ${missing.join(", ")} but the template declares no route for it -- ` +
+      `API Gateway would answer 404 and no other test would notice`
+  );
 });
 
 // A signed-in request is preflighted because of its Authorization header. With
