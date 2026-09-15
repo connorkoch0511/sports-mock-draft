@@ -539,7 +539,7 @@ export default function Draft() {
           : `Waiting on Team ${currentTeamOnClock}`;
 
   return (
-    <div className="relative min-h-full max-lg:h-full xl:h-full w-full overflow-x-hidden">
+    <div className="relative min-h-full max-lg:h-full 3xl:h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -556,7 +556,7 @@ export default function Draft() {
           breakpoint, and between lg and 1600 the queue is a fourth cell in
           the three-column grid rather than a fourth column.
         */}
-      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 xl:h-full flex flex-col gap-4">
+      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 3xl:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
@@ -916,8 +916,10 @@ export default function Draft() {
         </ControlSheet>
         )}
 
-        {/* 4-column app layout at xl (see the container comment above for
-            why xl:max-w-[1600px] is what makes this column free); 2-up
+        {/* app layout: three columns at xl, four at 3xl (see the container comment above for
+            why 3xl:max-w-[1600px] is what makes that fourth column free, and why
+            the page's height binding shares the same breakpoint -- bound at xl
+            with only three tracks, the wrapped queue halved every panel); 2-up
             between lg and xl with no span on any of the four, which lands
             board+draft on one row and rosters+queue on the next; tabbed
             below lg via `pane`. */}

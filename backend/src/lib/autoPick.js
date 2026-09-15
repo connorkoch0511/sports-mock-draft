@@ -176,7 +176,16 @@ async function autoPickAndAdvance({
   // write and no cross-seat race. See the spec.
   const seat = (d.seats || []).find((s) => s?.team === teamNum);
   const pickedSet = new Set(d.picked || []);
-  const queued = (seat?.queue || []).find((id) => !pickedSet.has(id) && byId[id]);
+  // `byId[id]?.id === id`, not `byId[id]`: byId comes from Object.fromEntries
+  // and so inherits Object.prototype, while the queue route accepts any
+  // non-empty string. A seated user posting { queue: ["constructor"] } would
+  // otherwise make this truthy, set `best` to the Object constructor, spread
+  // undefined into every pick field, and throw on the write -- a 500 on every
+  // /expire that wedges the SHARED clock for everyone in the draft until the
+  // queue is cleared by hand.
+  const queued = (seat?.queue || []).find(
+    (id) => !pickedSet.has(id) && byId[id]?.id === id
+  );
 
   const best = queued
     ? byId[queued]

@@ -62,14 +62,18 @@ something, and the feature is worthless if it second-guesses you.
 proves the seat is yours — the same shape as
 `SET seats[i].boardId = :b ... ConditionExpression: seats[i].sub = :me`.
 
-One route, `PUT /drafts/{draftId}/queue`, replacing the whole array. Reordering
+One route, `POST /drafts/{draftId}/queue`, replacing the whole array. Reordering
 is then a single write with no partial-order race, and the payload is a few
 ids.
 
 ## Where it lives
 
-**At `xl` and above: a fourth column** — and the page container widens from
-`max-w-7xl` (1280) to 1600 to make room.
+**At `3xl` (1600px) and above: a fourth column** — and the page container widens from
+`max-w-7xl` (1280) to 1600 to make room. **The page's height binding moves to
+the same breakpoint.** Bound at `xl` with only three tracks, the fourth item
+wrapped to a second row and CSS split the height between them: every panel
+halved, content overflowing, the queue painted across the Big Board. The
+column's breakpoint and the height binding must always be the same one.
 
 That widening is load-bearing, not cosmetic. Measured: the grid is capped at
 **1232px by the container, not by the viewport**, so a 1728px monitor renders
@@ -78,8 +82,10 @@ the same 1232px of columns and wastes ~500px of margin. Four columns inside
 scroll horizontally in a sliver on every screen. Widening is what lets the
 fourth column cost nothing.
 
-**Between `lg` and `xl`:** the existing two-column grid takes a fourth cell.
-It already stacks and scrolls at that size.
+**Between `lg` and `3xl`:** a fourth item below the three columns, on a page
+that scrolls rather than being height-bound — the same trade `lg` has always
+made. Note `RosterPanel`'s own `lg:col-span-2` means this is three rows at
+`lg`, not the two-by-two the first draft of this spec claimed.
 
 **Below `lg`:** the fourth tab the bar was built for. `grid-cols-3` becomes
 `grid-cols-4` — the change the tab bar was deliberately laid out to absorb.
@@ -88,7 +94,7 @@ It already stacks and scrolls at that size.
 
 A `+` on each Big Board row appends. A row in the queue removes itself, and
 rows reorder by drag, reusing the Board page's dnd-kit configuration —
-`MouseSensor` at 4px and `TouchSensor` on a 250ms hold, so a thumb can
+`PrimaryMouseSensor` at 4px (**not** `MouseSensor`, which arms on middle-click -- and a drop here writes to the server) and `TouchSensor` on a 250ms hold, so a thumb can
 reorder without the list running away. That configuration exists because
 reordering with a finger was impossible until recently; this is the second
 feature to need it.
@@ -98,6 +104,15 @@ An empty queue says what it is for rather than sitting blank.
 ## Testing
 
 - The queue survives a reload and is visible only to its own seat.
+- **A queued id that is only an `Object.prototype` key is ignored.** `byId`
+  comes from `Object.fromEntries` and inherits the prototype, and the route
+  accepts any non-empty string — so `{ queue: ["constructor"] }` made the
+  lookup truthy, set the pick to the `Object` constructor, spread `undefined`
+  into every field and threw on the write: a 500 on every `/expire` that
+  wedged the shared clock for the whole draft. Own-property check, and a test.
+- **The queue never overlaps another panel, at any width**, and the three
+  original panels keep a real height. This is the assertion that was missing
+  when the 1280–1599 band shipped broken.
 - A conditional write refuses a queue update for a seat that is not yours.
 - **Auto-pick takes the first queued player, ignoring the board** — and the
   same fixture with an empty queue still picks by board, so the test cannot

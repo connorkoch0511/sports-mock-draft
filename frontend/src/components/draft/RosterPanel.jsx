@@ -28,7 +28,7 @@ export function RosterPanel({ draft }) {
   // (verified: with the span left in, Queue measured 486px wide, alone, at
   // y=4619 while rosters spanned 988px full-width at y=3461 -- three rows,
   // not two). Removing it is the one-line fix; xl:col-span-1 stays because
-  // at xl the grid switches to four explicitly-sized tracks and every panel
+  // at xl the grid is three explicitly-sized tracks, four at 3xl and every panel
   // occupies exactly one of them regardless.
   return (
       <div data-testid="panel-rosters" className="min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] xl:col-span-1">

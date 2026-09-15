@@ -95,3 +95,19 @@ test("a queued kicker is drafted in round three, roster guard notwithstanding", 
   const r = await autoPickAndAdvance({ ...deps, d });
   assert.strictEqual(r.picked.id, "some-kicker");
 });
+
+// byId is built with Object.fromEntries and inherits Object.prototype; the
+// queue route accepts any non-empty string. Without an own-property check a
+// seated user could wedge the shared clock for a whole draft with one POST.
+test("a queued id that is only an Object.prototype key is ignored", async () => {
+  for (const hostile of ["constructor", "toString", "valueOf", "__proto__"]) {
+    const d = draftWithSeat({ queue: [hostile] });
+    const r = await autoPickAndAdvance({ ...deps, d });
+    assert.strictEqual(r.ok, true, `${hostile} must not break the pick`);
+    // A real player from the board, not the Object constructor with every
+    // field undefined -- which is what would reach the write and throw.
+    assert.ok(r.picked?.id, `${hostile} must still yield a real player`);
+    assert.notStrictEqual(r.picked.id, hostile);
+    assert.strictEqual(typeof r.picked.name, "string");
+  }
+});

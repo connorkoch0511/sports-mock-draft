@@ -36,7 +36,12 @@ test.describe("Draft layout", () => {
   // wrapper scrolls, documentElement.scrollHeight equals innerHeight even
   // when content overflows inside it -- so "the document does not scroll"
   // alone would pass with the layout still broken.
-  for (const width of [1280, 1440, 1536]) {
+  // These three now describe the 3xl layout only. Below 1600 the page is no
+  // longer height-bound -- it scrolls, the way it already does at lg -- because
+  // the queue is a fourth item in a three-track grid there, and a bound height
+  // split between two rows halved every panel. See "the queue never lands on
+  // top of another panel" below, which is the guard that would have caught it.
+  for (const width of [1600, 1728]) {
     test(`panels stay inside the viewport at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await openPausedDraft(page);
@@ -46,7 +51,7 @@ test.describe("Draft layout", () => {
       );
       expect(documentScrolls).toBe(false);
 
-      for (const id of ["panel-big-board", "panel-draft-board", "panel-rosters"]) {
+      for (const id of ["panel-big-board", "panel-draft-board", "panel-rosters", "panel-queue"]) {
         const box = await page.getByTestId(id).boundingBox();
         expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(902);
         // A panel collapsed to nothing would satisfy the bound above, so
@@ -56,8 +61,51 @@ test.describe("Draft layout", () => {
     });
   }
 
+  // The guard that was missing. The queue arrives as a fourth item in a
+  // three-track grid between lg and 3xl; with the page height bound there, the
+  // grid split it across two rows, halved all three original panels, and
+  // painted the queue over the Big Board's search field. Every test passed --
+  // the viewport loop above did not list panel-queue, its floor was 200px
+  // against panels cut to ~370, and toBeVisible() does not mean on screen.
+  //
+  // 1280x720 is the size the suite itself runs at, not an overridden height.
+  for (const width of [1280, 1440, 1536, 1600, 1728]) {
+    test(`the queue never lands on top of another panel at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 720 });
+      await openPausedDraft(page);
+
+      const boxes = await page.evaluate(() => {
+        const r = (id) => {
+          const el = document.querySelector(`[data-testid="${id}"]`);
+          const b = el.getBoundingClientRect();
+          return { id, top: b.top, bottom: b.bottom, left: b.left, right: b.right, h: b.height };
+        };
+        return ["panel-big-board", "panel-draft-board", "panel-rosters", "panel-queue"].map(r);
+      });
+
+      const queue = boxes.find((b) => b.id === "panel-queue");
+      for (const other of boxes.filter((b) => b.id !== "panel-queue")) {
+        const apart =
+          queue.bottom <= other.top + 1 ||
+          queue.top >= other.bottom - 1 ||
+          queue.right <= other.left + 1 ||
+          queue.left >= other.right - 1;
+        expect(apart, `queue overlaps ${other.id} at ${width}px`).toBe(true);
+      }
+
+      // And the three original panels keep a real height rather than being
+      // halved to make room for a wrapped row.
+      for (const other of boxes.filter((b) => b.id !== "panel-queue")) {
+        expect(other.h, `${other.id} height at ${width}px`).toBeGreaterThan(450);
+      }
+    });
+  }
+
+  // At 1600, where the page is height-bound. Below that it scrolls instead --
+  // the panels are their natural height there and clip nothing, which is the
+  // same trade lg has always made.
   test("panels scroll their own overflowing content", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.setViewportSize({ width: 1600, height: 900 });
     await openPausedDraft(page);
 
     // Both lists paginate at 25 rows, which is more than fits in a 900px
