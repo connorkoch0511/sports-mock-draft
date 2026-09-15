@@ -65,9 +65,16 @@ export function detectRuns({ made, mySlot, available }) {
   // counts picks by ANY seat, including the user's own, while `window` counts
   // only other teams' -- deliberate, because both sides are shares and the
   // board lost those players regardless of who took them.
+  // `others` is a reference-filter of `made`, so every element of `window`
+  // (drawn from `others`) is a reference already in `made` -- `indexOf` here
+  // cannot miss and this fallback is unreachable today. If that ever changed,
+  // slicing from 0 would make K the entire draft and bestK the top ~100 of
+  // the board -- a silently wrong baseline. Declining to speak is the safe
+  // direction for a fallback that should never run.
   const windowStartIdx = made.indexOf(window[0]);
+  if (windowStartIdx === -1) return runs;
   const takenSince = made
-    .slice(windowStartIdx === -1 ? 0 : windowStartIdx)
+    .slice(windowStartIdx)
     .map((p) => p?.player)
     .filter(Boolean);
   const K = takenSince.length;

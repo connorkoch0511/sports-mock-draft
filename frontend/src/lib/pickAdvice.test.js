@@ -207,7 +207,18 @@ test("invariant: no score is rendered as accumulated float noise", () => {
   }
 });
 
-test("invariant: the generated pool exercises every factor at least once", () => {
+// "run" is deliberately not in this list. generatedAdvice()'s draft has
+// `made: []` -- advice is asked for at the very first pick of the draft, with
+// no history yet -- so detectRuns always sees an empty window and a run can
+// never fire here, no matter what the randomized pool contains. That is not
+// an oversight to fix by injecting picks into this fixture: `made: []` is
+// what makes this pool double as the fixture for four other invariants above
+// (score-equals-base-plus-reasons, no float noise, reasonsFor consistency),
+// and a run needs a hand-built departure from a reconstructed board, not a
+// few extra random picks, to fire honestly rather than by accident. The run
+// factor's dead-weight coverage lives in its own fixture instead: see
+// runAdvice() below and pickAdvice/runs.test.js.
+test("invariant: the generated pool exercises every factor but run at least once", () => {
   const { out } = generatedAdvice();
   const seen = new Set();
   for (const entry of out.ranked) for (const r of entry.reasons) seen.add(r.kind);
@@ -1088,7 +1099,7 @@ test("an out-of-range myTeam still advises, minus the reasons that need a roster
 });
 
 // ---------------------------------------------------------------------------
-// Runs: a position going faster than the remaining startable board predicts.
+// Runs: a departure from the board, not a fast position.
 // ---------------------------------------------------------------------------
 
 // Enough depth at every position for a 12-team league. Ranks are laid out in
@@ -1189,10 +1200,48 @@ test("a run on a position is a reason, with a countable sentence", () => {
 });
 
 test("a run does not lift a player nobody will reach before your next pick", () => {
-  // gap is 23, so rb28 sits far outside the window of players expected to go.
-  // Urgency cannot apply to someone who will still be there either way.
+  // gap is 23, so index 23 is the first index the gap gate excludes -- one
+  // past the window of players expected to go. rb16 sits exactly there
+  // (index 23) while still ranking 22nd among RBs, comfortably inside the
+  // 28-deep startable window -- so this is blocked on the gap ground alone,
+  // not doubly blocked by startable too. Urgency cannot apply to someone who
+  // will still be there either way.
   const run = runAdvice()
-    .reasonsFor("rb28")
+    .reasonsFor("rb16")
+    .find((r) => r.kind === "run");
+
+  assert.strictEqual(run, undefined);
+});
+
+// A roster with only one dedicated RB slot and no FLEX, so the RB startable
+// window shrinks to teams(12) x 1 = 12 -- versus 28 under STARTERS. Reusing
+// runPool()/madeWithRunOnRB() (index order and startable order share the same
+// ranking, so the run window can never contain an unstartable RB under the
+// wide roster) with only the roster narrowed isolates the startable gate: an
+// RB ranked 13th-22nd at the position sits well inside the gap window on
+// index alone, but now falls outside startable.
+const NARROW_RB_ROSTER = ["QB", "RB", "WR", "WR", "TE", "K", "DEF"];
+
+function runAdviceNarrowRoster() {
+  const players = runPool();
+  const draft = makeDraft({
+    teams: 12,
+    rounds: 15,
+    userTeam: 1,
+    rosterSlots: NARROW_RB_ROSTER,
+    made: madeWithRunOnRB(players),
+  });
+  return adviseOnPick({ players, draft, boardRows: null, myTeam: 1 });
+}
+
+test("a run does not lift a player outside the startable window, even one inside the gap", () => {
+  // rb7 is the 13th-best RB (index 14, comfortably under the gap of 23) --
+  // and under STARTERS' 28-deep RB window he DOES pick up a run reason (see
+  // the fixture comment above). Narrowing the roster to one dedicated RB slot
+  // and no FLEX shrinks the startable window to 12, putting rb7 outside it,
+  // so this fixture is blocked on the startable ground alone.
+  const run = runAdviceNarrowRoster()
+    .reasonsFor("rb7")
     .find((r) => r.kind === "run");
 
   assert.strictEqual(run, undefined);

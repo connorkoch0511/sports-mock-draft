@@ -21,7 +21,12 @@
 //      can count them and catch a sentence that is merely plausible. That is
 //      the check that would have caught tier-cliff.
 //
-// Usage:  node scripts/audit-runs.js [--samples=20] [--variants=3]
+// Usage:  node scripts/audit-runs.js [--samples=20] [--variants=3] [--reach=6]
+//
+// --reach controls how far scenario B's seats reach past the top of the
+// board (see playDraft()'s `reach` option below); it defaults to 6, matching
+// the sensitivity table's baseline row in weights.js. Re-run with --reach=12,
+// --reach=20 and --reach=30 to reproduce that table's other rows.
 
 import { adviseOnPick } from "../src/lib/pickAdvice.js";
 import {
@@ -39,8 +44,11 @@ const ROUNDS = 15;
 
 // The roster the backend gives a draft created without one (see
 // backend/src/lib/roster.js), padded with bench to the 15 rounds played.
-// It decides who counts as STARTABLE, which is the population the run test
-// measures its expected rate against -- so it is not a detail.
+// It decides who counts as STARTABLE -- the population runFactor's candidate
+// gate checks a player against before a run reason can attach to him. It has
+// no bearing on detectRuns's expected rate, which compares the window's picks
+// against the reconstructed board's own best players and never consults the
+// roster at all -- so it is not a detail, just not that one.
 const ROSTER_SLOTS = [
   "QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF",
   "BN", "BN", "BN", "BN", "BN", "BN", "BN",
@@ -54,6 +62,7 @@ const args = new Map(
 );
 const SAMPLE_COUNT = Number(args.get("samples") ?? 20);
 const VARIANTS = Number(args.get("variants") ?? 3);
+const REACH = Number(args.get("reach") ?? 6);
 
 // ---------------------------------------------------------------- the pool
 
@@ -367,6 +376,7 @@ async function main() {
       `RUN_MULTIPLE=${RUN_MULTIPLE} RUN_WEIGHT=${JSON.stringify(RUN_WEIGHT)} ` +
       `RUN_WEIGHT_MAX_COUNT=${RUN_WEIGHT_MAX_COUNT}`
   );
+  console.log(`scenario B reach: ${REACH} (--reach=${REACH})`);
 
   const started = Date.now();
   const { players, ranked } = await fetchPool();
@@ -392,13 +402,13 @@ async function main() {
   let variantFired = [];
   let variantResults = [];
   for (let v = 0; v < VARIANTS; v++) {
-    const picks = playDraft(players, { reach: 6, seed: 1000 + v });
+    const picks = playDraft(players, { reach: REACH, seed: 1000 + v });
     variantResults = variantResults.concat(auditDraft(players, picks, `reach-${v + 1}`));
   }
   if (VARIANTS > 0) {
     variantFired = summarise(
       variantResults,
-      `SCENARIO B -- ${VARIANTS} drafts where seats reach within the top 6 (robustness)`
+      `SCENARIO B -- ${VARIANTS} drafts where seats reach within the top ${REACH} (robustness)`
     );
   }
 

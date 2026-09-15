@@ -128,12 +128,22 @@ function scarcityFactor(entry, ctx) {
 }
 
 /**
- * A position going faster than the remaining startable board predicts.
+ * A run is a departure from the board, not a fast position.
  *
- * The gates are scarcityFactor's, for the same reason: this is an argument
- * for URGENCY, and urgency only applies to a startable player who might
- * actually be gone by the time you pick again. A run is not a reason to take
- * someone nobody else will reach.
+ * detectRuns() has already done the real work: a position only shows up here
+ * if the window's picks at that position outran the share the board's best
+ * players actually offered, reconstructed as of when the window's picks were
+ * made (not read off the board as it stands now -- see runs.js). This
+ * factor's job is to gate and price what detectRuns found, nothing more.
+ *
+ * The candidate gates are scarcityFactor's, for the same reason: this is an
+ * argument for URGENCY, and urgency only applies to a startable player who
+ * might actually be gone by the time you pick again. A run is not a reason
+ * to take someone nobody else will reach. (This factor checks the runs
+ * lookup before the index/startable gates -- the opposite order from
+ * scarcityFactor. That is not observable: all four gates are pure boolean
+ * checks with nothing between them, so which one runs first changes nothing
+ * about what fires.)
  *
  * The sentence is the plain countable fact and says "by other teams", because
  * the user's own picks are excluded from the window -- without those three

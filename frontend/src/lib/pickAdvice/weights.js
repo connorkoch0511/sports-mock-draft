@@ -114,8 +114,12 @@ export const FINISH_STEPS = [
 // too deaf to be worth having. It is not: firing tracks how far seats
 // actually stray, and then plateaus rather than running away.
 //
-//   reach  6 -> 0.5%     reach 20 -> 2.1%
-//   reach 12 -> 3.0%     reach 30 -> 2.4%
+// Reproduce with: node scripts/audit-runs.js --reach=N --samples=3 (N in
+// 6, 12, 20, 30), reading "produced a run reason" under SCENARIO B. Run
+// 2026-09-15 against the same 889-player, 118-ranked pool as above:
+//
+//   reach  6 -> 0.5%  (33/6480)     reach 20 -> 2.1%  (136/6480)
+//   reach 12 -> 3.0%  (194/6480)    reach 30 -> 2.4%  (154/6480)
 //
 // A sixfold response from 6 to 12, and still only 2.4% at 30. It stays quiet
 // unless something happened, which is the entire point. 0.5% at reach 6 is
