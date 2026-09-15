@@ -1091,23 +1091,55 @@ test("an out-of-range myTeam still advises, minus the reasons that need a roster
 // Runs: a position going faster than the remaining startable board predicts.
 // ---------------------------------------------------------------------------
 
-// Enough startable depth at every position for a 12-team league, interleaved
-// so the top of the board is not a single position, plus a tail nobody starts.
+// Enough depth at every position for a 12-team league. Ranks are laid out in
+// three deliberate bands, because the run this fixture builds is a genuine
+// departure from the RECONSTRUCTED board, not merely "RB was left alone":
+//
+//   1-15    early, non-RB picks -- gone before the window opens.
+//   16-24   the board's actual best nine when the window opens: 2 RB, 5 WR,
+//           2 TE. These never get picked -- they are what the reconstruction
+//           must recover as "expected", and rb5 (rank 16) is deliberately
+//           the very best of them, so it is also who the run reason should
+//           attach to.
+//   25-32   the run: five RBs and two WRs and a TE, all reached for well
+//           below where the board's best nine actually sat. Taking RB this
+//           heavily while 5 WR and 2 TE ranked ahead of any of them sat
+//           untouched is what makes this a departure rather than the board's
+//           own order -- an all-RB band 1-15 would leave RB looking like the
+//           board's obvious next pick instead, which is not a run.
+// Everything else (33+) is depth nobody in this fixture touches, plus a K/DEF
+// tail nobody starts. rb28 lives there, deliberately far past the reach band,
+// so a run elsewhere cannot lift a player nobody will reach in time.
 function runPool() {
   const out = [];
-  let rank = 1;
-  for (let i = 0; i < 30; i++) {
-    out.push(player(`rb${i}`, { position: "RB", rank: rank++, tier: 1 }));
-    out.push(player(`wr${i}`, { position: "WR", rank: rank++, tier: 1 }));
-  }
-  for (let i = 0; i < 15; i++) {
-    out.push(player(`te${i}`, { position: "TE", rank: rank++, tier: 1 }));
-    out.push(player(`qb${i}`, { position: "QB", rank: rank++, tier: 1 }));
-  }
-  for (let i = 0; i < 12; i++) {
-    out.push(player(`k${i}`, { position: "K", rank: rank++, tier: 1 }));
-    out.push(player(`def${i}`, { position: "DEF", rank: rank++, tier: 1 }));
-  }
+  const at = (id, position, rank) => player(id, { position, rank, tier: 1 });
+
+  out.push(
+    at("wr0", "WR", 1), at("wr1", "WR", 2), at("wr2", "WR", 3), at("wr3", "WR", 4),
+    at("wr4", "WR", 5), at("wr5", "WR", 6), at("wr6", "WR", 7), at("wr7", "WR", 8),
+    at("te0", "TE", 9), at("te1", "TE", 10), at("te2", "TE", 11), at("te3", "TE", 12),
+    at("qb0", "QB", 13), at("qb1", "QB", 14), at("qb2", "QB", 15),
+
+    at("rb5", "RB", 16), at("wr8", "WR", 17), at("wr9", "WR", 18),
+    at("rb6", "RB", 19), at("wr10", "WR", 20), at("te4", "TE", 21),
+    at("wr11", "WR", 22), at("wr12", "WR", 23), at("te5", "TE", 24),
+
+    at("rb20", "RB", 25), at("rb21", "RB", 26), at("wr20", "WR", 27),
+    at("rb22", "RB", 28), at("rb23", "RB", 29), at("te10", "TE", 30),
+    at("rb24", "RB", 31), at("wr21", "WR", 32)
+  );
+
+  let rank = 33;
+  const usedRb = new Set([5, 6, 20, 21, 22, 23, 24]);
+  for (let i = 0; i < 30; i++) if (!usedRb.has(i)) out.push(at(`rb${i}`, "RB", rank++));
+  const usedWr = new Set([...Array(13).keys(), 20, 21]); // 0-12, 20, 21
+  for (let i = 0; i < 30; i++) if (!usedWr.has(i)) out.push(at(`wr${i}`, "WR", rank++));
+  const usedTe = new Set([0, 1, 2, 3, 4, 5, 10]);
+  for (let i = 0; i < 15; i++) if (!usedTe.has(i)) out.push(at(`te${i}`, "TE", rank++));
+  for (let i = 3; i < 15; i++) out.push(at(`qb${i}`, "QB", rank++)); // qb0-2 already used
+  for (let i = 0; i < 12; i++) out.push(at(`k${i}`, "K", rank++));
+  for (let i = 0; i < 12; i++) out.push(at(`def${i}`, "DEF", rank++));
+
   return out;
 }
 
@@ -1117,13 +1149,14 @@ function runPool() {
 function madeWithRunOnRB(pool) {
   const byId = new Map(pool.map((p) => [p.id, p]));
   const seq = [
-    // overall 1..15. Deliberately RB-free, so the run is entirely inside
-    // the window and cannot be an artefact of the whole draft's shape.
+    // overall 1..15 -- ranks 1-15, all gone before the window opens.
     "wr0", "wr1", "te0", "qb0", "wr2", "te1", "wr3", "qb1",
     "wr4", "te2", "wr5", "qb2", "wr6", "te3", "wr7",
-    // overall 16..23 -- the window. Five RBs of eight.
-    "rb0", "rb1", "wr8", "rb2", "rb3", "te4", "rb4", "wr9",
-    // overall 24 -- the user's own pick at the turn. Excluded from the window.
+    // overall 16..23 -- the window. Five RBs of eight, all reached for out of
+    // ranks 25-32 while ranks 16-24 (rb5, rb6, and seven WR/TE) sat untouched.
+    "rb20", "rb21", "wr20", "rb22", "rb23", "te10", "rb24", "wr21",
+    // overall 24 -- the user's own pick at the turn. Excluded from the window,
+    // but still counted in K (the reconstruction puts it back on the board).
     "qb3",
   ];
   return seq.map((id) => byId.get(id));

@@ -129,8 +129,8 @@ export function buildContext({ players, draft, boardRows, myTeam }) {
 
   // Momentum, which scarcity cannot see: scarcity presumes a uniform gap's
   // worth of the board disappears, and says nothing about WHICH positions are
-  // going. `available` and `startable` are already computed above.
-  const runs = detectRuns({ made, mySlot, available, startable });
+  // going. `available` is already computed above.
+  const runs = detectRuns({ made, mySlot, available });
 
   return {
     pool: entries,

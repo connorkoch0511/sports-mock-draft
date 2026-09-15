@@ -7,6 +7,19 @@ function pick(team, id, position) {
   return { overall: 0, round: 1, team, playerId: id, player: { id, position } };
 }
 
+// A pick whose player carries a rank, so the reconstructed board can be sorted.
+function rankedPick(team, id, position, rank) {
+  return {
+    overall: 0, round: 1, team, playerId: id,
+    player: { id, position, rank },
+  };
+}
+
+// Players still on the board, ranked.
+function ranked(entries) {
+  return entries.map(([id, position, rank]) => ({ id, position, rank }));
+}
+
 // startable: every id passed is startable at its position.
 function startableOf(players) {
   const m = new Map();
@@ -17,40 +30,42 @@ function startableOf(players) {
   return m;
 }
 
-// A board with `n` startable players at each listed position.
+// A board with `n` players at each listed position, RANKED so the top of the
+// board is a mix of positions in proportion to `counts` -- not one block per
+// position. compareRank leaves unranked players in insertion order, so an
+// unranked board (what this helper built before Task 1) put whichever
+// position was listed first in `counts` at the very top of the reconstructed
+// board every time: RB, here, since every call site lists it first. That
+// silently gave every "should fire" test in this file an expected RB share
+// near 1.0 once detectRuns started reconstructing the board instead of
+// reading it live -- ranks are what make the fixture mean what its comments
+// say. Each position's players are spread evenly across [0, 1) by their
+// within-position index, the standard trick for interleaving several
+// streams by relative share (same idea as Bresenham's line algorithm).
 function board(counts) {
-  const out = [];
-  let id = 1000;
-  for (const [position, n] of Object.entries(counts)) {
-    for (let i = 0; i < n; i++) out.push({ id: id++, position });
+  const positions = Object.entries(counts);
+  const seeded = [];
+  for (const [position, n] of positions) {
+    for (let i = 0; i < n; i++) seeded.push({ position, key: (i + 0.5) / n });
   }
-  return out;
-}
+  // Stable sort: a tie (two positions landing on the same fractional slot)
+  // keeps `counts`'s declared order, which is deterministic and not what any
+  // test here asserts on.
+  seeded.sort((a, b) => a.key - b.key);
 
-// A board where `startable` is a genuine subset of `available` -- for each
-// position, `total` players exist on the board but only the first `startable`
-// of them are startable. Unlike board()+startableOf(), this makes the two
-// populations numerically different, which is the only way to catch a
-// regression that computes the expected share from the wrong one.
-function boardWithSubset(spec) {
-  const available = [];
-  const startable = new Map();
-  let id = 1000;
-  for (const [position, { total, startable: startCount }] of Object.entries(spec)) {
-    const ids = new Set();
-    for (let i = 0; i < total; i++) {
-      const pid = id++;
-      available.push({ id: pid, position });
-      if (i < startCount) ids.add(String(pid));
-    }
-    startable.set(position, ids);
-  }
-  return { available, startable };
+  return seeded.map((s, i) => ({ id: 1000 + i, position: s.position, rank: i + 1 }));
 }
 
 test("a position going far above its expected rate is a run", () => {
   // 8 picks by others, 5 of them RB. Observed 5/8 = 0.625.
-  // Board left: 10 RB of 40 startable -> expected 0.25. 0.625 >= 0.4375. Fires.
+  // Reconstructed board: the window's 8 picks plus `available` puts the top 8
+  // of a 10 RB/20 WR/10 TE board (board() interleaves by relative share) at
+  // 2 RB, 4 WR, 2 TE -- expected 2/8 = 0.25. 0.625 >= 0.25 * 1.75 = 0.4375.
+  // Fires. (Re-based for Task 1: `board()` used to leave every player
+  // unranked, so the reconstructed top 8 was just the first 8 insertion-order
+  // entries -- 8 RB, since board() lists RB first -- and expected came out to
+  // 8/8 = 1.0, well above 0.625. This test failed until board() carried
+  // ranks.)
   const made = [
     pick(2, 1, "RB"), pick(3, 2, "RB"), pick(4, 3, "WR"), pick(5, 4, "RB"),
     pick(6, 5, "RB"), pick(7, 6, "TE"), pick(8, 7, "RB"), pick(9, 8, "WR"),
@@ -94,17 +109,19 @@ test("your own picks do not count toward a run", () => {
 });
 
 test("the count includes picks of players nobody would start", () => {
-  // Five RBs taken, none of them startable. The sentence this feeds has to be
-  // true of the Draft Board, so all five count. Startable governs the
-  // EXPECTED rate, never the observed count.
+  // Five RBs taken, at ids (9001-9005) that don't appear anywhere on
+  // `available` -- they are already off the board by the time this factor
+  // runs. The sentence this feeds has to be true of the Draft Board, so all
+  // five count regardless. Same board and window shape as "a position going
+  // far above its expected rate is a run": expected 2/8 = 0.25, observed
+  // 5/8 = 0.625 clears 0.4375. Fires.
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const startable = startableOf(available);
   const made = [
     pick(2, 9001, "RB"), pick(3, 9002, "RB"), pick(4, 9003, "RB"),
     pick(5, 9004, "RB"), pick(6, 9005, "RB"), pick(7, 11, "WR"),
     pick(8, 12, "TE"), pick(9, 13, "WR"),
   ];
-  const runs = detectRuns({ made, mySlot: 1, available, startable });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
   assert.deepStrictEqual(runs.get("RB"), { count: 5, window: 8 });
 });
@@ -132,14 +149,17 @@ test("only the last RUN_WINDOW picks are considered", () => {
 test("window reports how many picks it actually saw, not RUN_WINDOW", () => {
   // Only six picks have been made. A reason built from this must say
   // "of the last 6", never "of the last 8".
+  //
+  // K is 6 too (nobody's own picks are mixed in here), so the reconstructed
+  // board is `available` plus these same 6 picks -- board()'s top 6 of a
+  // 10 RB/20 WR/10 TE board are 2 RB, 3 WR, 1 TE, expected 2/6 = 0.3333.
+  // Observed 5/6 = 0.8333 clears 0.3333 * 1.75 = 0.5833. Fires.
   const made = [
     pick(2, 1, "RB"), pick(3, 2, "RB"), pick(4, 3, "RB"), pick(5, 4, "RB"),
     pick(6, 5, "RB"), pick(7, 6, "WR"),
   ];
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made, mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
   assert.deepStrictEqual(runs.get("RB"), { count: 5, window: 6 });
 });
@@ -166,44 +186,6 @@ test("no picks yet means no runs, and does not throw", () => {
   });
 
   assert.strictEqual(runs.size, 0);
-});
-
-// Every other test in this file builds `startable` with startableOf(available),
-// which makes startable numerically identical to available -- so a regression
-// that computed the expected share from raw `available` counts (instead of
-// `startable`) would pass every one of them unchanged. This is the exact bug
-// that once made scarcityFactor fire zero times on live data: only ~30 of the
-// ~891 running backs on a real board are ever startable, and a share taken
-// over the whole pool never looks like a departure from it.
-//
-// SWAPPING THE POPULATION MUST FAIL THIS TEST: if detectRuns is changed to
-// divide by available counts instead of startable counts, RB's expected share
-// jumps from 0.25 (10 startable of 40 startable-total) to 0.7692 (100
-// available of 130 available-total), the threshold jumps from 0.4375 to
-// 1.3462, and 0.625 no longer clears it. Do not "simplify" this fixture back
-// to startableOf(available) -- that is precisely what makes the two
-// populations indistinguishable.
-test("expected rate is computed over startable, never over raw available (population split)", () => {
-  // RB is a flooded position: 100 on the board, only 10 startable. WR and TE
-  // are fully startable, same as every other test's fixtures.
-  const { available, startable } = boardWithSubset({
-    RB: { total: 100, startable: 10 },
-    WR: { total: 20, startable: 20 },
-    TE: { total: 10, startable: 10 },
-  });
-  // 5 of the last 8 picks by others are RB. Observed 5/8 = 0.625.
-  const made = [
-    pick(2, 1, "RB"), pick(3, 2, "RB"), pick(4, 3, "WR"), pick(5, 4, "RB"),
-    pick(6, 5, "RB"), pick(7, 6, "TE"), pick(8, 7, "RB"), pick(9, 8, "WR"),
-  ];
-
-  const runs = detectRuns({ made, mySlot: 1, available, startable });
-
-  // Correct: expected = 10 startable RB / 40 startable total = 0.25.
-  // Threshold = 0.25 * 1.75 = 0.4375. Observed 0.625 clears it comfortably
-  // (43% over threshold). Using raw available instead: expected =
-  // 100/130 = 0.7692, threshold = 1.3462 -- 0.625 would not come close.
-  assert.deepStrictEqual(runs.get("RB"), { count: 5, window: 8 });
 });
 
 // The only other test aimed at the RUN_MULTIPLE threshold uses a count of 2,
@@ -261,11 +243,80 @@ test("mySlot null counts every pick as someone else's -- nothing to exclude as y
     pick(1, 5, "RB"), pick(2, 6, "RB"), pick(3, 7, "WR"), pick(4, 8, "TE"),
   ];
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made, mySlot: null, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: null, available });
 
-  // 6 RB of 8 = 0.75 observed. expected = 10/40 = 0.25, threshold = 0.4375.
-  // 0.75 clears it comfortably (71% over threshold).
+  // 6 RB of 8 = 0.75 observed. K is 8 (nothing is excluded as "your own" with
+  // mySlot null, so takenSince is the same 8 picks as the window). The
+  // reconstructed top 8 of a 10 RB/20 WR/10 TE board are 2 RB, 4 WR, 2 TE,
+  // expected 2/8 = 0.25, threshold 0.4375. 0.75 clears it comfortably.
   assert.deepStrictEqual(runs.get("RB"), { count: 6, window: 8 });
+});
+
+test("picks that match the board are not a run", () => {
+  // The board's best eight when these picks began were 5 RB and 3 WR, and
+  // exactly 5 RB and 3 WR went. The board predicted it; there is nothing to
+  // report. Under the OLD baseline this fired, because 5/8 RB observed beat
+  // RB's share of the remaining startable pool.
+  const made = [
+    rankedPick(2, "rb1", "RB", 1), rankedPick(3, "rb2", "RB", 2),
+    rankedPick(4, "wr1", "WR", 3), rankedPick(5, "rb3", "RB", 4),
+    rankedPick(6, "rb4", "RB", 5), rankedPick(7, "wr2", "WR", 6),
+    rankedPick(8, "rb5", "RB", 7), rankedPick(9, "wr3", "WR", 8),
+  ];
+  // Whatever is left is ranked below everything that just went.
+  const available = ranked([
+    ["te1", "TE", 9], ["te2", "TE", 10], ["qb1", "QB", 11], ["qb2", "QB", 12],
+    ["wr9", "WR", 13], ["wr10", "WR", 14], ["rb9", "RB", 15], ["k1", "K", 16],
+  ]);
+
+  const runs = detectRuns({ made, mySlot: 1, available });
+
+  assert.strictEqual(runs.get("RB"), undefined);
+});
+
+test("picks that depart from the board are a run", () => {
+  // The board's best eight were 1 TE and 7 others, and 5 TEs went. Nobody
+  // taking the board's advice would have produced that.
+  const made = [
+    rankedPick(2, "te1", "TE", 1), rankedPick(3, "te2", "TE", 20),
+    rankedPick(4, "wr1", "WR", 2), rankedPick(5, "te3", "TE", 21),
+    rankedPick(6, "te4", "TE", 22), rankedPick(7, "wr2", "WR", 3),
+    rankedPick(8, "te5", "TE", 23), rankedPick(9, "wr3", "WR", 4),
+  ];
+  const available = ranked([
+    ["rb1", "RB", 5], ["rb2", "RB", 6], ["wr4", "WR", 7], ["rb3", "RB", 8],
+    ["wr5", "WR", 9], ["rb4", "RB", 10], ["wr6", "WR", 11], ["rb5", "RB", 12],
+  ]);
+
+  const runs = detectRuns({ made, mySlot: 1, available });
+
+  assert.deepStrictEqual(runs.get("TE"), { count: 5, window: 8 });
+});
+
+test("the board is reconstructed, not read live", () => {
+  // THE LOAD-BEARING TEST. Five RBs went, and they were the board's five best
+  // -- so this is not a run. But they are gone from `available` now, so an
+  // implementation that reads the CURRENT top of the board sees zero RBs in
+  // it, computes an expected RB share of 0, and fires on any observed share
+  // at all. That is the factor firing on its own aftermath.
+  const made = [
+    rankedPick(2, "rb1", "RB", 1), rankedPick(3, "rb2", "RB", 2),
+    rankedPick(4, "rb3", "RB", 3), rankedPick(5, "wr1", "WR", 4),
+    rankedPick(6, "rb4", "RB", 5), rankedPick(7, "wr2", "WR", 6),
+    rankedPick(8, "rb5", "RB", 7), rankedPick(9, "wr3", "WR", 8),
+  ];
+  // Not one running back near the top of what remains.
+  const available = ranked([
+    ["wr4", "WR", 9], ["wr5", "WR", 10], ["te1", "TE", 11], ["wr6", "WR", 12],
+    ["qb1", "QB", 13], ["wr7", "WR", 14], ["te2", "TE", 15], ["qb2", "QB", 16],
+    ["rb9", "RB", 80], ["rb10", "RB", 81],
+  ]);
+
+  const runs = detectRuns({ made, mySlot: 1, available });
+
+  assert.strictEqual(
+    runs.get("RB"),
+    undefined,
+    "reading the live board would make this fire on its own aftermath"
+  );
 });
