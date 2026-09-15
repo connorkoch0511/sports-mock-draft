@@ -95,13 +95,50 @@ export const FINISH_STEPS = [
 // rounds 1-3 are running-back heavy by nature, and a factor that fires on
 // every early pick moves scores for something that is not news.
 //
-// These five numbers are a hypothesis, not a result. scarcityFactor shipped
-// firing ZERO times on live data and tierCliffFactor shipped false in 3 of
-// its 68 reasons -- both read correctly and passed their tests. Task 4 of
-// the plan that introduced this audits the firing rate against real drafts
-// before these are considered settled.
+// These five numbers were MEASURED against real drafts, not reasoned out.
+// scripts/audit-runs.js fetches the live player pool, plays complete
+// 12-team/15-round snake drafts in which every seat autopicks by consensus
+// rank, and asks adviseOnPick for advice at all 180 picks from each of the 12
+// seats in turn. Run 2026-09-15 against the live pool of 889 players, 118 of
+// them carrying a consensus rank:
+//
+//   RUN_MIN_COUNT 3, as first written   29.4% of 2,160 picks came back with a
+//                                       run reason -- including more than 90%
+//                                       of every pick in rounds 2, 3 and 4. A
+//                                       signal that is on almost continuously
+//                                       for a quarter of a draft is
+//                                       decoration, not information.
+//   RUN_MIN_COUNT 5, what is below      12.5% of 2,160 picks, 9.9% of them
+//                                       reaching the recommendation itself,
+//                                       and 13.1% over a further 6,480 picks
+//                                       in drafts where the seats reach. It
+//                                       speaks in rounds 1-4 and is silent
+//                                       after round 5, which is when the
+//                                       startable board it measures is gone.
+//
+// Twenty of its sentences were then checked by hand against the raw pick list
+// printed beside each: all twenty true, the user's own picks correctly absent
+// from the window, and the count named matching the window printed.
+//
+// Why the MINIMUM moved and the multiple did not. RUN_MULTIPLE turned out to
+// be the weaker lever by a long way -- taking it from 1.75 to 3 only brought
+// 29.4% down to 23.3% -- because the expected rate is a share of the
+// REMAINING startable board, and that board drains. Once most startable backs
+// are gone RB is a few percent of what is left, and almost any observed share
+// clears a multiple of it; pushing the multiple high enough to matter would
+// have made a run undetectable in round 1, when a position is at its full
+// share of the board and a run is most worth hearing about. The count does
+// not have that defect: 3 of 8 is 37.5%, and RB and WR together are about
+// 70% of every early pick, so "3 of the last 8 were RBs" describes an
+// ordinary board rather than a run. 5 of 8 does not.
+//
+// The 3 and 4 entries in RUN_WEIGHT are unreachable while the minimum is 5,
+// and are kept rather than deleted: they are the ramp this factor would use
+// again if the minimum ever came back down, and it is the audit above -- not
+// a fresh guess -- that would have to move it. Re-run it before touching any
+// of these five.
 export const RUN_WINDOW = 8; // picks by OTHER teams to look back over
-export const RUN_MIN_COUNT = 3; // 1 of 2 picks is a 50% share and is not a run
+export const RUN_MIN_COUNT = 5; // measured: 3 of 8 is the ordinary board, not a run
 export const RUN_MULTIPLE = 1.75; // how far observed must exceed expected
 export const RUN_WEIGHT = { 3: 1.5, 4: 2.5, 5: 3.5 };
 export const RUN_WEIGHT_MAX_COUNT = 5; // counts above this take the 5 weight

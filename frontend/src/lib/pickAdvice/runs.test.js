@@ -94,19 +94,19 @@ test("your own picks do not count toward a run", () => {
 });
 
 test("the count includes picks of players nobody would start", () => {
-  // Four RBs taken, only one of them startable. The sentence this feeds has
-  // to be true of the Draft Board, so all four count. Startable governs the
+  // Five RBs taken, none of them startable. The sentence this feeds has to be
+  // true of the Draft Board, so all five count. Startable governs the
   // EXPECTED rate, never the observed count.
   const available = board({ RB: 10, WR: 20, TE: 10 });
   const startable = startableOf(available);
   const made = [
     pick(2, 9001, "RB"), pick(3, 9002, "RB"), pick(4, 9003, "RB"),
-    pick(5, 9004, "RB"), pick(6, 10, "WR"), pick(7, 11, "WR"),
+    pick(5, 9004, "RB"), pick(6, 9005, "RB"), pick(7, 11, "WR"),
     pick(8, 12, "TE"), pick(9, 13, "WR"),
   ];
   const runs = detectRuns({ made, mySlot: 1, available, startable });
 
-  assert.deepStrictEqual(runs.get("RB"), { count: 4, window: 8 });
+  assert.deepStrictEqual(runs.get("RB"), { count: 5, window: 8 });
 });
 
 test("only the last RUN_WINDOW picks are considered", () => {
@@ -130,17 +130,18 @@ test("only the last RUN_WINDOW picks are considered", () => {
 });
 
 test("window reports how many picks it actually saw, not RUN_WINDOW", () => {
-  // Only four picks have been made. A reason built from this must say
-  // "of the last 4", never "of the last 8".
+  // Only six picks have been made. A reason built from this must say
+  // "of the last 6", never "of the last 8".
   const made = [
-    pick(2, 1, "RB"), pick(3, 2, "RB"), pick(4, 3, "RB"), pick(5, 4, "WR"),
+    pick(2, 1, "RB"), pick(3, 2, "RB"), pick(4, 3, "RB"), pick(5, 4, "RB"),
+    pick(6, 5, "RB"), pick(7, 6, "WR"),
   ];
   const available = board({ RB: 10, WR: 20, TE: 10 });
   const runs = detectRuns({
     made, mySlot: 1, available, startable: startableOf(available),
   });
 
-  assert.deepStrictEqual(runs.get("RB"), { count: 3, window: 4 });
+  assert.deepStrictEqual(runs.get("RB"), { count: 5, window: 6 });
 });
 
 test("a position with no startable players left never runs", () => {
