@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { adviseOnPick } from "./pickAdvice.js";
+import { RUN_WEIGHT } from "./pickAdvice/weights.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -206,7 +207,18 @@ test("invariant: no score is rendered as accumulated float noise", () => {
   }
 });
 
-test("invariant: the generated pool exercises every factor at least once", () => {
+// "run" is deliberately not in this list. generatedAdvice()'s draft has
+// `made: []` -- advice is asked for at the very first pick of the draft, with
+// no history yet -- so detectRuns always sees an empty window and a run can
+// never fire here, no matter what the randomized pool contains. That is not
+// an oversight to fix by injecting picks into this fixture: `made: []` is
+// what makes this pool double as the fixture for four other invariants above
+// (score-equals-base-plus-reasons, no float noise, reasonsFor consistency),
+// and a run needs a hand-built departure from a reconstructed board, not a
+// few extra random picks, to fire honestly rather than by accident. The run
+// factor's dead-weight coverage lives in its own fixture instead: see
+// runAdvice() below and pickAdvice/runs.test.js.
+test("invariant: the generated pool exercises every factor but run at least once", () => {
   const { out } = generatedAdvice();
   const seen = new Set();
   for (const entry of out.ranked) for (const r of entry.reasons) seen.add(r.kind);
@@ -1084,4 +1096,163 @@ test("an out-of-range myTeam still advises, minus the reasons that need a roster
   assert.ok(out.recommendation, "an unknown team is not a reason to say nothing");
   assert.ok(!kinds(out.reasonsFor("a")).includes("need"));
   assert.ok(!kinds(out.reasonsFor("a")).includes("scarcity"));
+});
+
+// ---------------------------------------------------------------------------
+// Runs: a departure from the board, not a fast position.
+// ---------------------------------------------------------------------------
+
+// Enough depth at every position for a 12-team league. Ranks are laid out in
+// three deliberate bands, because the run this fixture builds is a genuine
+// departure from the RECONSTRUCTED board, not merely "RB was left alone":
+//
+//   1-15    early, non-RB picks -- gone before the window opens.
+//   16-24   the board's actual best nine when the window opens: 2 RB, 5 WR,
+//           2 TE. These never get picked -- they are what the reconstruction
+//           must recover as "expected", and rb5 (rank 16) is deliberately
+//           the very best of them, so it is also who the run reason should
+//           attach to.
+//   25-32   the run: five RBs and two WRs and a TE, all reached for well
+//           below where the board's best nine actually sat. Taking RB this
+//           heavily while 5 WR and 2 TE ranked ahead of any of them sat
+//           untouched is what makes this a departure rather than the board's
+//           own order -- an all-RB band 1-15 would leave RB looking like the
+//           board's obvious next pick instead, which is not a run.
+// Everything else (33+) is depth nobody in this fixture touches, plus a K/DEF
+// tail nobody starts. rb28 lives there, deliberately far past the reach band,
+// so a run elsewhere cannot lift a player nobody will reach in time.
+function runPool() {
+  const out = [];
+  const at = (id, position, rank) => player(id, { position, rank, tier: 1 });
+
+  out.push(
+    at("wr0", "WR", 1), at("wr1", "WR", 2), at("wr2", "WR", 3), at("wr3", "WR", 4),
+    at("wr4", "WR", 5), at("wr5", "WR", 6), at("wr6", "WR", 7), at("wr7", "WR", 8),
+    at("te0", "TE", 9), at("te1", "TE", 10), at("te2", "TE", 11), at("te3", "TE", 12),
+    at("qb0", "QB", 13), at("qb1", "QB", 14), at("qb2", "QB", 15),
+
+    at("rb5", "RB", 16), at("wr8", "WR", 17), at("wr9", "WR", 18),
+    at("rb6", "RB", 19), at("wr10", "WR", 20), at("te4", "TE", 21),
+    at("wr11", "WR", 22), at("wr12", "WR", 23), at("te5", "TE", 24),
+
+    at("rb20", "RB", 25), at("rb21", "RB", 26), at("wr20", "WR", 27),
+    at("rb22", "RB", 28), at("rb23", "RB", 29), at("te10", "TE", 30),
+    at("rb24", "RB", 31), at("wr21", "WR", 32)
+  );
+
+  let rank = 33;
+  const usedRb = new Set([5, 6, 20, 21, 22, 23, 24]);
+  for (let i = 0; i < 30; i++) if (!usedRb.has(i)) out.push(at(`rb${i}`, "RB", rank++));
+  const usedWr = new Set([...Array(13).keys(), 20, 21]); // 0-12, 20, 21
+  for (let i = 0; i < 30; i++) if (!usedWr.has(i)) out.push(at(`wr${i}`, "WR", rank++));
+  const usedTe = new Set([0, 1, 2, 3, 4, 5, 10]);
+  for (let i = 0; i < 15; i++) if (!usedTe.has(i)) out.push(at(`te${i}`, "TE", rank++));
+  for (let i = 3; i < 15; i++) out.push(at(`qb${i}`, "QB", rank++)); // qb0-2 already used
+  for (let i = 0; i < 12; i++) out.push(at(`k${i}`, "K", rank++));
+  for (let i = 0; i < 12; i++) out.push(at(`def${i}`, "DEF", rank++));
+
+  return out;
+}
+
+// 24 picks, overall 1..24. Team 1 (the user) made overall 1 and overall 24 --
+// the snake's turn -- so "other teams" is overall 2..23, and the last eight of
+// those (overall 16..23) hold five RBs.
+function madeWithRunOnRB(pool) {
+  const byId = new Map(pool.map((p) => [p.id, p]));
+  const seq = [
+    // overall 1..15 -- ranks 1-15, all gone before the window opens.
+    "wr0", "wr1", "te0", "qb0", "wr2", "te1", "wr3", "qb1",
+    "wr4", "te2", "wr5", "qb2", "wr6", "te3", "wr7",
+    // overall 16..23 -- the window. Five RBs of eight, all reached for out of
+    // ranks 25-32 while ranks 16-24 (rb5, rb6, and seven WR/TE) sat untouched.
+    "rb20", "rb21", "wr20", "rb22", "rb23", "te10", "rb24", "wr21",
+    // overall 24 -- the user's own pick at the turn. Excluded from the window,
+    // but still counted in K (the reconstruction puts it back on the board).
+    "qb3",
+  ];
+  return seq.map((id) => byId.get(id));
+}
+
+function runAdvice() {
+  const players = runPool();
+  const draft = makeDraft({
+    teams: 12,
+    rounds: 15,
+    userTeam: 1,
+    rosterSlots: STARTERS,
+    made: madeWithRunOnRB(players),
+  });
+  return adviseOnPick({ players, draft, boardRows: null, myTeam: 1 });
+}
+
+test("a run on a position is a reason, with a countable sentence", () => {
+  const run = runAdvice()
+    .reasonsFor("rb5")
+    .find((r) => r.kind === "run");
+
+  assert.ok(run, "five of the last eight picks by other teams were RBs");
+  assert.ok(run.weight > 0, "a run reason must carry weight");
+  // The sentence has to be true of the Draft Board: five RBs, eight picks.
+  assert.strictEqual(
+    run.text,
+    "5 of the last 8 picks by other teams were RBs."
+  );
+});
+
+test("a run does not lift a player nobody will reach before your next pick", () => {
+  // gap is 23, so index 23 is the first index the gap gate excludes -- one
+  // past the window of players expected to go. rb16 sits exactly there
+  // (index 23) while still ranking 22nd among RBs, comfortably inside the
+  // 28-deep startable window -- so this is blocked on the gap ground alone,
+  // not doubly blocked by startable too. Urgency cannot apply to someone who
+  // will still be there either way.
+  const run = runAdvice()
+    .reasonsFor("rb16")
+    .find((r) => r.kind === "run");
+
+  assert.strictEqual(run, undefined);
+});
+
+// A roster with only one dedicated RB slot and no FLEX, so the RB startable
+// window shrinks to teams(12) x 1 = 12 -- versus 28 under STARTERS. Reusing
+// runPool()/madeWithRunOnRB() (index order and startable order share the same
+// ranking, so the run window can never contain an unstartable RB under the
+// wide roster) with only the roster narrowed isolates the startable gate: an
+// RB ranked 13th-22nd at the position sits well inside the gap window on
+// index alone, but now falls outside startable.
+const NARROW_RB_ROSTER = ["QB", "RB", "WR", "WR", "TE", "K", "DEF"];
+
+function runAdviceNarrowRoster() {
+  const players = runPool();
+  const draft = makeDraft({
+    teams: 12,
+    rounds: 15,
+    userTeam: 1,
+    rosterSlots: NARROW_RB_ROSTER,
+    made: madeWithRunOnRB(players),
+  });
+  return adviseOnPick({ players, draft, boardRows: null, myTeam: 1 });
+}
+
+test("a run does not lift a player outside the startable window, even one inside the gap", () => {
+  // rb7 is the 13th-best RB (index 14, comfortably under the gap of 23) --
+  // and under STARTERS' 28-deep RB window he DOES pick up a run reason (see
+  // the fixture comment above). Narrowing the roster to one dedicated RB slot
+  // and no FLEX shrinks the startable window to 12, putting rb7 outside it,
+  // so this fixture is blocked on the startable ground alone.
+  const run = runAdviceNarrowRoster()
+    .reasonsFor("rb7")
+    .find((r) => r.kind === "run");
+
+  assert.strictEqual(run, undefined);
+});
+
+test("the run's weight is the one the count maps to", () => {
+  // Pins the weight table to the factor. Without this the factor could
+  // return any positive number and every other assertion here still passes.
+  const run = runAdvice()
+    .reasonsFor("rb5")
+    .find((r) => r.kind === "run");
+
+  assert.strictEqual(run.weight, RUN_WEIGHT[5]);
 });

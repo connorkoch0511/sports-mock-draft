@@ -89,3 +89,66 @@ export const FINISH_STEPS = [
   [24, 1],
 ];
 
+
+// A run is a DEPARTURE FROM THE BOARD, not a position going fast. Expected is
+// the position mix of the best players on the board as of when the window's
+// picks were made -- reconstructed, never read live. See runs.js.
+//
+// These five numbers were MEASURED, not reasoned out, and the previous set
+// proves why that matters: they passed 277 unit tests while the factor was
+// measurably inverted. scripts/audit-runs.js fetches the live pool, plays
+// complete 12-team/15-round drafts, and asks adviseOnPick at all 180 picks
+// from each of the 12 seats. Run 2026-09-15 against 889 players, 118 ranked.
+//
+// THE ACCEPTANCE CHECK, and the reason this baseline is trustworthy where the
+// last one was not: in scenario A every seat autopicks by consensus, so the
+// picks ARE board order and there is nothing to depart from.
+//
+//   scenario A (2,160 picks)      0.0%   <- predicted, and observed
+//   scenario B (6,480 picks)      3.5%   seats reaching within the top 6
+//
+// The old baseline scored 12.5% on scenario A. A model that fires when
+// nobody has deviated is measuring the board's shape, not the drafters.
+//
+// SENSITIVITY, reproducible with --reach=N (the flag exists precisely so
+// these numbers can be re-run; an earlier version of this table was produced
+// by a temporary edit and could not be):
+//
+//   node scripts/audit-runs.js --reach=N
+//     reach  6 -> 3.5%     reach 20 -> 5.5%
+//     reach 12 -> 7.6%     reach 30 -> 6.6%
+//
+// Firing tracks how far seats actually stray and then plateaus rather than
+// running away -- still under 8% at the most extreme reach measured. It stays
+// quiet unless something happened, which is the entire point.
+//
+// WHY 1.5 AND NOT 1.75. Scenario A is 0.0% at every multiple >= 1.3, so a
+// looser bar costs nothing on the acceptance check. At 1.75 the factor fired
+// on 0.5% of scenario B and 23 of its 33 reasons were the minimum 3-of-8 --
+// below the 2-15% band this was aimed at, with the weight gradient almost
+// unused. At 1.5 it is 3.5%, inside the band, and the gradient is live:
+// 138 runs of 3, 70 of 4, 7 of 5, 9 of 6.
+//
+// The distribution is the other half, and it is what the old model got wrong
+// while its headline looked fine. Old: 61% of round 2, 69% of round 4, ZERO
+// from round 5 on, RB and WR only, every run 5-of-8 so the weight never
+// varied. Now: 4.9-10.6% across rounds 1-10, and all four positions --
+// WR 103, RB 47, QB 39, TE 35. It can finally see quarterback and tight end
+// runs, which the startable-share model structurally could not.
+//
+// Twenty sentences were checked by hand against the raw pick list printed
+// beside each: all twenty true, own picks correctly absent from the window,
+// and a partial window correctly saying "of the last 5" rather than 8.
+//
+// THE HONEST LIMIT. Only 118 of 889 players carry a rank, and they are gone
+// by round 11 (the audit prints ranked-remaining per round). detectRuns
+// declines to speak once fewer than K ranked players remain, because
+// compareRank ties every unranked pair and the reconstruction would silently
+// degenerate into a live board read -- the exact inversion this replaced.
+// So rounds 11-15 are structurally silent. That is a true statement about the
+// data, not a constant to tune. Re-run the audit before touching any of these.
+export const RUN_WINDOW = 8; // picks by OTHER teams to look back over
+export const RUN_MIN_COUNT = 3; // measured: 3 of 8 is the ordinary board, not a run
+export const RUN_MULTIPLE = 1.5; // how far observed must exceed expected
+export const RUN_WEIGHT = { 3: 1.5, 4: 2.5, 5: 3.5 };
+export const RUN_WEIGHT_MAX_COUNT = 5; // counts above this take the 5 weight
