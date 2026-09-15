@@ -179,20 +179,22 @@ test("no picks yet means no runs, and does not throw", () => {
 // is doing anything. This test clears RUN_MIN_COUNT and puts the observed
 // share strictly BETWEEN expected and expected * RUN_MULTIPLE, so it isolates
 // the multiplier: it fires if and only if RUN_MULTIPLE is weak enough to pull
-// the threshold down to (or below) 0.375.
+// the threshold down to (or below) 0.625.
 test("a share between expected and expected * RUN_MULTIPLE is not a run (isolates RUN_MULTIPLE)", () => {
-  // 3 of the last 8 picks by others are RB -- at RUN_MIN_COUNT, not below it.
+  // 5 of the last 8 picks by others are RB -- comfortably above RUN_MIN_COUNT.
   const made = [
-    pick(2, 1, "RB"), pick(3, 2, "WR"), pick(4, 3, "RB"), pick(5, 4, "WR"),
-    pick(6, 5, "RB"), pick(7, 6, "TE"), pick(8, 7, "WR"), pick(9, 8, "WR"),
+    pick(2, 1, "RB"), pick(3, 2, "RB"), pick(4, 3, "RB"), pick(5, 4, "RB"),
+    pick(6, 5, "RB"), pick(7, 6, "WR"), pick(8, 7, "WR"), pick(9, 8, "WR"),
   ];
-  const available = board({ RB: 10, WR: 20, TE: 10 });
+  const available = board({ RB: 8, WR: 8 });
   const runs = detectRuns({ made, mySlot: 1, available });
 
-  // expected = 10/40 = 0.25. observed = 3/8 = 0.375, which is above expected
-  // (so it IS a departure) but below expected * 1.75 = 0.4375 (so it does not
-  // clear the RUN_MULTIPLE bar). 0.375 sits comfortably at the midpoint of
-  // that gap, not against either edge.
+  // board() interleaves two equal-sized groups perfectly (RB, WR, RB, WR...),
+  // so the reconstructed top 8 of an 8 RB / 8 WR board is 4 and 4: expected
+  // = 4/8 = 0.5. observed = 5/8 = 0.625, which is above expected (so it IS a
+  // departure) but below expected * 1.5 = 0.75 (so it does not clear the
+  // RUN_MULTIPLE bar). 0.625 sits at the midpoint of that gap -- 0.125 clear
+  // on each side -- not against either edge.
   assert.strictEqual(runs.get("RB"), undefined);
 });
 
@@ -352,17 +354,19 @@ test("the user's own interleaved picks widen K past window.length, and belong in
   // slice size (mutation a) and both send K back to 8, losing exactly those
   // two RB seats.
   //
-  // The other-team picks (o1..o5, o6..o8) are 5 RB, 3 WR -- observed
-  // 5/8 = 0.625, same as the other RB-run fixtures. The reconstructed board
-  // (available's 3 fillers plus all 10 taken, ranked 1-13) works out to:
-  //   - top 8  (ranks 1-8):  2 RB (o1, o2), 6 WR -- expected 0.25,  threshold 0.4375
-  //   - top 10 (ranks 1-10): 4 RB (o1-o4),  6 WR -- expected 0.4,   threshold 0.7
-  //   - o5 (RB, rank 11) and both mine picks (ranks 12-13) sit outside top 10
+  // The other-team picks (o1..o4, o6..o8) are 4 RB, 4 WR -- o5 is a WR too,
+  // outside the board's top 10 either way, so it only pads the window out to
+  // 8. observed = 4/8 = 0.5. The reconstructed board (available's 3 fillers
+  // plus all 10 taken, ranked 1-13) works out to:
+  //   - top 8  (ranks 1-8):  2 RB (o1, o2), 6 WR -- expected 0.25, threshold 0.375
+  //   - top 10 (ranks 1-10): 4 RB (o1-o4),  6 WR -- expected 0.4,  threshold 0.6
+  //   - o5 (WR, rank 11) and both mine picks (ranks 12-13) sit outside top 10
   //     entirely, so removing mine1/mine2 from the pool doesn't touch top 10's
   //     membership -- it only lets K fall back to 8, at which point top 10
   //     shrinks to top 8 and loses exactly o3 and o4.
-  // At the correct K = 10, 0.625 does not clear 0.7: no run. Either mutation
-  // computes the top-8 numbers instead (2 RB, expected 0.25) and fires.
+  // At the correct K = 10, 0.5 does not clear 0.6 (0.1 of headroom): no run.
+  // Either mutation computes the top-8 numbers instead (expected 0.25,
+  // threshold 0.375) and 0.5 clears that by 0.125: fires.
   const wrA1 = { id: "wrA1", position: "WR", rank: 1 };
   const wrA2 = { id: "wrA2", position: "WR", rank: 3 };
   const wrA3 = { id: "wrA3", position: "WR", rank: 5 };
@@ -375,7 +379,7 @@ test("the user's own interleaved picks widen K past window.length, and belong in
   const o8 = rankedPick(9, "o8", "WR", 8);
   const o3 = rankedPick(4, "o3", "RB", 9);
   const o4 = rankedPick(5, "o4", "RB", 10);
-  const o5 = rankedPick(6, "o5", "RB", 11);
+  const o5 = rankedPick(6, "o5", "WR", 11);
   // The user's own picks, both ranked worse than every other-team pick and
   // every available filler -- outside the board's best 10 either way.
   const mine1 = rankedPick(1, "mine1", "WR", 12);

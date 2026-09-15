@@ -146,6 +146,6 @@ export const FINISH_STEPS = [
 // data, not a constant to tune. Re-run the audit before touching any of these.
 export const RUN_WINDOW = 8; // picks by OTHER teams to look back over
 export const RUN_MIN_COUNT = 3; // measured: 3 of 8 is the ordinary board, not a run
-export const RUN_MULTIPLE = 1.75; // how far observed must exceed expected
+export const RUN_MULTIPLE = 1.5; // how far observed must exceed expected
 export const RUN_WEIGHT = { 3: 1.5, 4: 2.5, 5: 3.5 };
 export const RUN_WEIGHT_MAX_COUNT = 5; // counts above this take the 5 weight
