@@ -10,6 +10,7 @@ import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
+import { QueuePanel } from "../components/draft/QueuePanel";
 import TabBar from "../components/draft/TabBar";
 import StatusStrip from "../components/draft/StatusStrip";
 import ControlSheet from "../components/draft/ControlSheet";
@@ -209,6 +210,15 @@ export default function Draft() {
     return m;
   }, [players]);
 
+  // A Set purely so QueuePanel's read-time filter (`!picked.has(id)`) is
+  // O(1) per row instead of an `.includes` scan repeated for every queued
+  // player on every render.
+  const picked = useMemo(() => new Set(draft?.picked ?? []), [draft?.picked]);
+  // Never stored as its own state -- draft.yourQueue already IS the
+  // server's answer after every load(), and duplicating it here would be a
+  // second place for the two to disagree the moment a poll lands mid-edit.
+  const queue = draft?.yourQueue ?? [];
+
   // currentPickEntry is null once the draft is complete (currentIndex runs
   // past the end of picks), so the completed draft's last-known round/pick/
   // team is what falls back to the transmitted fields here.
@@ -286,6 +296,32 @@ export default function Draft() {
       await load();
     } catch (e) {
       setErr(mutationErrorMessage(e, "Could not change your board"));
+    }
+  };
+
+  // Both queue mutations send the WHOLE array, matching the endpoint's own
+  // contract (see backend/src/drafts.js's POST /queue comment): reordering
+  // or trimming is then one write with no partial-order race, never a
+  // patch this page would have to merge against whatever the server
+  // already had. `queue` above is read fresh off `draft` each call, so an
+  // add right after a remove (or vice versa) always starts from what the
+  // last load() actually saw rather than a value captured in a stale
+  // closure.
+  const addToQueue = async (playerId) => {
+    try {
+      await apiPost(`/drafts/${draftId}/queue`, { queue: [...queue, playerId] });
+      await load();
+    } catch (e) {
+      setErr(mutationErrorMessage(e, "Could not update your queue"));
+    }
+  };
+
+  const removeFromQueue = async (playerId) => {
+    try {
+      await apiPost(`/drafts/${draftId}/queue`, { queue: queue.filter((id) => id !== playerId) });
+      await load();
+    } catch (e) {
+      setErr(mutationErrorMessage(e, "Could not update your queue"));
     }
   };
 
@@ -494,7 +530,18 @@ export default function Draft() {
       </div>
 
       {/* Content */}
-      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 xl:h-full flex flex-col gap-4">
+      {/*
+          xl:max-w-[1600px]: without this the container stayed capped at
+          1232px (max-w-7xl's 1280px minus this padding) regardless of the
+          monitor underneath -- a 1728px screen rendered the same 1232px a
+          1280px one did. Four columns inside that budget leave the Draft
+          Board 164px against a table that wants 620 (min-w-[620px] on its
+          own scroll container), which would have it scrolling horizontally
+          in a sliver on every screen. Widening at xl is what makes the
+          fourth column (the queue) free instead of paid for by the panel
+          that can least afford to shrink.
+      */}
+      <div className="relative mx-auto max-w-7xl xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 xl:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
@@ -854,8 +901,12 @@ export default function Draft() {
         </ControlSheet>
         )}
 
-        {/* 3-column app layout */}
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
+        {/* 4-column app layout at xl (see the container comment above for
+            why xl:max-w-[1600px] is what makes this column free); 2-up
+            between lg and xl with no span on any of the four, which lands
+            board+draft on one row and rosters+queue on the next; tabbed
+            below lg via `pane`. */}
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px_260px] flex-1 min-h-0 min-w-0">
             <div className={pane("board")}>
               <BigBoardPanel
                 draft={draft}
@@ -868,6 +919,7 @@ export default function Draft() {
                 paused={paused}
                 canManualPick={canManualPick}
                 makePick={makePick}
+                queuePlayer={addToQueue}
               />
             </div>
 
@@ -877,6 +929,15 @@ export default function Draft() {
 
             <div className={pane("rosters")}>
               <RosterPanel draft={draft} />
+            </div>
+
+            <div className={pane("queue")}>
+              <QueuePanel
+                queue={queue}
+                playersById={playersById}
+                picked={picked}
+                onRemove={removeFromQueue}
+              />
             </div>
         </div>
 

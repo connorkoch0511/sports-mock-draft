@@ -94,6 +94,11 @@ export function makeDraftState({
   pausedAt = null,
   pausedBy = null,
   yourBoardId = null,
+  // Private to this seat, same as yourBoardId above -- a fixture representing
+  // the caller's own view. Defaults empty so every existing test, which never
+  // heard of a queue before this task, keeps rendering the "nothing queued"
+  // state rather than a list that was never asked for.
+  yourQueue = [],
 } = {}) {
   const picks = buildSnakePicks(12, 15);
   for (const { idx, player } of completedPicks) {
@@ -121,6 +126,7 @@ export function makeDraftState({
     pausedAt,
     pausedBy,
     yourBoardId,
+    yourQueue,
     // The page measures clock skew against this. A fixture omitting it would
     // silently exercise the zero-skew path only.
     now: Date.now(),
@@ -284,6 +290,9 @@ function toDraftResponse(state) {
     // The board that would actually drive the caller's auto-pick, already
     // resolved -- see backend/src/drafts.js's own GET handler.
     yourBoardId: state.yourBoardId ?? null,
+    // Only ever this caller's own -- same reduction the real endpoint applies
+    // to `seats` just above, dropping everything about the other eleven.
+    yourQueue: state.yourQueue ?? [],
     inviteToken: state.inviteToken,
     picked: state.picked,
     version: state.version,
@@ -329,6 +338,19 @@ export function pauseRoute(state, { by = "user-me" } = {}) {
   };
 }
 
+// The stateful POST /queue handler, mirroring pauseRoute above: the GET route
+// in mockDraftApis below must keep serving whatever this wrote, so a test
+// that queues or removes a player and then re-reads the page (or lets a poll
+// tick) sees it reflected rather than a queue frozen at whatever the fixture
+// started with.
+export function queueRoute(state) {
+  return async (r) => {
+    const { queue } = JSON.parse(r.request().postData() || "{}");
+    state.yourQueue = queue;
+    return r.fulfill({ json: { ok: true, queue: state.yourQueue } });
+  };
+}
+
 export function mockDraftApis(page, draftState) {
   page.route(`${API_BASE}/players*`, async (route) => {
     await route.fulfill({ json: { players: MOCK_PLAYERS } });
@@ -361,6 +383,8 @@ export function mockDraftApis(page, draftState) {
   // draft as it is NOW, so mutate the object the GET closes over rather than
   // answering ok and forgetting.
   page.route(`${API_BASE}/drafts/${DRAFT_ID}/pause`, pauseRoute(draftState));
+
+  page.route(`${API_BASE}/drafts/${DRAFT_ID}/queue`, queueRoute(draftState));
 
   page.route(`${API_BASE}/drafts/${DRAFT_ID}/expire`, (r) =>
     r.fulfill({ status: 409, json: { error: "Clock has not expired" } })

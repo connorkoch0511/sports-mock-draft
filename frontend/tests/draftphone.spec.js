@@ -74,6 +74,7 @@ test.describe("the draft page on a phone", () => {
     await expect(page.getByTestId("panel-big-board")).toBeVisible();
     await expect(page.getByTestId("panel-draft-board")).toBeHidden();
     await expect(page.getByTestId("panel-rosters")).toBeHidden();
+    await expect(page.getByTestId("panel-queue")).toBeHidden();
 
     await page.getByTestId("tab-draft").click();
     await expect(page.getByTestId("panel-draft-board")).toBeVisible();
@@ -82,6 +83,32 @@ test.describe("the draft page on a phone", () => {
     await page.getByTestId("tab-rosters").click();
     await expect(page.getByTestId("panel-rosters")).toBeVisible();
     await expect(page.getByTestId("panel-draft-board")).toBeHidden();
+
+    await page.getByTestId("tab-queue").click();
+    await expect(page.getByTestId("panel-queue")).toBeVisible();
+    await expect(page.getByTestId("panel-rosters")).toBeHidden();
+  });
+
+  // TabBar.jsx was laid out for exactly this: grid-cols-3 becomes
+  // grid-cols-4 and a fourth destination joins the other three, on the same
+  // per-seat, private queue Task 1 already wired into the backend.
+  test("the tab bar has four tabs, and Queue shows its own panel", async ({ page }) => {
+    await openDraft(page);
+
+    await expect(page.getByTestId("tab-board")).toBeVisible();
+    await expect(page.getByTestId("tab-draft")).toBeVisible();
+    await expect(page.getByTestId("tab-rosters")).toBeVisible();
+    await expect(page.getByTestId("tab-queue")).toBeVisible();
+
+    await page.getByTestId("tab-queue").click();
+    await expect(page.getByTestId("panel-queue")).toBeVisible();
+    await expect(page.getByTestId("panel-big-board")).toBeHidden();
+
+    // Same floor the page-fits test above holds everywhere else -- a fourth
+    // tab is exactly the kind of addition that could quietly push the page
+    // back past one screen.
+    const { scrollHeight, clientHeight } = await scroller(page);
+    expect(scrollHeight).toBeLessThanOrEqual(clientHeight + 8);
   });
 
   // Panels stay mounted precisely so this holds. A "simplification" to
@@ -123,6 +150,7 @@ test.describe("the draft page on a phone", () => {
       { tab: "tab-board", panel: "panel-big-board" },
       { tab: "tab-draft", panel: "panel-draft-board" },
       { tab: "tab-rosters", panel: "panel-rosters" },
+      { tab: "tab-queue", panel: "panel-queue" },
     ];
 
     const tabBarBox = await page.getByTestId("tab-bar").boundingBox();
@@ -156,7 +184,7 @@ test.describe("the draft page on a phone", () => {
   test("the strip is on every tab, and carries Pause", async ({ page }) => {
     await openDraft(page);
 
-    for (const t of ["tab-board", "tab-draft", "tab-rosters"]) {
+    for (const t of ["tab-board", "tab-draft", "tab-rosters", "tab-queue"]) {
       await page.getByTestId(t).click();
       await expect(page.getByTestId("status-strip")).toBeVisible();
       await expect(

@@ -28,6 +28,7 @@ export function BigBoardPanel({
   paused,
   canManualPick,
   makePick,
+  queuePlayer,
 }) {
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState("");
@@ -394,6 +395,26 @@ export function BigBoardPanel({
                   <Pill>{p.team}</Pill>
                   {p.tier != null ? <Pill>Tier {p.tier}</Pill> : null}
                 </div>
+              </button>
+
+              {/*
+                Bottom-left, mirroring Draft's bottom-right -- the two are
+                not mutually exclusive (queueing somebody does not draft
+                him, and drafting somebody else drops him off your queue
+                for free via QueuePanel's own read-time filter). Never
+                disabled: the server dedupes an id already in the list, so
+                clicking a player twice is a harmless no-op write rather
+                than a state this button needs to track.
+              */}
+              <button
+                type="button"
+                data-testid="queue-add"
+                aria-label={`Queue ${p.name}`}
+                title={`Add ${p.name} to your queue`}
+                onClick={() => queuePlayer(p.id)}
+                className="absolute bottom-2 left-2 rounded-full border border-cyan-900/60 bg-cyan-950/40 px-2.5 py-1 text-[11px] font-medium text-cyan-300 hover:border-cyan-600 hover:text-cyan-200"
+              >
+                Queue
               </button>
 
               <button
