@@ -8,6 +8,7 @@ import {
 } from "@dnd-kit/core";
 import {
   SortableContext,
+  horizontalListSortingStrategy,
   arrayMove,
   sortableKeyboardCoordinates,
   useSortable,
@@ -15,6 +16,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { PrimaryMouseSensor } from "../../lib/dragSensors";
+import { useIsPhone } from "../../lib/useIsPhone";
 
 /**
  * One queued player. The whole row is the drag surface, same reasoning as
@@ -23,7 +25,7 @@ import { PrimaryMouseSensor } from "../../lib/dragSensors";
  * Board's player name does -- Remove is the one exception, and it opts out
  * of the drag the same way Board's name opts out of it.
  */
-function QueueRow({ id, index, player, onRemove }) {
+function QueueRow({ id, index, player, onRemove, isStrip = false }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
 
@@ -34,9 +36,12 @@ function QueueRow({ id, index, player, onRemove }) {
       style={{ transform: CSS.Transform.toString(transform), transition }}
       data-testid="queue-row"
       data-player-id={id}
-      className={`flex cursor-grab items-center justify-between gap-2 rounded-2xl border border-zinc-900 bg-black/60 p-3 active:cursor-grabbing ${
-        isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""
-      }`}
+      // In the strip it is a chip that does not grow: shrink-0 so the row
+      // scrolls sideways rather than squeezing four names into nothing, and
+      // p-2 because 90px of strip height has no room for p-3 twice over.
+      className={`flex cursor-grab items-center justify-between gap-2 rounded-2xl border border-zinc-900 bg-black/60 active:cursor-grabbing ${
+        isStrip ? "shrink-0 p-2" : "p-3"
+      } ${isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""}`}
     >
       <div className="flex min-w-0 items-center gap-2">
         <button
@@ -135,17 +140,32 @@ export function QueuePanel({ queue, playersById, picked, onRemove, onReorder }) 
     onReorder(nextStored);
   }
 
+  // Matches the page's own lg boundary: above it this is the strip beneath
+  // three columns, below it a tab of its own.
+  const isStrip = !useIsPhone();
+
   return (
     <div
       data-testid="panel-queue"
-      className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col"
+      // lg:col-span-3 sits HERE and not on the pane wrapper: that wrapper is
+      // `lg:contents` above lg, so it has no box for a span to apply to. The
+      // cap keeps this a strip -- the row is auto-height, so without it three
+      // queued players take 296px and leave the three panels above 208.
+      className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col lg:col-span-3 lg:max-h-[132px]"
     >
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Queue</h2>
         <div className="text-xs text-zinc-400">{live.length} queued</div>
       </div>
 
-      <div data-testid="scroll-queue" className="mt-3 flex-1 min-h-0 overflow-auto space-y-2 pr-1">
+      {/* A strip above lg, a list below it. A bottom strip has 1200px of
+          width and 90px of height, so laying the queue out vertically there
+          showed one entry of three under a header saying "3 queued". Below lg
+          it is a full tab with the opposite budget, and stays a list. */}
+      <div
+        data-testid="scroll-queue"
+        className="mt-3 flex-1 min-h-0 overflow-auto pr-1 space-y-2 lg:space-y-0 lg:flex lg:gap-2 lg:overflow-x-auto lg:overflow-y-hidden"
+      >
         {live.length === 0 ? (
           // The point of this panel: an empty queue is a normal, common state
           // (most drafts, most of the time) and a blank box in that state
@@ -156,14 +176,23 @@ export function QueuePanel({ queue, playersById, picked, onRemove, onReorder }) 
           </p>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={live} strategy={verticalListSortingStrategy}>
+            <SortableContext items={live} strategy={isStrip ? horizontalListSortingStrategy : verticalListSortingStrategy}>
               {live.map((id, i) => {
                 const p = playersById.get(id);
                 // The player pool loads separately from the draft itself
                 // (Draft.jsx's load()); a queue entry racing ahead of it is
                 // not an error, just a row with nothing to render yet.
                 if (!p) return null;
-                return <QueueRow key={id} id={id} index={i} player={p} onRemove={onRemove} />;
+                return (
+                  <QueueRow
+                    key={id}
+                    id={id}
+                    index={i}
+                    player={p}
+                    onRemove={onRemove}
+                    isStrip={isStrip}
+                  />
+                );
               })}
             </SortableContext>
           </DndContext>

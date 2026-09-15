@@ -123,17 +123,21 @@ test("an empty queue renders its explanatory text, not a blank box", async ({ pa
 // -- so dragging is the one mutation in this panel that has to be proven
 // against a real gesture, not just a click. `dragRow` mirrors board.spec.js's
 // own helper: mouse down on the row body, move past a sibling, mouse up.
-async function dragRow(page, locator, dy) {
-  // Below 3xl the queue sits under the three columns on a page that scrolls,
-  // so at the suite's own 1280px width it starts below the fold. boundingBox
-  // would then hand back coordinates the mouse cannot reach, and the drag
-  // would silently do nothing -- which is exactly how this failed when the
-  // page's height binding moved to match the fourth column's breakpoint.
-  await locator.scrollIntoViewIfNeeded();
-  const box = await locator.boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+// Drag one row onto another's centre, rather than by a pixel distance. The
+// queue is a horizontal strip above lg and a vertical list below, and the
+// rows are ~200px wide one way and ~56px tall the other -- a distance tuned
+// for one is meaningless in the other, which is exactly how "140" stopped
+// reordering anything when the strip replaced the stacked list.
+async function dragOnto(page, fromLocator, toLocator) {
+  await fromLocator.scrollIntoViewIfNeeded();
+  const from = await fromLocator.boundingBox();
+  const to = await toLocator.boundingBox();
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + dy, { steps: 12 });
+  // Two moves: dnd-kit needs one past its 4px threshold to arm before the
+  // pointer arrives, or the drop lands with nothing being dragged.
+  await page.mouse.move(from.x + from.width / 2 + 8, from.y + from.height / 2 + 8);
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 12 });
   await page.mouse.up();
 }
 
@@ -157,7 +161,7 @@ test("dragging a queue row with the mouse reorders it and posts the whole array"
 
   // A drop is one write, not a stream of them -- so this waits for the whole
   // gesture to land, then checks the single POST it produced.
-  await dragRow(page, rows.first(), 140);
+  await dragOnto(page, rows.first(), rows.nth(2));
 
   await expect.poll(async () => rows.first().getAttribute("data-player-id")).not.toBe(before);
   // p1 dragged past p2 and p3 lands last, not merely "not first" -- a bug
@@ -192,7 +196,8 @@ test("a drop preserves an already-drafted player's stored position", async ({ pa
   // p2 was drafted, so only p1 and p3 are visible to drag.
   await expect(rows).toHaveCount(2);
 
-  await dragRow(page, rows.first(), 140);
+  // Onto the last visible row -- there is no third, since p2 is drafted.
+  await dragOnto(page, rows.first(), rows.nth(1));
 
   // p2 is still at index 1, exactly where it lived in storage before this
   // drag -- not dropped, not moved to the end, not duplicated.

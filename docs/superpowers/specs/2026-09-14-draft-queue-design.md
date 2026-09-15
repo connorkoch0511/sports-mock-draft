@@ -82,10 +82,14 @@ the same 1232px of columns and wastes ~500px of margin. Four columns inside
 scroll horizontally in a sliver on every screen. Widening is what lets the
 fourth column cost nothing.
 
-**Between `lg` and `3xl`:** a fourth item below the three columns, on a page
-that scrolls rather than being height-bound — the same trade `lg` has always
-made. Note `RosterPanel`'s own `lg:col-span-2` means this is three rows at
-`lg`, not the two-by-two the first draft of this spec claimed.
+**Between `lg` and `xl`:** a two-column grid, so the queue joins rosters on a
+second row — two rows of two. The page scrolls here, as it always has.
+
+**Between `xl` and `3xl`:** three columns, so the queue wraps below them. The
+page scrolls here too, which it did **not** before this branch: the height was
+bound from `xl` up, and a fourth item in a three-track bound-height grid split
+the free height between two rows and halved every panel. The column's
+breakpoint and the height binding must always be the same one.
 
 **Below `lg`:** the fourth tab the bar was built for. `grid-cols-3` becomes
 `grid-cols-4` — the change the tab bar was deliberately laid out to absorb.

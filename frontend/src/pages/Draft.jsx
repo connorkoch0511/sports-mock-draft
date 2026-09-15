@@ -503,8 +503,8 @@ export default function Draft() {
   const pausedByOther = paused && draft.pausedBy != null && draft.pausedBy !== sub;
 
   // `lg:contents` makes the wrapper vanish from the box tree at desktop, so the
-  // panels stay direct grid children and RosterPanel's own lg:col-span-2 still
-  // applies. Below lg the wrapper is the visibility switch -- display:none,
+  // panels stay direct grid children of the real grid, so each one occupies a
+  // track of its own. Below lg the wrapper is the visibility switch -- display:none,
   // which preserves scrollTop (measured), where visibility/absolute does not.
   // The active wrapper is a COLUMN flex container: with flex-row, width is the
   // main axis and an unstretched panel sizes to its own content (measured:
@@ -539,7 +539,7 @@ export default function Draft() {
           : `Waiting on Team ${currentTeamOnClock}`;
 
   return (
-    <div className="relative min-h-full max-lg:h-full 3xl:h-full w-full overflow-x-hidden">
+    <div className="relative min-h-full max-lg:h-full lg:h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -556,14 +556,30 @@ export default function Draft() {
           breakpoint, and between lg and 1600 the queue is a fourth cell in
           the three-column grid rather than a fourth column.
         */}
-      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 3xl:h-full flex flex-col gap-4">
+      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 lg:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
           </div>
         )}
 
-        {/* Top bar */}
+        {/* ONE desktop layout, not four.
+
+            This page used to have four: tabs below lg, two columns to xl,
+            three to 3xl, four above -- and this branch broke two of them. The
+            bands were the bug, not any one breakpoint: each is a separate
+            configuration somebody has to verify and nobody does.
+
+            So above lg there is a single shape at every width. Three
+            proportional tracks rather than fixed pixels, so nothing has to be
+            re-budgeted when a column is added; the queue spans all three on a
+            second, auto-height row, which keeps it visible on a 1280 laptop
+            instead of only above 1600. The height is bound wherever this
+            layout applies, and the wrapped-row-halves-every-panel failure
+            cannot recur because there is no breakpoint at which the row count
+            changes.
+
+            Below lg it is tabbed, via `pane`. Two bands, both verified. */}
         {/* Absent on a phone, not merely hidden -- the same rule the strip
             follows at desktop, applied in the other direction. A display:none
             element still matches locators, so a header left in the phone DOM
@@ -923,7 +939,7 @@ export default function Draft() {
             between lg and xl with no span on any of the four, which lands
             board+draft on one row and rosters+queue on the next; tabbed
             below lg via `pane`. */}
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] 3xl:grid-cols-[420px_minmax(0,1fr)_360px_260px] flex-1 min-h-0 min-w-0">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto] flex-1 min-h-0 min-w-0">
             <div className={pane("board")}>
               <BigBoardPanel
                 draft={draft}

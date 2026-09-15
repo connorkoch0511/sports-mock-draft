@@ -55,8 +55,10 @@ test.describe("Draft layout", () => {
         const box = await page.getByTestId(id).boundingBox();
         expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(902);
         // A panel collapsed to nothing would satisfy the bound above, so
-        // require it to still be a real panel.
-        expect(box.height, `${id} height`).toBeGreaterThan(200);
+        // require it to still be a real one. The queue is a capped strip by
+        // design, so it gets its own floor rather than the panels'.
+        const floor = id === "panel-queue" ? 80 : 200;
+        expect(box.height, `${id} height`).toBeGreaterThan(floor);
       }
     });
   }
@@ -71,7 +73,11 @@ test.describe("Draft layout", () => {
   // 1280x720 is the size the suite itself runs at, not an overridden height.
   for (const width of [1280, 1440, 1536, 1600, 1728]) {
     test(`the queue never lands on top of another panel at ${width}px`, async ({ page }) => {
-      await page.setViewportSize({ width, height: 720 });
+      // 900, a real laptop height. The floor below is calibrated against it:
+      // the strip legitimately costs the panels ~130px, so a 720-tall window
+      // leaves them ~336 and a floor written for the strip-less layout would
+      // fail for the wrong reason.
+      await page.setViewportSize({ width, height: 900 });
       await openPausedDraft(page);
 
       const boxes = await page.evaluate(() => {
@@ -96,7 +102,9 @@ test.describe("Draft layout", () => {
       // And the three original panels keep a real height rather than being
       // halved to make room for a wrapped row.
       for (const other of boxes.filter((b) => b.id !== "panel-queue")) {
-        expect(other.h, `${other.id} height at ${width}px`).toBeGreaterThan(450);
+        // ~516 with the strip at this height. Halved by a wrapped row -- the
+        // failure this guards -- would be ~250, so 400 separates them cleanly.
+        expect(other.h, `${other.id} height at ${width}px`).toBeGreaterThan(400);
       }
     });
   }
@@ -104,6 +112,28 @@ test.describe("Draft layout", () => {
   // At 1600, where the page is height-bound. Below that it scrolls instead --
   // the panels are their natural height there and clip nothing, which is the
   // same trade lg has always made.
+  // The queue is a strip under the three columns at every desktop width, not
+  // a fourth column above 1600 and a below-the-fold afterthought under it.
+  // These asserted the old shape -- "not in viewport, scroll to reach" -- and
+  // now assert the point of replacing it: during a live draft your queue is
+  // on screen without scrolling, on a 1280 laptop as much as a 1728 monitor.
+  for (const width of [1024, 1280, 1440, 1536, 1728]) {
+    test(`the queue is on screen without scrolling at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openPausedDraft(page);
+
+      await expect(page.getByTestId("panel-queue")).toBeInViewport();
+
+      // And it is a strip, not a panel: if it ever grows into a full row it
+      // takes the height back out of the three panels above it, which is the
+      // failure that broke this page once already.
+      const h = await page
+        .getByTestId("panel-queue")
+        .evaluate((el) => Math.round(el.getBoundingClientRect().height));
+      expect(h, `queue strip height at ${width}px`).toBeLessThanOrEqual(140);
+    });
+  }
+
   test("panels scroll their own overflowing content", async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 });
     await openPausedDraft(page);
