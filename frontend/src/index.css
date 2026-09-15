@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+/*
+  A named breakpoint, not an arbitrary min-[1600px] variant, because Tailwind
+  sorts arbitrary min-width variants BEFORE the named ones -- so an
+  xl:grid-cols rule was emitted after a min-[1600px]:grid-cols rule and won at
+  every width above 1280, silently. Named breakpoints sort by value.
+
+  1600px is measured: the draft page's fourth column (the queue) only pays for
+  itself there. Below it the column comes out of the Draft Board, whose table
+  wants 620px -- at 1280 four fixed columns leave it eighty.
+*/
+@theme {
+  --breakpoint-3xl: 100rem;
+}
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;

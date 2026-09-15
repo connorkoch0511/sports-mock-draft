@@ -531,17 +531,15 @@ export default function Draft() {
 
       {/* Content */}
       {/*
-          xl:max-w-[1600px]: without this the container stayed capped at
-          1232px (max-w-7xl's 1280px minus this padding) regardless of the
-          monitor underneath -- a 1728px screen rendered the same 1232px a
-          1280px one did. Four columns inside that budget leave the Draft
-          Board 164px against a table that wants 620 (min-w-[620px] on its
-          own scroll container), which would have it scrolling horizontally
-          in a sliver on every screen. Widening at xl is what makes the
-          fourth column (the queue) free instead of paid for by the panel
-          that can least afford to shrink.
-      */}
-      <div className="relative mx-auto max-w-7xl xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 xl:h-full flex flex-col gap-4">
+          3xl (1600px): measured, not chosen. A fourth column only pays for
+          itself at about 1600px of viewport. Below that it is taken out of
+          the Draft Board, whose table wants 620px: at 1280 -- the width the
+          test suite itself runs at -- four fixed columns leave it EIGHTY
+          pixels. So the column and the widened container share one
+          breakpoint, and between lg and 1600 the queue is a fourth cell in
+          the three-column grid rather than a fourth column.
+        */}
+      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 xl:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
@@ -906,7 +904,7 @@ export default function Draft() {
             between lg and xl with no span on any of the four, which lands
             board+draft on one row and rosters+queue on the next; tabbed
             below lg via `pane`. */}
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px_260px] flex-1 min-h-0 min-w-0">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] 3xl:grid-cols-[420px_minmax(0,1fr)_360px_260px] flex-1 min-h-0 min-w-0">
             <div className={pane("board")}>
               <BigBoardPanel
                 draft={draft}

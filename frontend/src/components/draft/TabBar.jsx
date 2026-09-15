@@ -3,9 +3,14 @@
 // an addition rather than a reflow: grid-cols-3 becomes grid-cols-4 and a row
 // joins TABS.
 const TABS = [
-  { id: "board", label: "Big Board", testid: "tab-board" },
-  { id: "draft", label: "Draft Board", testid: "tab-draft" },
-  { id: "rosters", label: "Team Rosters", testid: "tab-rosters" },
+  // Short labels, because four of them share 390px. "Draft Board" and "Team
+  // Rosters" each wrapped to two lines the moment Queue landed -- which the
+  // review of the tab bar predicted when there were three. The panels keep
+  // their full headings; a bottom nav is a place you tap, not a place you
+  // read, and every label here is unambiguous on its own.
+  { id: "board", label: "Board", testid: "tab-board" },
+  { id: "draft", label: "Draft", testid: "tab-draft" },
+  { id: "rosters", label: "Rosters", testid: "tab-rosters" },
   { id: "queue", label: "Queue", testid: "tab-queue" },
 ];
 
