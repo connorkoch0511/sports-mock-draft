@@ -325,6 +325,23 @@ export default function Draft() {
     }
   };
 
+  // A drop is one write, same contract as add/remove above, but it updates
+  // `draft` in place first rather than waiting on a round trip through
+  // load(): the row just got dragged to a specific spot, and a network delay
+  // before the list reflects that would show it snapping back to where it
+  // started for as long as the request takes. On failure, load() is still
+  // the recovery -- it replaces the optimistic guess with whatever the
+  // server actually has.
+  const reorderQueue = async (nextQueue) => {
+    setDraft((d) => (d ? { ...d, yourQueue: nextQueue } : d));
+    try {
+      await apiPost(`/drafts/${draftId}/queue`, { queue: nextQueue });
+    } catch (e) {
+      setErr(mutationErrorMessage(e, "Could not update your queue"));
+      await load();
+    }
+  };
+
   const simToEnd = async () => {
     setBusy(true);
     setErr("");
@@ -935,6 +952,7 @@ export default function Draft() {
                 playersById={playersById}
                 picked={picked}
                 onRemove={removeFromQueue}
+                onReorder={reorderQueue}
               />
             </div>
         </div>

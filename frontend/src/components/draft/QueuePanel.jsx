@@ -1,16 +1,134 @@
+import {
+  DndContext,
+  KeyboardSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { PrimaryMouseSensor } from "../../lib/dragSensors";
+
+/**
+ * One queued player. The whole row is the drag surface, same reasoning as
+ * Board.jsx's Row: a lone six-dot grip is an easy target to miss, and this
+ * row has no other click target competing for the same pixels the way
+ * Board's player name does -- Remove is the one exception, and it opts out
+ * of the drag the same way Board's name opts out of it.
+ */
+function QueueRow({ id, index, player, onRemove }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      data-testid="queue-row"
+      data-player-id={id}
+      className={`flex cursor-grab items-center justify-between gap-2 rounded-2xl border border-zinc-900 bg-black/60 p-3 active:cursor-grabbing ${
+        isDragging ? "opacity-60 ring-1 ring-cyan-300/40" : ""
+      }`}
+    >
+      <div className="flex min-w-0 items-center gap-2">
+        <button
+          {...attributes}
+          {...listeners}
+          aria-label={`Reorder ${player.name}`}
+          title="Drag anywhere on the row to reorder"
+          className="cursor-grab px-1 text-zinc-500 hover:text-zinc-200 active:cursor-grabbing"
+        >
+          ⠿
+        </button>
+        <span className="text-xs text-zinc-500 tabular-nums">{index + 1}</span>
+        <div className="min-w-0">
+          {/* The queue's own column is the narrowest panel in the layout
+              (260px at 3xl) -- a name this column can't fit in full still
+              needs to be discoverable on hover, the same reason Board's row
+              carries a title. */}
+          <div className="truncate font-medium" title={player.name}>
+            {player.name}
+          </div>
+          <div className="text-xs text-zinc-400">
+            {player.position} · {player.team}
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        data-testid="queue-remove"
+        aria-label={`Remove ${player.name} from your queue`}
+        title={`Remove ${player.name} from your queue`}
+        onClick={() => onRemove(id)}
+        // The sensors listen for mousedown/touchstart, not click, so
+        // stopping only the click would still let a drag arm on this same
+        // pixel before the click ever fires. Same three-event guard as
+        // Board.jsx's name button.
+        onPointerDown={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
+        className="shrink-0 rounded-full border border-zinc-800 bg-zinc-950/70 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-zinc-600"
+      >
+        Remove
+      </button>
+    </div>
+  );
+}
+
 /**
  * The queue: who you're taking next, in order, drawn from your own seat's
  * private list. Nothing here decides what's IN the queue -- BigBoardPanel's
- * queue-add button does that -- this panel only renders it and lets you
- * take somebody back off.
+ * queue-add button does that -- this panel renders it, lets you take
+ * somebody back off, and lets you drag it into the order the clock will
+ * actually draft from.
  */
-export function QueuePanel({ queue, playersById, picked, onRemove }) {
+export function QueuePanel({ queue, playersById, picked, onRemove, onReorder }) {
   // Filtered on read. A queued player somebody drafted is gone from here the
   // moment the pick lands -- no write, no race, and nothing struck through:
   // an entry you cannot pick is noise in a list whose whole job is what you
   // are going to pick next. Where the run happened is legible on the Draft
   // Board, which exists for that; this list stays nothing but signal.
   const live = queue.filter((id) => !picked.has(id));
+
+  // Mirrors Board.jsx's sensor list exactly -- see dragSensors.js for why
+  // PrimaryMouseSensor replaces MouseSensor (a drop here POSTs, so a
+  // middle-click reorder would be a real write, not just a stray no-op) and
+  // why touch gets a 250ms hold instead of a distance (a finger has no other
+  // way to scroll the list, so the same few pixels of movement is how you
+  // read it).
+  const sensors = useSensors(
+    useSensor(PrimaryMouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  // A drop reorders the STORED array (the `queue` prop), never the filtered
+  // `live` view rendered below -- posting `live` directly would silently
+  // drop every already-drafted player's id from storage on the very next
+  // drag. Positions of picked ids are left exactly where they were; only the
+  // visible ids' slots receive the new order, in the sequence they were
+  // dragged into.
+  function handleDragEnd(event) {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const from = live.indexOf(active.id);
+    const to = live.indexOf(over.id);
+    if (from < 0 || to < 0) return;
+
+    const reorderedLive = arrayMove(live, from, to);
+    let cursor = 0;
+    const nextStored = queue.map((id) => (picked.has(id) ? id : reorderedLive[cursor++]));
+    onReorder(nextStored);
+  }
 
   return (
     <div
@@ -32,40 +150,18 @@ export function QueuePanel({ queue, playersById, picked, onRemove }) {
             draft from this list first if it ever has to pick for you.
           </p>
         ) : (
-          live.map((id, i) => {
-            const p = playersById.get(id);
-            // The player pool loads separately from the draft itself
-            // (Draft.jsx's load()); a queue entry racing ahead of it is not
-            // an error, just a row with nothing to render yet.
-            if (!p) return null;
-            return (
-              <div
-                key={id}
-                data-testid="queue-row"
-                className="flex items-center justify-between gap-2 rounded-2xl border border-zinc-900 bg-black/60 p-3"
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <span className="text-xs text-zinc-500 tabular-nums">{i + 1}</span>
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{p.name}</div>
-                    <div className="text-xs text-zinc-400">
-                      {p.position} · {p.team}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  data-testid="queue-remove"
-                  aria-label={`Remove ${p.name} from your queue`}
-                  title={`Remove ${p.name} from your queue`}
-                  onClick={() => onRemove(id)}
-                  className="shrink-0 rounded-full border border-zinc-800 bg-zinc-950/70 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-zinc-600"
-                >
-                  Remove
-                </button>
-              </div>
-            );
-          })
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={live} strategy={verticalListSortingStrategy}>
+              {live.map((id, i) => {
+                const p = playersById.get(id);
+                // The player pool loads separately from the draft itself
+                // (Draft.jsx's load()); a queue entry racing ahead of it is
+                // not an error, just a row with nothing to render yet.
+                if (!p) return null;
+                return <QueueRow key={id} id={id} index={i} player={p} onRemove={onRemove} />;
+              })}
+            </SortableContext>
+          </DndContext>
         )}
       </div>
     </div>
