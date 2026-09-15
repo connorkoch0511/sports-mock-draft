@@ -609,8 +609,20 @@ For each of the four, make the change, run `cd frontend && npm run test:unit`, r
 |---|---|---|
 | 1 | `RUN_WINDOW` 8 → 20 | "only the last RUN_WINDOW picks are considered" |
 | 2 | `RUN_MIN_COUNT` 3 → 1 | **Expect this to SURVIVE.** See the note below, then write the test in Step 2. |
-| 3 | `RUN_MULTIPLE` 1.75 → 0.5 | "a position going at its expected rate is not a run" |
+| 3 | `RUN_MULTIPLE` 1.75 → 0.5 | The test added by Task 1's fix pass to isolate the threshold. NOT "a position going at its expected rate is not a run" — see below. |
 | 4 | `RUN_WEIGHT` `{3: 1.5, ...}` → `{3: 0, 4: 0, 5: 0}` | at least one test in `pickAdvice.test.js` asserting a run reason exists |
+
+**On mutations 2 and 3.** Both were mispredicted in the first draft of this table, for the same reason, and the reason is in the implementation's gate order:
+
+```js
+if (count < RUN_MIN_COUNT) continue;   // short-circuits FIRST
+...
+if (observed >= expected * RUN_MULTIPLE) {
+```
+
+In "a position going at its expected rate is not a run" the count is 2, so `continue` fires before the ratio is ever evaluated. That single fixture is blocked on two independent grounds, which means it pins **neither** constant: lower `RUN_MIN_COUNT` and the ratio still blocks it; weaken `RUN_MULTIPLE` and the count still blocks it. A fixture blocked twice pins nothing.
+
+Task 1's review caught this and its fix pass added a test that isolates the threshold — count at or above the minimum, observed share sitting between `expected` and `expected * RUN_MULTIPLE`. Mutation 3 should turn that one red. If Task 1's fix pass is not in your tree, stop and tell the controller rather than tuning the table.
 
 **On mutation 2.** `RUN_MIN_COUNT` is expected to survive, and the reason is worth understanding before you write its test. In "a position going at its expected rate is not a run" the count is 2 *and* the observed share is below the threshold — two independent reasons not to fire — so lowering the minimum changes nothing there. Nothing in the Task 1 set has a low count paired with a high ratio, which is the only shape `RUN_MIN_COUNT` alone governs. The test to add is exactly that shape: two picks at a position out of a short window, where the ratio clears `RUN_MULTIPLE` comfortably and only the minimum count is holding the factor back.
 
