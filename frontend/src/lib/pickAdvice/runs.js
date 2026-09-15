@@ -1,27 +1,34 @@
 import { RUN_WINDOW, RUN_MIN_COUNT, RUN_MULTIPLE } from "./weights.js";
-import { compareRank } from "./helpers.js";
+import { compareRank, finite } from "./helpers.js";
 
 /**
  * Positions being drafted faster than the board predicted, at the moment the
  * window's picks began -- not faster than what happens to remain now.
  *
- * Two populations, deliberately different, and conflating them is the whole
- * trap this module exists to avoid:
+ * The COUNT is over every pick in the window, because the sentence it feeds
+ * ("4 of the last 8 picks by other teams were RBs") has to be true of the
+ * Draft Board a user can count. A reason a user can disprove by counting is
+ * worse than no reason.
  *
- *   - The COUNT is over every pick in the window, because the sentence it
- *     feeds ("4 of the last 8 picks by other teams were RBs") has to be true
- *     of the Draft Board a user can count. A reason a user can disprove by
- *     counting is worse than no reason.
+ * The EXPECTED rate is the position mix of the RECONSTRUCTED board's best K
+ * players, where K is however many picks (by any seat) happened since the
+ * window began. Reading the CURRENT board instead is the trap: the window's
+ * own picks already removed those players from it, so a position taken
+ * heavily is now scarce or absent at the top of what remains, its expected
+ * share collapses toward zero, and any observed share at all looks like a
+ * departure -- the factor firing on its own aftermath. Putting the taken
+ * players back before ranking is what makes "expected" mean what the board
+ * actually offered, not what it has left.
  *
- *   - The EXPECTED rate is the position mix of the RECONSTRUCTED board's best
- *     K players, where K is however many picks (by any seat) happened since
- *     the window began. Reading the CURRENT board instead is the trap: the
- *     window's own picks already removed those players from it, so a
- *     position taken heavily is now scarce or absent at the top of what
- *     remains, its expected share collapses toward zero, and any observed
- *     share at all looks like a departure -- the factor firing on its own
- *     aftermath. Putting the taken players back before ranking is what makes
- *     "expected" mean what the board actually offered, not what it has left.
+ * That reconstruction only works while the board has an opinion. Once the
+ * ranked pool runs thin, `compareRank` treats every unranked player as tied,
+ * and `Array.prototype.sort`'s stability then means the sort order for that
+ * tied block is just `[...available, ...takenSince]`'s insertion order --
+ * `takenSince` sorts entirely below `available`, contributes nothing to
+ * `bestK`, and the reconstruction quietly degenerates back into reading the
+ * live board. So if fewer than K players in the reconstructed board carry a
+ * finite rank, a trustworthy top-K cannot be formed and the factor stays
+ * silent rather than firing on a board it cannot actually rank.
  *
  * Returns a Map holding ONLY positions that cleared the test. A position that
  * is not running is absent rather than present-with-a-false-flag, so a caller
@@ -64,9 +71,17 @@ export function detectRuns({ made, mySlot, available }) {
     .map((p) => p?.player)
     .filter(Boolean);
   const K = takenSince.length;
-  if (K === 0) return runs;
 
   const boardThen = [...available, ...takenSince].sort(compareRank);
+
+  // The board has no opinion where it cannot rank the players involved. Once
+  // fewer than K entries carry a finite rank, `compareRank`'s tie-everything-
+  // unranked behaviour makes `bestK` a literal read of the live board (see
+  // the module comment above) -- a departure from a board with no opinion is
+  // not meaningful, so decline to speak rather than fire on it.
+  const rankedCount = boardThen.filter((p) => finite(p?.rank) !== null).length;
+  if (rankedCount < K) return runs;
+
   const bestK = boardThen.slice(0, K);
 
   const expectedCounts = new Map();

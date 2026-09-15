@@ -20,16 +20,6 @@ function ranked(entries) {
   return entries.map(([id, position, rank]) => ({ id, position, rank }));
 }
 
-// startable: every id passed is startable at its position.
-function startableOf(players) {
-  const m = new Map();
-  for (const p of players) {
-    if (!m.has(p.position)) m.set(p.position, new Set());
-    m.get(p.position).add(String(p.id));
-  }
-  return m;
-}
-
 // A board with `n` players at each listed position, RANKED so the top of the
 // board is a mix of positions in proportion to `counts` -- not one block per
 // position. compareRank leaves unranked players in insertion order, so an
@@ -71,9 +61,7 @@ test("a position going far above its expected rate is a run", () => {
     pick(6, 5, "RB"), pick(7, 6, "TE"), pick(8, 7, "RB"), pick(9, 8, "WR"),
   ];
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made, mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
   assert.deepStrictEqual(runs.get("RB"), { count: 5, window: 8 });
 });
@@ -86,9 +74,7 @@ test("a position going at its expected rate is not a run", () => {
     pick(6, 5, "RB"), pick(7, 6, "TE"), pick(8, 7, "WR"), pick(9, 8, "WR"),
   ];
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made, mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
   assert.strictEqual(runs.get("RB"), undefined);
 });
@@ -101,9 +87,7 @@ test("your own picks do not count toward a run", () => {
     pick(3, 5, "WR"), pick(4, 6, "WR"), pick(5, 7, "TE"), pick(6, 8, "WR"),
   ];
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made, mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
   assert.strictEqual(runs.get("RB"), undefined);
 });
@@ -139,9 +123,7 @@ test("only the last RUN_WINDOW picks are considered", () => {
     pick(6, 24, "WR"), pick(7, 25, "WR"), pick(8, 26, "TE"), pick(9, 27, "WR"),
   ];
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made, mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
   assert.strictEqual(runs.get("RB"), undefined);
 });
@@ -164,26 +146,29 @@ test("window reports how many picks it actually saw, not RUN_WINDOW", () => {
   assert.deepStrictEqual(runs.get("RB"), { count: 5, window: 6 });
 });
 
-test("a position with no startable players left never runs", () => {
-  // Expected share is 0, so any observed share is infinitely above it.
-  // Firing here would be meaningless: there is nobody left worth the urgency.
+test("a position absent from the reconstructed board's best K is a run", () => {
+  // The board never offers RB in its top 8 (there are none on it at all), so
+  // expected is 0 -- but 5 of the window's 8 other-team picks were RB, the
+  // strongest possible departure. This position ONLY fires because expected
+  // is 0, not despite it: a board with no opinion on a position that is
+  // nonetheless flying off the shelf is exactly what a run looks like. (This
+  // pins the fix for the finding that used to assert the opposite here --
+  // that the old `if (left === 0) continue;` guard from the deleted
+  // startable model should stay dead: an expected share of 0 must fire, not
+  // be skipped.)
   const available = board({ WR: 20, TE: 10 }); // no RBs left at all
   const made = [
     pick(2, 1, "RB"), pick(3, 2, "RB"), pick(4, 3, "RB"), pick(5, 4, "RB"),
-    pick(6, 5, "WR"), pick(7, 6, "WR"), pick(8, 7, "TE"), pick(9, 8, "WR"),
+    pick(6, 5, "RB"), pick(7, 6, "WR"), pick(8, 7, "WR"), pick(9, 8, "TE"),
   ];
-  const runs = detectRuns({
-    made, mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
-  assert.strictEqual(runs.get("RB"), undefined);
+  assert.deepStrictEqual(runs.get("RB"), { count: 5, window: 8 });
 });
 
 test("no picks yet means no runs, and does not throw", () => {
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made: [], mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made: [], mySlot: 1, available });
 
   assert.strictEqual(runs.size, 0);
 });
@@ -202,9 +187,7 @@ test("a share between expected and expected * RUN_MULTIPLE is not a run (isolate
     pick(6, 5, "RB"), pick(7, 6, "TE"), pick(8, 7, "WR"), pick(9, 8, "WR"),
   ];
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made, mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
   // expected = 10/40 = 0.25. observed = 3/8 = 0.375, which is above expected
   // (so it IS a departure) but below expected * 1.75 = 0.4375 (so it does not
@@ -225,9 +208,7 @@ test("a low count that clears RUN_MULTIPLE by a wide margin is still not a run (
   // (128% over), so nothing but the minimum count is holding this back.
   const made = [pick(2, 1, "RB"), pick(3, 2, "RB")];
   const available = board({ RB: 10, WR: 20, TE: 10 });
-  const runs = detectRuns({
-    made, mySlot: 1, available, startable: startableOf(available),
-  });
+  const runs = detectRuns({ made, mySlot: 1, available });
 
   assert.strictEqual(runs.get("RB"), undefined);
 });
@@ -318,5 +299,82 @@ test("the board is reconstructed, not read live", () => {
     runs.get("RB"),
     undefined,
     "reading the live board would make this fire on its own aftermath"
+  );
+});
+
+test("an unranked reconstruction can't form a trustworthy top-K, so it stays silent", () => {
+  // Nothing here carries a rank at all -- neither the 8 still-available
+  // players nor the 8 taken since the window began. `compareRank` ties every
+  // unranked pair, and a stable sort leaves ties in their original
+  // `[...available, ...takenSince]` order, so `takenSince` sorts entirely
+  // below `available` and contributes nothing to `bestK`: reading
+  // `boardThen.slice(0, K)` degenerates into a literal read of `available`,
+  // i.e. the LIVE board. `available` was built with no RB at all -- as it
+  // would be, once RB is the position that just got heavily drafted -- so
+  // that live read computes an expected RB share of 0 and fires on the 5/8
+  // observed. The guard's job is to notice `available`'s 0 ranked players
+  // plus `takenSince`'s 0 ranked players can't form a trustworthy top 8 and
+  // decline to speak instead.
+  const available = [
+    { id: "a1", position: "WR" }, { id: "a2", position: "WR" },
+    { id: "a3", position: "TE" }, { id: "a4", position: "TE" },
+    { id: "a5", position: "WR" }, { id: "a6", position: "WR" },
+    { id: "a7", position: "TE" }, { id: "a8", position: "WR" },
+  ];
+  const made = [
+    pick(2, 1, "RB"), pick(3, 2, "RB"), pick(4, 3, "RB"), pick(5, 4, "RB"),
+    pick(6, 5, "RB"), pick(7, 6, "WR"), pick(8, 7, "WR"), pick(9, 8, "TE"),
+  ];
+  const runs = detectRuns({ made, mySlot: 1, available });
+
+  assert.strictEqual(
+    runs.get("RB"),
+    undefined,
+    "without the finite-rank guard this reads like the live board and fires"
+  );
+});
+
+test("the user's own interleaved picks widen K past window.length", () => {
+  // K counts picks by ANY seat since the window began; the window (and its
+  // count) only ever counts other teams'. Every other fixture in this file
+  // has K === window.length, so it can't tell K's slice from window.length's.
+  // Here two of the user's own picks (mine1, mine2) land inside the window's
+  // span, so K is 10 while window.length stays 8 -- and the reconstructed
+  // board's best 10 is a genuinely bigger, differently-shared slice than its
+  // best 8.
+  //
+  // The other-team picks (o1..o8) are 5 RB, 3 WR -- observed 5/8 = 0.625,
+  // same as the other RB-run fixtures. The reconstructed board is ranked so
+  // that:
+  //   - top 8  (ranks 1-8):  2 RB, 6 WR -- expected 2/8  = 0.25, threshold 0.4375
+  //   - top 10 (ranks 1-10): 4 RB, 6 WR -- expected 4/10 = 0.4,  threshold 0.7
+  // At the correct K = 10, 0.625 does not clear 0.7: no run. Using
+  // window.length (8) for both the slice and the denominator instead of K --
+  // one of the two mutations the finding names -- would compute the top-8
+  // numbers instead, clear 0.4375, and fire. That's the bug this pins.
+  const wrA1 = { id: "wrA1", position: "WR", rank: 1 };
+  const wrA2 = { id: "wrA2", position: "WR", rank: 3 };
+  const available = [wrA1, wrA2];
+
+  const o1 = rankedPick(2, "o1", "RB", 2);
+  const mine1 = rankedPick(1, "mine1", "WR", 4);
+  const o6 = rankedPick(7, "o6", "WR", 5);
+  const o7 = rankedPick(8, "o7", "WR", 6);
+  const o8 = rankedPick(9, "o8", "WR", 7);
+  const o2 = rankedPick(3, "o2", "RB", 8);
+  const o3 = rankedPick(4, "o3", "RB", 9);
+  const o4 = rankedPick(5, "o4", "RB", 10);
+  // Unranked: irrelevant to the top-10 reconstruction, but still counted in
+  // the window (o5) and still correctly excluded as the user's own (mine2).
+  const o5 = pick(6, "o5", "RB");
+  const mine2 = pick(1, "mine2", "WR");
+
+  const made = [o1, mine1, o2, mine2, o3, o4, o5, o6, o7, o8];
+  const runs = detectRuns({ made, mySlot: 1, available });
+
+  assert.strictEqual(
+    runs.get("RB"),
+    undefined,
+    "using window.length instead of K would fire on the top-8 numbers"
   );
 });
