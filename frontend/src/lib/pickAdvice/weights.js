@@ -105,33 +105,36 @@ export const FINISH_STEPS = [
 // picks ARE board order and there is nothing to depart from.
 //
 //   scenario A (2,160 picks)      0.0%   <- predicted, and observed
-//   scenario B (6,480 picks)      0.5%   seats reaching within the top 6
+//   scenario B (6,480 picks)      3.5%   seats reaching within the top 6
 //
 // The old baseline scored 12.5% on scenario A. A model that fires when
 // nobody has deviated is measuring the board's shape, not the drafters.
 //
-// SENSITIVITY. 0.5% is below the 2-15% band, so the obvious worry is a factor
-// too deaf to be worth having. It is not: firing tracks how far seats
-// actually stray, and then plateaus rather than running away.
+// SENSITIVITY, reproducible with --reach=N (the flag exists precisely so
+// these numbers can be re-run; an earlier version of this table was produced
+// by a temporary edit and could not be):
 //
-// Reproduce with: node scripts/audit-runs.js --reach=N --samples=3 (N in
-// 6, 12, 20, 30), reading "produced a run reason" under SCENARIO B. Run
-// 2026-09-15 against the same 889-player, 118-ranked pool as above:
+//   node scripts/audit-runs.js --reach=N
+//     reach  6 -> 3.5%     reach 20 -> 5.5%
+//     reach 12 -> 7.6%     reach 30 -> 6.6%
 //
-//   reach  6 -> 0.5%  (33/6480)     reach 20 -> 2.1%  (136/6480)
-//   reach 12 -> 3.0%  (194/6480)    reach 30 -> 2.4%  (154/6480)
+// Firing tracks how far seats actually stray and then plateaus rather than
+// running away -- still under 8% at the most extreme reach measured. It stays
+// quiet unless something happened, which is the entire point.
 //
-// A sixfold response from 6 to 12, and still only 2.4% at 30. It stays quiet
-// unless something happened, which is the entire point. 0.5% at reach 6 is
-// the SIMULATION barely departing, not the model failing to notice.
+// WHY 1.5 AND NOT 1.75. Scenario A is 0.0% at every multiple >= 1.3, so a
+// looser bar costs nothing on the acceptance check. At 1.75 the factor fired
+// on 0.5% of scenario B and 23 of its 33 reasons were the minimum 3-of-8 --
+// below the 2-15% band this was aimed at, with the weight gradient almost
+// unused. At 1.5 it is 3.5%, inside the band, and the gradient is live:
+// 138 runs of 3, 70 of 4, 7 of 5, 9 of 6.
 //
 // The distribution is the other half, and it is what the old model got wrong
 // while its headline looked fine. Old: 61% of round 2, 69% of round 4, ZERO
 // from round 5 on, RB and WR only, every run 5-of-8 so the weight never
-// varied. Now: spread across rounds 1, 4, 5, 7, 8 and 10; WR 21, QB 9, TE 2,
-// RB 1 -- it can finally see quarterback and tight end runs -- and run sizes
-// of 3, 4 and 5, so RUN_WEIGHT's 3 and 4 entries are reachable and the factor
-// has a gradient again.
+// varied. Now: 4.9-10.6% across rounds 1-10, and all four positions --
+// WR 103, RB 47, QB 39, TE 35. It can finally see quarterback and tight end
+// runs, which the startable-share model structurally could not.
 //
 // Twenty sentences were checked by hand against the raw pick list printed
 // beside each: all twenty true, own picks correctly absent from the window,
