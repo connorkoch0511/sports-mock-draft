@@ -89,3 +89,19 @@ export const FINISH_STEPS = [
   [24, 1],
 ];
 
+
+// A position going faster than the board predicts is an argument for taking
+// one before they are gone. Only a DEPARTURE from the expected rate counts:
+// rounds 1-3 are running-back heavy by nature, and a factor that fires on
+// every early pick moves scores for something that is not news.
+//
+// These five numbers are a hypothesis, not a result. scarcityFactor shipped
+// firing ZERO times on live data and tierCliffFactor shipped false in 3 of
+// its 68 reasons -- both read correctly and passed their tests. Task 4 of
+// the plan that introduced this audits the firing rate against real drafts
+// before these are considered settled.
+export const RUN_WINDOW = 8; // picks by OTHER teams to look back over
+export const RUN_MIN_COUNT = 3; // 1 of 2 picks is a 50% share and is not a run
+export const RUN_MULTIPLE = 1.75; // how far observed must exceed expected
+export const RUN_WEIGHT = { 3: 1.5, 4: 2.5, 5: 3.5 };
+export const RUN_WEIGHT_MAX_COUNT = 5; // counts above this take the 5 weight
