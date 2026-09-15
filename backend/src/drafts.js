@@ -228,6 +228,8 @@ exports.handler = async (event) => {
         // Other seats' boards are not exposed, for the same least-data
         // reason their `sub` is not.
         yourBoardId: boardIdForTeam(d, seatOf(d, sub)?.team ?? null),
+        // Only ever this caller's own. A queue is private to its seat.
+        yourQueue: seatOf(d, sub)?.queue ?? [],
         inviteToken: d.inviteToken,
         picked: d.picked || [],
         // Bumped on every write. The draft page polls this endpoint so
@@ -624,6 +626,50 @@ exports.handler = async (event) => {
       );
 
       return json(200, { ok: true, boardId });
+    }
+
+    // POST /drafts/{draftId}/queue
+    //
+    // The shortlist the clock drafts from when it picks for you. Per-seat and
+    // private: a queue written for a seat you do not hold would let anyone
+    // steer anyone else's expired clock, which is why this carries the same
+    // conditional write /seat-board does.
+    //
+    // The whole array is replaced rather than patched. Reordering is then one
+    // write with no partial-order race, and the payload is a handful of ids.
+    if (method === "POST" && draftId && path.endsWith("/queue")) {
+      if (!sub) return needsAuth();
+      const body = event.body ? JSON.parse(event.body) : {};
+      const raw = body.queue;
+      if (
+        !Array.isArray(raw) ||
+        raw.length > 50 ||
+        !raw.every((id) => typeof id === "string" && id.length > 0 && id.length <= 64)
+      ) {
+        return json(400, { error: "queue must be a list of up to 50 player ids" });
+      }
+      // Same id twice would draft him once and then skip a slot.
+      const queue = [...new Set(raw)];
+
+      const res = await ddb.send(new GetCommand({ TableName: draftsTable, Key: { draftId } }));
+      if (!res.Item || !isSeated(res.Item, sub)) return notFound();
+
+      const d = res.Item;
+      const i = (d.seats || []).findIndex((s) => s?.kind === "human" && s?.sub === sub);
+      if (i < 0) return notFound();
+
+      await ddb.send(
+        new UpdateCommand({
+          TableName: draftsTable,
+          Key: { draftId },
+          UpdateExpression: `SET seats[${i}].queue = :q, version = if_not_exists(version, :z) + :one`,
+          ConditionExpression: `seats[${i}].#sub = :me`,
+          ExpressionAttributeNames: { "#sub": "sub" },
+          ExpressionAttributeValues: { ":q": queue, ":me": sub, ":z": 0, ":one": 1 },
+        })
+      );
+
+      return json(200, { ok: true, queue });
     }
 
     // POST /drafts/{draftId}/sim-to-end

@@ -10,6 +10,7 @@ import { Pill } from "../components/draft/Pill";
 import { BigBoardPanel } from "../components/draft/BigBoardPanel";
 import { DraftBoardPanel } from "../components/draft/DraftBoardPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
+import { QueuePanel } from "../components/draft/QueuePanel";
 import TabBar from "../components/draft/TabBar";
 import StatusStrip from "../components/draft/StatusStrip";
 import ControlSheet from "../components/draft/ControlSheet";
@@ -209,6 +210,15 @@ export default function Draft() {
     return m;
   }, [players]);
 
+  // A Set purely so QueuePanel's read-time filter (`!picked.has(id)`) is
+  // O(1) per row instead of an `.includes` scan repeated for every queued
+  // player on every render.
+  const picked = useMemo(() => new Set(draft?.picked ?? []), [draft?.picked]);
+  // Never stored as its own state -- draft.yourQueue already IS the
+  // server's answer after every load(), and duplicating it here would be a
+  // second place for the two to disagree the moment a poll lands mid-edit.
+  const queue = draft?.yourQueue ?? [];
+
   // currentPickEntry is null once the draft is complete (currentIndex runs
   // past the end of picks), so the completed draft's last-known round/pick/
   // team is what falls back to the transmitted fields here.
@@ -286,6 +296,49 @@ export default function Draft() {
       await load();
     } catch (e) {
       setErr(mutationErrorMessage(e, "Could not change your board"));
+    }
+  };
+
+  // Both queue mutations send the WHOLE array, matching the endpoint's own
+  // contract (see backend/src/drafts.js's POST /queue comment): reordering
+  // or trimming is then one write with no partial-order race, never a
+  // patch this page would have to merge against whatever the server
+  // already had. `queue` above is read fresh off `draft` each call, so an
+  // add right after a remove (or vice versa) always starts from what the
+  // last load() actually saw rather than a value captured in a stale
+  // closure.
+  const addToQueue = async (playerId) => {
+    try {
+      await apiPost(`/drafts/${draftId}/queue`, { queue: [...queue, playerId] });
+      await load();
+    } catch (e) {
+      setErr(mutationErrorMessage(e, "Could not update your queue"));
+    }
+  };
+
+  const removeFromQueue = async (playerId) => {
+    try {
+      await apiPost(`/drafts/${draftId}/queue`, { queue: queue.filter((id) => id !== playerId) });
+      await load();
+    } catch (e) {
+      setErr(mutationErrorMessage(e, "Could not update your queue"));
+    }
+  };
+
+  // A drop is one write, same contract as add/remove above, but it updates
+  // `draft` in place first rather than waiting on a round trip through
+  // load(): the row just got dragged to a specific spot, and a network delay
+  // before the list reflects that would show it snapping back to where it
+  // started for as long as the request takes. On failure, load() is still
+  // the recovery -- it replaces the optimistic guess with whatever the
+  // server actually has.
+  const reorderQueue = async (nextQueue) => {
+    setDraft((d) => (d ? { ...d, yourQueue: nextQueue } : d));
+    try {
+      await apiPost(`/drafts/${draftId}/queue`, { queue: nextQueue });
+    } catch (e) {
+      setErr(mutationErrorMessage(e, "Could not update your queue"));
+      await load();
     }
   };
 
@@ -449,9 +502,9 @@ export default function Draft() {
   // broken.
   const pausedByOther = paused && draft.pausedBy != null && draft.pausedBy !== sub;
 
-  // `lg:contents` makes the wrapper vanish from the box tree at desktop, so the
-  // panels stay direct grid children and RosterPanel's own lg:col-span-2 still
-  // applies. Below lg the wrapper is the visibility switch -- display:none,
+  // `xl:contents` makes the wrapper vanish from the box tree at desktop, so the
+  // panels stay direct grid children of the real grid, so each one occupies a
+  // track of its own. Below lg the wrapper is the visibility switch -- display:none,
   // which preserves scrollTop (measured), where visibility/absolute does not.
   // The active wrapper is a COLUMN flex container: with flex-row, width is the
   // main axis and an unstretched panel sizes to its own content (measured:
@@ -460,16 +513,16 @@ export default function Draft() {
   // already does for height. The panel itself still needs to claim the
   // column's main axis (height), which [&>*]:flex-1 does without reaching
   // into the panel's own className. As a grid item the wrapper's default
-  // min-width is min-content (not 0), so without max-lg:min-w-0 it refuses
+  // min-width is min-content (not 0), so without max-xl:min-w-0 it refuses
   // to shrink below the draft board table's min-w-[620px] and inflates past
   // the viewport instead of letting that table scroll horizontally inside
   // its own already-overflow-auto panel (measured: 656px wrapper in a 390px
   // viewport).
   const pane = (id) =>
-    `lg:contents ${
+    `xl:contents ${
       tab === id
-        ? "max-lg:flex max-lg:flex-col max-lg:min-h-0 max-lg:min-w-0 max-lg:flex-1 max-lg:[&>*]:flex-1"
-        : "max-lg:hidden"
+        ? "max-xl:flex max-xl:flex-col max-xl:min-h-0 max-xl:min-w-0 max-xl:flex-1 max-xl:[&>*]:flex-1"
+        : "max-xl:hidden"
     }`;
 
   // The pill ternary in the desktop header answers the same question across
@@ -486,7 +539,7 @@ export default function Draft() {
           : `Waiting on Team ${currentTeamOnClock}`;
 
   return (
-    <div className="relative min-h-full max-lg:h-full xl:h-full w-full overflow-x-hidden">
+    <div className="relative min-h-full max-xl:h-full xl:h-full w-full overflow-x-hidden">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -494,22 +547,48 @@ export default function Draft() {
       </div>
 
       {/* Content */}
-      <div className="relative mx-auto max-w-7xl px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 xl:h-full flex flex-col gap-4">
+      {/*
+          3xl (1600px) widens the container and nothing else. It used to buy a
+          fourth column, which was the wrong thing to buy: the Draft Board's
+          table wants 620px, and at 1280 four fixed columns left it EIGHTY.
+          The fourth column is gone and the queue is a full-width strip, so
+          all this breakpoint still does is give the same three tracks more
+          room -- 1280 of usable width below it, 1536 above. Worth being
+          precise about: the track RATIOS hold at every width from lg up, but
+          their pixel widths still step here. One layout, two container sizes.
+        */}
+      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-xl:h-full max-xl:px-3 max-xl:py-3 xl:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
           </div>
         )}
 
-        {/* Top bar */}
+        {/* ONE desktop layout, not four.
+
+            This page used to have four: tabs below lg, two columns to xl,
+            three to 3xl, four above -- and this branch broke two of them. The
+            bands were the bug, not any one breakpoint: each is a separate
+            configuration somebody has to verify and nobody does.
+
+            So above lg there is a single shape at every width. Three
+            proportional tracks rather than fixed pixels, so nothing has to be
+            re-budgeted when a column is added; the queue spans all three on a
+            second, auto-height row, which keeps it visible on a 1280 laptop
+            instead of only above 1600. The height is bound wherever this
+            layout applies, and the wrapped-row-halves-every-panel failure
+            cannot recur because there is no breakpoint at which the row count
+            changes.
+
+            Below lg it is tabbed, via `pane`. Two bands, both verified. */}
         {/* Absent on a phone, not merely hidden -- the same rule the strip
             follows at desktop, applied in the other direction. A display:none
             element still matches locators, so a header left in the phone DOM
-            would duplicate every value the strip shows. The max-lg:hidden
+            would duplicate every value the strip shows. The max-xl:hidden
             stays as belt-and-braces. */}
         {!isPhone && (
-        <div data-testid="desktop-header" className="max-lg:hidden rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div data-testid="desktop-header" className="max-xl:hidden rounded-3xl border border-zinc-800/70 bg-zinc-950/60 px-3 py-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+          <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-3">
               {/* Same rule as the controls opposite: a finished draft is not
                   live, and a glowing "Live Draft" beside "✅ Completed" is the
@@ -522,7 +601,7 @@ export default function Draft() {
               )}
             </div>
 
-            <div className="flex flex-wrap gap-1.5 items-center justify-start lg:justify-end">
+            <div className="flex flex-wrap gap-1.5 items-center justify-start xl:justify-end">
               {!completed && (
                 <button
                   onClick={togglePause}
@@ -854,8 +933,16 @@ export default function Draft() {
         </ControlSheet>
         )}
 
-        {/* 3-column app layout */}
-        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-[420px_minmax(0,1fr)_360px] flex-1 min-h-0 min-w-0">
+        {/* Three tracks and two rows, at every width from lg up: Big Board,
+            Draft Board, Rosters across row one, and the queue spanning all
+            three on an auto-height row beneath them. Below lg this is tabbed
+            instead, via `pane` -- which uses xl:contents, so the wrapper has
+            no box and any grid placement has to live on the panel itself
+            (that is why the queue's col-span sits in QueuePanel, not here).
+            There is no width at which the track or row count changes, which
+            is the property that keeps the wrapped-row failure from
+            recurring. */}
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_minmax(0,1fr)] xl:grid-rows-[minmax(0,1fr)_auto] flex-1 min-h-0 min-w-0">
             <div className={pane("board")}>
               <BigBoardPanel
                 draft={draft}
@@ -868,6 +955,7 @@ export default function Draft() {
                 paused={paused}
                 canManualPick={canManualPick}
                 makePick={makePick}
+                queuePlayer={addToQueue}
               />
             </div>
 
@@ -877,6 +965,16 @@ export default function Draft() {
 
             <div className={pane("rosters")}>
               <RosterPanel draft={draft} />
+            </div>
+
+            <div className={pane("queue")}>
+              <QueuePanel
+                queue={queue}
+                playersById={playersById}
+                picked={picked}
+                onRemove={removeFromQueue}
+                onReorder={reorderQueue}
+              />
             </div>
         </div>
 

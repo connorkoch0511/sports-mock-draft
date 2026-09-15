@@ -28,6 +28,7 @@ export function BigBoardPanel({
   paused,
   canManualPick,
   makePick,
+  queuePlayer,
 }) {
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState("");
@@ -177,10 +178,33 @@ export function BigBoardPanel({
           the worst possible moment to delete the answer. It prints the
           position and team, so it is never pointing at nothing.
         */}
+        {/* A flex child defaults to min-height:auto, so this card refused to
+            shrink and pushed the player list past the panel's bottom edge,
+            where it painted over the queue strip. min-h-0 lets it yield, and
+            it scrolls rather than clipping. (overflow-auto alone would do the
+            same job -- a scroll container's automatic minimum size is already
+            zero -- so either class is sufficient and both are here on
+            purpose; removing BOTH is what turns the bug back on.)
+
+            Two honest limits. It yields by height, not by width, so how much
+            it gives up depends on both: at 1024 wide the reasons wrap taller
+            and the card hides about 38% of itself even at 900 tall, which is
+            not the "only below 900" story it would be nice to tell. And a
+            scrolled-away reason has no scrollbar under macOS overlay
+            scrollbars, so at the shortest viewports the advice is there but
+            unadvertised.
+
+            NOT clipped at the panel: overflow-hidden here was measured at
+            1024x650 to cut reachable player-row buttons from five to three
+            while leaving the 27px of spill exactly as it was -- it hid the
+            controls inside the overflow without preventing the overflow. The
+            panel deliberately lets content paint past its rounded border
+            instead; see the note on scroll-big-board's min-h floor below,
+            which made that same trade first. */}
         {isMyTurn && recommendation ? (
           <div
             data-testid="advice-card"
-            className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 space-y-2"
+            className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 space-y-2 min-h-0 overflow-auto"
           >
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
@@ -394,6 +418,26 @@ export function BigBoardPanel({
                   <Pill>{p.team}</Pill>
                   {p.tier != null ? <Pill>Tier {p.tier}</Pill> : null}
                 </div>
+              </button>
+
+              {/*
+                Bottom-left, mirroring Draft's bottom-right -- the two are
+                not mutually exclusive (queueing somebody does not draft
+                him, and drafting somebody else drops him off your queue
+                for free via QueuePanel's own read-time filter). Never
+                disabled: the server dedupes an id already in the list, so
+                clicking a player twice is a harmless no-op write rather
+                than a state this button needs to track.
+              */}
+              <button
+                type="button"
+                data-testid="queue-add"
+                aria-label={`Queue ${p.name}`}
+                title={`Add ${p.name} to your queue`}
+                onClick={() => queuePlayer(p.id)}
+                className="absolute bottom-2 left-2 rounded-full border border-cyan-900/60 bg-cyan-950/40 px-2.5 py-1 text-[11px] font-medium text-cyan-300 hover:border-cyan-600 hover:text-cyan-200"
+              >
+                Queue
               </button>
 
               <button

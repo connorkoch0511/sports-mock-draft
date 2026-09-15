@@ -4,12 +4,12 @@ import { signIn } from "./auth.js";
 
 // Pausing stops the auto-pick timer so the layout is measured against a
 // stable DOM rather than one mutating between the two boundingBox() calls.
-async function openPausedDraft(page) {
-  mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
+async function openPausedDraft(page, overrides = {}) {
+  mockDraftApis(page, makeDraftState({ currentIndex: 0, ...overrides }));
   await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
-  // Big Board rather than rosters: below lg the page is tabbed and only the
+  // Big Board rather than rosters: below xl the page is tabbed and only the
   // active tab's panel is visible, and Big Board is the one that opens. At
   // desktop widths all three are up, so this is a readiness signal that holds
   // in both layouts.
@@ -36,7 +36,14 @@ test.describe("Draft layout", () => {
   // wrapper scrolls, documentElement.scrollHeight equals innerHeight even
   // when content overflows inside it -- so "the document does not scroll"
   // alone would pass with the layout still broken.
-  for (const width of [1280, 1440, 1536]) {
+  // This ran at 1600 and 1728 only, back when those were the sole widths the
+  // page was height-bound at. It is bound wherever the columns apply now, so
+  // the loop runs from the first of those widths -- and 1280 is the
+  // interesting entry, not the two widest and most forgiving ones. A test
+  // that only ever sees the case with the most room to spare is not guarding
+  // anything: 1280 is where the three tracks are tightest, and the bottom of
+  // a band is where a proportional grid fails first.
+  for (const width of [1280, 1440, 1600, 1728]) {
     test(`panels stay inside the viewport at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await openPausedDraft(page);
@@ -46,18 +53,105 @@ test.describe("Draft layout", () => {
       );
       expect(documentScrolls).toBe(false);
 
-      for (const id of ["panel-big-board", "panel-draft-board", "panel-rosters"]) {
+      for (const id of ["panel-big-board", "panel-draft-board", "panel-rosters", "panel-queue"]) {
         const box = await page.getByTestId(id).boundingBox();
         expect(box.y + box.height, `${id} bottom edge`).toBeLessThanOrEqual(902);
         // A panel collapsed to nothing would satisfy the bound above, so
-        // require it to still be a real panel.
-        expect(box.height, `${id} height`).toBeGreaterThan(200);
+        // require it to still be a real one. The queue is a capped strip by
+        // design, so it gets its own floor rather than the panels'.
+        const floor = id === "panel-queue" ? 80 : 200;
+        expect(box.height, `${id} height`).toBeGreaterThan(floor);
       }
     });
   }
 
+  // The guard that was missing. The queue arrives as a fourth item in a
+  // three-track grid between lg and 3xl; with the page height bound there, the
+  // grid split it across two rows, halved all three original panels, and
+  // painted the queue over the Big Board's search field. Every test passed --
+  // the viewport loop above did not list panel-queue, its floor was 200px
+  // against panels cut to ~370, and toBeVisible() does not mean on screen.
+  //
+  // 1280x720 is the size the suite itself runs at, not an overridden height.
+  for (const width of [1280, 1440, 1536, 1600, 1728]) {
+    test(`the queue never lands on top of another panel at ${width}px`, async ({ page }) => {
+      // 900, a real laptop height. The floor below is calibrated against it:
+      // the strip legitimately costs the panels ~130px, so a 720-tall window
+      // leaves them ~336 and a floor written for the strip-less layout would
+      // fail for the wrong reason.
+      await page.setViewportSize({ width, height: 900 });
+      await openPausedDraft(page);
+
+      const boxes = await page.evaluate(() => {
+        const r = (id) => {
+          const el = document.querySelector(`[data-testid="${id}"]`);
+          const b = el.getBoundingClientRect();
+          return { id, top: b.top, bottom: b.bottom, left: b.left, right: b.right, h: b.height };
+        };
+        return ["panel-big-board", "panel-draft-board", "panel-rosters", "panel-queue"].map(r);
+      });
+
+      const queue = boxes.find((b) => b.id === "panel-queue");
+      for (const other of boxes.filter((b) => b.id !== "panel-queue")) {
+        const apart =
+          queue.bottom <= other.top + 1 ||
+          queue.top >= other.bottom - 1 ||
+          queue.right <= other.left + 1 ||
+          queue.left >= other.right - 1;
+        expect(apart, `queue overlaps ${other.id} at ${width}px`).toBe(true);
+      }
+
+      // And the three original panels keep a real height rather than being
+      // halved to make room for a wrapped row.
+      for (const other of boxes.filter((b) => b.id !== "panel-queue")) {
+        // ~516 with the strip at this height. Halved by a wrapped row -- the
+        // failure this guards -- would be ~250, so 400 separates them cleanly.
+        expect(other.h, `${other.id} height at ${width}px`).toBeGreaterThan(400);
+      }
+    });
+  }
+
+  // The queue is a strip under the three columns at every desktop width, not
+  // a fourth column above 1600 and a below-the-fold afterthought under it.
+  // These asserted the old shape -- "not in viewport, scroll to reach" -- and
+  // now assert the point of replacing it: during a live draft your queue is
+  // on screen without scrolling, on a 1280 laptop as much as a 1728 monitor.
+  //
+  // The cap alone was a one-sided bound, and one-sided bounds are how a strip
+  // becomes a title bar without anything going red: crushing the cap to 24px
+  // -- too short for a single chip -- left all five of these green. So the
+  // strip is now pinned from both ends, and by the thing it exists to show
+  // rather than by its own height: a queued player has to be fully inside the
+  // scrolling area, which is false at any height that cannot hold a chip.
+  for (const width of [1280, 1440, 1536, 1728]) {
+    test(`the queue is on screen without scrolling at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openPausedDraft(page, { yourQueue: ["p1", "p2"] });
+
+      await expect(page.getByTestId("panel-queue")).toBeInViewport();
+
+      // And it is a strip, not a panel: if it ever grows into a full row it
+      // takes the height back out of the three panels above it, which is the
+      // failure that broke this page once already.
+      const h = await page
+        .getByTestId("panel-queue")
+        .evaluate((el) => Math.round(el.getBoundingClientRect().height));
+      expect(h, `queue strip height at ${width}px`).toBeLessThanOrEqual(140);
+
+      const fit = await page.getByTestId("scroll-queue").evaluate((box) => {
+        const chip = box.querySelector('[data-testid="queue-row"]');
+        if (!chip) return { hasChip: false };
+        const b = box.getBoundingClientRect();
+        const c = chip.getBoundingClientRect();
+        return { hasChip: true, overflow: Math.round(c.bottom - b.bottom) };
+      });
+      expect(fit.hasChip, `a queued chip renders at ${width}px`).toBe(true);
+      expect(fit.overflow, `queued chip clipped at ${width}px`).toBeLessThanOrEqual(1);
+    });
+  }
+
   test("panels scroll their own overflowing content", async ({ page }) => {
-    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.setViewportSize({ width: 1600, height: 900 });
     await openPausedDraft(page);
 
     // Both lists paginate at 25 rows, which is more than fits in a 900px
@@ -141,7 +235,7 @@ test.describe("Draft layout", () => {
   // on a phone (see docs/superpowers/specs/2026-09-13-draft-page-phone-design.md).
   // What survives is the assertion that actually mattered: however the layout
   // is arranged at these widths, the Big Board still lists players you can
-  // reach. At 1024 the desktop layout applies and all three panels stack.
+  // reach. All three of these are tabbed now, 1024 included.
   for (const [width, height] of [
     [390, 844],
     [768, 1024],
@@ -160,6 +254,66 @@ test.describe("Draft layout", () => {
       });
 
       expect(visibleRows, "player rows visible in the Big Board").toBeGreaterThan(2);
+    });
+  }
+
+  // The panel boxes are `overflow: visible`, so content that does not fit
+  // them does not clip -- it paints straight through whatever is beneath.
+  // Height-binding the desktop layout at lg made that reachable: at 1280x720
+  // the Big Board's own content ran 178px past its bottom edge and drew over
+  // the queue strip and off the screen, which is what the README screenshot
+  // caught. A panel whose scrollHeight exceeds its clientHeight is spilling;
+  // a scroll container inside it (scroll-big-board) is allowed to, and does.
+  for (const [width, height] of [
+    [1280, 720],
+    [1280, 800],
+    [1440, 900],
+  ]) {
+    test(`no panel paints outside its own box at ${width}x${height}`, async ({ page }) => {
+      await page.setViewportSize({ width, height });
+      await openPausedDraft(page);
+
+      for (const id of ["panel-big-board", "panel-draft-board", "panel-rosters", "panel-queue"]) {
+        const spill = await page
+          .getByTestId(id)
+          .evaluate((el) => el.scrollHeight - el.clientHeight);
+        expect(spill, `${id} content past its own bottom edge`).toBeLessThanOrEqual(1);
+      }
+    });
+  }
+
+  // Nothing asserted WHERE the tabs stop and the columns start, so the
+  // boundary could drift a breakpoint in either direction in silence. It
+  // matters at both ends: one pixel below, every panel must be reachable
+  // through the tab bar, and one pixel above, all three must be on screen at
+  // once. 1279 and 1280 are the two widths that can tell those apart.
+  //
+  // It sits at xl and not lg because three columns at 1024 gave the Big Board
+  // a 277px track and a 36px search box -- narrower than two characters --
+  // while the Draft Board's table ran 52% behind a horizontal scroll. Tabbed,
+  // the same panel measures 936px there.
+  for (const [width, tabbed] of [
+    [1279, true],
+    [1280, false],
+  ]) {
+    test(`at ${width}px the page is ${tabbed ? "tabbed" : "three columns"}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openPausedDraft(page, { yourQueue: ["p1"] });
+
+      const bar = page.getByTestId("tab-bar");
+      if (tabbed) {
+        await expect(bar).toBeVisible();
+        // Tabbed means one panel at a time, and it gets the whole width --
+        // which is the entire reason the boundary moved up to xl.
+        const board = await page.getByTestId("panel-big-board").boundingBox();
+        expect(board.width, "tabbed panel width").toBeGreaterThan(width * 0.8);
+        await expect(page.getByTestId("panel-draft-board")).toBeHidden();
+      } else {
+        await expect(bar).toBeHidden();
+        for (const id of ["panel-big-board", "panel-draft-board", "panel-rosters", "panel-queue"]) {
+          await expect(page.getByTestId(id)).toBeVisible();
+        }
+      }
     });
   }
 });

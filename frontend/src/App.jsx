@@ -19,7 +19,16 @@ export default function App() {
   return (
     <AuthProvider>
       <div className="flex h-dvh flex-col bg-[#070A0F] text-white">
-        <div className="mx-auto flex w-full max-w-[1400px] flex-1 min-h-0 flex-col px-4 sm:px-6 lg:px-8">
+        {/*
+            3xl:max-w-[1680px]: the draft page widens its own container at
+            3xl so the queue column has room, and this shell's own cap sat in
+            front of that. Scoped to 3xl and not xl deliberately: at xl it
+            silently widened every page with no cap of its own -- Dashboard,
+            My Drafts, Board, Boards, Results -- between 1400 and 1680px of
+            viewport, which no screenshot caught because they are all taken
+            at 1280.
+         */}
+        <div className="mx-auto flex w-full max-w-[1400px] 3xl:max-w-[1680px] flex-1 min-h-0 flex-col px-4 sm:px-6 lg:px-8">
           <div className="shrink-0">
             <NavBar />
           </div>

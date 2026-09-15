@@ -3,9 +3,15 @@
 // an addition rather than a reflow: grid-cols-3 becomes grid-cols-4 and a row
 // joins TABS.
 const TABS = [
-  { id: "board", label: "Big Board", testid: "tab-board" },
-  { id: "draft", label: "Draft Board", testid: "tab-draft" },
-  { id: "rosters", label: "Team Rosters", testid: "tab-rosters" },
+  // Short labels, because four of them share 390px. "Draft Board" and "Team
+  // Rosters" each wrapped to two lines the moment Queue landed -- which the
+  // review of the tab bar predicted when there were three. The panels keep
+  // their full headings; a bottom nav is a place you tap, not a place you
+  // read, and every label here is unambiguous on its own.
+  { id: "board", label: "Board", testid: "tab-board" },
+  { id: "draft", label: "Draft", testid: "tab-draft" },
+  { id: "rosters", label: "Rosters", testid: "tab-rosters" },
+  { id: "queue", label: "Queue", testid: "tab-queue" },
 ];
 
 export default function TabBar({ active, onChange }) {
@@ -13,7 +19,7 @@ export default function TabBar({ active, onChange }) {
     <nav
       data-testid="tab-bar"
       aria-label="Draft views"
-      className="lg:hidden shrink-0 grid grid-cols-3 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/80 p-1 backdrop-blur"
+      className="xl:hidden shrink-0 grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/80 p-1 backdrop-blur"
     >
       {TABS.map((t) => (
         <button
