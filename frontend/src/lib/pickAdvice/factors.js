@@ -4,7 +4,7 @@
 
 import { fitRoster } from "../draftAnalysis.js";
 import { clamp, finite, round1, step } from "./helpers.js";
-import { AVAILABILITY, DEEP_DEPTH_CHART, DEPTH_CAP, DEPTH_PER_STEP, FINISH_STEPS, NEED_DEDICATED, NEED_FLEX, NO_PRODUCTION, OPPORTUNITY_STEPS, PASSING_OPPORTUNITY_STEPS, RED_ZONE_STEPS, SCARCITY, SNAP_SHARE_STEPS, TIER_CLIFF_CAP, TIER_CLIFF_PER_TIER, UNKNOWN_STATUS_WEIGHT, VALUE_CAP, VALUE_PER_PICK } from "./weights.js";
+import { AVAILABILITY, DEEP_DEPTH_CHART, DEPTH_CAP, DEPTH_PER_STEP, FINISH_STEPS, NEED_DEDICATED, NEED_FLEX, NO_PRODUCTION, OPPORTUNITY_STEPS, PASSING_OPPORTUNITY_STEPS, RED_ZONE_STEPS, RUN_WEIGHT, RUN_WEIGHT_MAX_COUNT, SCARCITY, SNAP_SHARE_STEPS, TIER_CLIFF_CAP, TIER_CLIFF_PER_TIER, UNKNOWN_STATUS_WEIGHT, VALUE_CAP, VALUE_PER_PICK } from "./weights.js";
 
 // Each returns a reason (or an array of them) carrying the weight it
 // contributed, or null when it has nothing to say. Never a zero weight.
@@ -124,6 +124,41 @@ function scarcityFactor(entry, ctx) {
       left === 0
         ? `None of ${startable} is expected to still be on the board at ${when}.`
         : `Only ${left} of ${startable} ${left === 1 ? "is" : "are"} expected to still be on the board at ${when}.`,
+  };
+}
+
+/**
+ * A position going faster than the remaining startable board predicts.
+ *
+ * The gates are scarcityFactor's, for the same reason: this is an argument
+ * for URGENCY, and urgency only applies to a startable player who might
+ * actually be gone by the time you pick again. A run is not a reason to take
+ * someone nobody else will reach.
+ *
+ * The sentence is the plain countable fact and says "by other teams", because
+ * the user's own picks are excluded from the window -- without those three
+ * words the number would not match the rows on the Draft Board.
+ */
+function runFactor(entry, ctx) {
+  if (!ctx.nextOverall || ctx.gap <= 0) return null;
+  const position = entry.player.position;
+  if (!position) return null;
+
+  const run = ctx.runs?.get(position);
+  if (!run) return null;
+
+  if (entry.index >= ctx.gap) return null;
+  if (!ctx.startable.get(position)?.has(String(entry.player.id))) return null;
+
+  const weight = RUN_WEIGHT[Math.min(run.count, RUN_WEIGHT_MAX_COUNT)] ?? 0;
+  // The engine does not filter zero-weight reasons -- it fails an invariant
+  // test on them -- so a count that maps to nothing returns nothing.
+  if (weight === 0) return null;
+
+  return {
+    kind: "run",
+    weight,
+    text: `${run.count} of the last ${run.window} picks by other teams were ${position}s.`,
   };
 }
 
@@ -294,6 +329,7 @@ export const FACTORS = [
   valueFactor,
   needFactor,
   scarcityFactor,
+  runFactor,
   tierCliffFactor,
   availabilityFactor,
   depthChartFactor,

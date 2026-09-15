@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import { adviseOnPick } from "./pickAdvice.js";
+import { RUN_WEIGHT } from "./pickAdvice/weights.js";
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -1084,4 +1085,92 @@ test("an out-of-range myTeam still advises, minus the reasons that need a roster
   assert.ok(out.recommendation, "an unknown team is not a reason to say nothing");
   assert.ok(!kinds(out.reasonsFor("a")).includes("need"));
   assert.ok(!kinds(out.reasonsFor("a")).includes("scarcity"));
+});
+
+// ---------------------------------------------------------------------------
+// Runs: a position going faster than the remaining startable board predicts.
+// ---------------------------------------------------------------------------
+
+// Enough startable depth at every position for a 12-team league, interleaved
+// so the top of the board is not a single position, plus a tail nobody starts.
+function runPool() {
+  const out = [];
+  let rank = 1;
+  for (let i = 0; i < 30; i++) {
+    out.push(player(`rb${i}`, { position: "RB", rank: rank++, tier: 1 }));
+    out.push(player(`wr${i}`, { position: "WR", rank: rank++, tier: 1 }));
+  }
+  for (let i = 0; i < 15; i++) {
+    out.push(player(`te${i}`, { position: "TE", rank: rank++, tier: 1 }));
+    out.push(player(`qb${i}`, { position: "QB", rank: rank++, tier: 1 }));
+  }
+  for (let i = 0; i < 12; i++) {
+    out.push(player(`k${i}`, { position: "K", rank: rank++, tier: 1 }));
+    out.push(player(`def${i}`, { position: "DEF", rank: rank++, tier: 1 }));
+  }
+  return out;
+}
+
+// 24 picks, overall 1..24. Team 1 (the user) made overall 1 and overall 24 --
+// the snake's turn -- so "other teams" is overall 2..23, and the last eight of
+// those (overall 16..23) hold five RBs.
+function madeWithRunOnRB(pool) {
+  const byId = new Map(pool.map((p) => [p.id, p]));
+  const seq = [
+    // overall 1..15. Deliberately RB-free, so the run is entirely inside
+    // the window and cannot be an artefact of the whole draft's shape.
+    "wr0", "wr1", "te0", "qb0", "wr2", "te1", "wr3", "qb1",
+    "wr4", "te2", "wr5", "qb2", "wr6", "te3", "wr7",
+    // overall 16..23 -- the window. Five RBs of eight.
+    "rb0", "rb1", "wr8", "rb2", "rb3", "te4", "rb4", "wr9",
+    // overall 24 -- the user's own pick at the turn. Excluded from the window.
+    "qb3",
+  ];
+  return seq.map((id) => byId.get(id));
+}
+
+function runAdvice() {
+  const players = runPool();
+  const draft = makeDraft({
+    teams: 12,
+    rounds: 15,
+    userTeam: 1,
+    rosterSlots: STARTERS,
+    made: madeWithRunOnRB(players),
+  });
+  return adviseOnPick({ players, draft, boardRows: null, myTeam: 1 });
+}
+
+test("a run on a position is a reason, with a countable sentence", () => {
+  const run = runAdvice()
+    .reasonsFor("rb5")
+    .find((r) => r.kind === "run");
+
+  assert.ok(run, "five of the last eight picks by other teams were RBs");
+  assert.ok(run.weight > 0, "a run reason must carry weight");
+  // The sentence has to be true of the Draft Board: five RBs, eight picks.
+  assert.strictEqual(
+    run.text,
+    "5 of the last 8 picks by other teams were RBs."
+  );
+});
+
+test("a run does not lift a player nobody will reach before your next pick", () => {
+  // gap is 23, so rb28 sits far outside the window of players expected to go.
+  // Urgency cannot apply to someone who will still be there either way.
+  const run = runAdvice()
+    .reasonsFor("rb28")
+    .find((r) => r.kind === "run");
+
+  assert.strictEqual(run, undefined);
+});
+
+test("the run's weight is the one the count maps to", () => {
+  // Pins the weight table to the factor. Without this the factor could
+  // return any positive number and every other assertion here still passes.
+  const run = runAdvice()
+    .reasonsFor("rb5")
+    .find((r) => r.kind === "run");
+
+  assert.strictEqual(run.weight, RUN_WEIGHT[5]);
 });

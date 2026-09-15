@@ -6,6 +6,7 @@ import { fitRoster } from "../draftAnalysis.js";
 import { orderByBoard } from "../boardOrder.js";
 import { picksForSlot } from "../snake.js";
 import { compareRank, positiveInt } from "./helpers.js";
+import { detectRuns } from "./runs.js";
 
 /**
  * Everything the factors need, computed once. Returns null when there is
@@ -126,6 +127,11 @@ export function buildContext({ players, draft, boardRows, myTeam }) {
   const rosterNow = fitRoster(myMade, rosterSlots);
   const openStarters = rosterNow.unfilled.filter(isStartingSlot).length;
 
+  // Momentum, which scarcity cannot see: scarcity presumes a uniform gap's
+  // worth of the board disappears, and says nothing about WHICH positions are
+  // going. `available` and `startable` are already computed above.
+  const runs = detectRuns({ made, mySlot, available, startable });
+
   return {
     pool: entries,
     windows,
@@ -145,6 +151,7 @@ export function buildContext({ players, draft, boardRows, myTeam }) {
     rosterNow,
     nextAtPosition,
     survivors,
+    runs,
   };
 }
 
