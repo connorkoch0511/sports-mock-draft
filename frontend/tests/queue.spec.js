@@ -124,6 +124,12 @@ test("an empty queue renders its explanatory text, not a blank box", async ({ pa
 // against a real gesture, not just a click. `dragRow` mirrors board.spec.js's
 // own helper: mouse down on the row body, move past a sibling, mouse up.
 async function dragRow(page, locator, dy) {
+  // Below 3xl the queue sits under the three columns on a page that scrolls,
+  // so at the suite's own 1280px width it starts below the fold. boundingBox
+  // would then hand back coordinates the mouse cannot reach, and the drag
+  // would silently do nothing -- which is exactly how this failed when the
+  // page's height binding moved to match the fourth column's breakpoint.
+  await locator.scrollIntoViewIfNeeded();
   const box = await locator.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
