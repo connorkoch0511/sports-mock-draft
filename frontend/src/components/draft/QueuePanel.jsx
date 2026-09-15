@@ -75,9 +75,14 @@ function QueueRow({ id, index, player, onRemove }) {
         onPointerDown={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onTouchStart={(e) => e.stopPropagation()}
-        className="shrink-0 rounded-full border border-zinc-800 bg-zinc-950/70 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-zinc-600"
+        // A glyph, not the word: at the 260px the queue column gets, a
+        // "Remove" button ate ~75px and truncated three names out of four --
+        // "Justin Je...", "CeeDee ...". A queue you cannot read the names in
+        // is not doing its job. The full sentence still reaches anyone who
+        // needs it, through aria-label and the hover title above.
+        className="shrink-0 rounded-full border border-zinc-800 bg-zinc-950/70 px-2 py-1 text-xs leading-none text-zinc-400 hover:border-zinc-600 hover:text-zinc-200"
       >
-        Remove
+        ✕
       </button>
     </div>
   );
