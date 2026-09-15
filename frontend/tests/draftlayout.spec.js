@@ -4,8 +4,8 @@ import { signIn } from "./auth.js";
 
 // Pausing stops the auto-pick timer so the layout is measured against a
 // stable DOM rather than one mutating between the two boundingBox() calls.
-async function openPausedDraft(page) {
-  mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
+async function openPausedDraft(page, overrides = {}) {
+  mockDraftApis(page, makeDraftState({ currentIndex: 0, ...overrides }));
   await signIn(page);
   await page.goto(`/draft/${DRAFT_ID}`);
   await page.getByRole("button", { name: "Pause" }).click();
@@ -36,12 +36,14 @@ test.describe("Draft layout", () => {
   // wrapper scrolls, documentElement.scrollHeight equals innerHeight even
   // when content overflows inside it -- so "the document does not scroll"
   // alone would pass with the layout still broken.
-  // These three now describe the 3xl layout only. Below 1600 the page is no
-  // longer height-bound -- it scrolls, the way it already does at lg -- because
-  // the queue is a fourth item in a three-track grid there, and a bound height
-  // split between two rows halved every panel. See "the queue never lands on
-  // top of another panel" below, which is the guard that would have caught it.
-  for (const width of [1600, 1728]) {
+  // This ran at 1600 and 1728 only, back when those were the sole widths the
+  // page was height-bound at. It is bound from lg up now, so the loop runs
+  // from lg up -- and 1024 and 1280 are the interesting entries, not the two
+  // widest and most forgiving ones. A test that only ever sees the case with
+  // the most room to spare is not guarding anything: 1024 is where the three
+  // tracks are tightest, and it was outside this loop while the layout that
+  // made it tightest was being written.
+  for (const width of [1024, 1280, 1440, 1600, 1728]) {
     test(`panels stay inside the viewport at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       await openPausedDraft(page);
@@ -109,18 +111,22 @@ test.describe("Draft layout", () => {
     });
   }
 
-  // At 1600, where the page is height-bound. Below that it scrolls instead --
-  // the panels are their natural height there and clip nothing, which is the
-  // same trade lg has always made.
   // The queue is a strip under the three columns at every desktop width, not
   // a fourth column above 1600 and a below-the-fold afterthought under it.
   // These asserted the old shape -- "not in viewport, scroll to reach" -- and
   // now assert the point of replacing it: during a live draft your queue is
   // on screen without scrolling, on a 1280 laptop as much as a 1728 monitor.
+  //
+  // The cap alone was a one-sided bound, and one-sided bounds are how a strip
+  // becomes a title bar without anything going red: crushing the cap to 24px
+  // -- too short for a single chip -- left all five of these green. So the
+  // strip is now pinned from both ends, and by the thing it exists to show
+  // rather than by its own height: a queued player has to be fully inside the
+  // scrolling area, which is false at any height that cannot hold a chip.
   for (const width of [1024, 1280, 1440, 1536, 1728]) {
     test(`the queue is on screen without scrolling at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
-      await openPausedDraft(page);
+      await openPausedDraft(page, { yourQueue: ["p1", "p2"] });
 
       await expect(page.getByTestId("panel-queue")).toBeInViewport();
 
@@ -131,6 +137,16 @@ test.describe("Draft layout", () => {
         .getByTestId("panel-queue")
         .evaluate((el) => Math.round(el.getBoundingClientRect().height));
       expect(h, `queue strip height at ${width}px`).toBeLessThanOrEqual(140);
+
+      const fit = await page.getByTestId("scroll-queue").evaluate((box) => {
+        const chip = box.querySelector('[data-testid="queue-row"]');
+        if (!chip) return { hasChip: false };
+        const b = box.getBoundingClientRect();
+        const c = chip.getBoundingClientRect();
+        return { hasChip: true, overflow: Math.round(c.bottom - b.bottom) };
+      });
+      expect(fit.hasChip, `a queued chip renders at ${width}px`).toBe(true);
+      expect(fit.overflow, `queued chip clipped at ${width}px`).toBeLessThanOrEqual(1);
     });
   }
 
@@ -219,7 +235,7 @@ test.describe("Draft layout", () => {
   // on a phone (see docs/superpowers/specs/2026-09-13-draft-page-phone-design.md).
   // What survives is the assertion that actually mattered: however the layout
   // is arranged at these widths, the Big Board still lists players you can
-  // reach. At 1024 the desktop layout applies and all three panels stack.
+  // reach. At 1024 the desktop layout applies: three columns, not a stack.
   for (const [width, height] of [
     [390, 844],
     [768, 1024],

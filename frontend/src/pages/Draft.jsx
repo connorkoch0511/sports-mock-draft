@@ -548,13 +548,14 @@ export default function Draft() {
 
       {/* Content */}
       {/*
-          3xl (1600px): measured, not chosen. A fourth column only pays for
-          itself at about 1600px of viewport. Below that it is taken out of
-          the Draft Board, whose table wants 620px: at 1280 -- the width the
-          test suite itself runs at -- four fixed columns leave it EIGHTY
-          pixels. So the column and the widened container share one
-          breakpoint, and between lg and 1600 the queue is a fourth cell in
-          the three-column grid rather than a fourth column.
+          3xl (1600px) widens the container and nothing else. It used to buy a
+          fourth column, which was the wrong thing to buy: the Draft Board's
+          table wants 620px, and at 1280 four fixed columns left it EIGHTY.
+          The fourth column is gone and the queue is a full-width strip, so
+          all this breakpoint still does is give the same three tracks more
+          room -- 1280 of usable width below it, 1536 above. Worth being
+          precise about: the track RATIOS hold at every width from lg up, but
+          their pixel widths still step here. One layout, two container sizes.
         */}
       <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-lg:h-full max-lg:px-3 max-lg:py-3 lg:h-full flex flex-col gap-4">
         {err && (
@@ -932,13 +933,15 @@ export default function Draft() {
         </ControlSheet>
         )}
 
-        {/* app layout: three columns at xl, four at 3xl (see the container comment above for
-            why 3xl:max-w-[1600px] is what makes that fourth column free, and why
-            the page's height binding shares the same breakpoint -- bound at xl
-            with only three tracks, the wrapped queue halved every panel); 2-up
-            between lg and xl with no span on any of the four, which lands
-            board+draft on one row and rosters+queue on the next; tabbed
-            below lg via `pane`. */}
+        {/* Three tracks and two rows, at every width from lg up: Big Board,
+            Draft Board, Rosters across row one, and the queue spanning all
+            three on an auto-height row beneath them. Below lg this is tabbed
+            instead, via `pane` -- which uses lg:contents, so the wrapper has
+            no box and any grid placement has to live on the panel itself
+            (that is why the queue's col-span sits in QueuePanel, not here).
+            There is no width at which the track or row count changes, which
+            is the property that keeps the wrapped-row failure from
+            recurring. */}
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)_auto] flex-1 min-h-0 min-w-0">
             <div className={pane("board")}>
               <BigBoardPanel

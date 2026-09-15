@@ -27,11 +27,12 @@ export function RosterPanel({ draft }) {
   // row by itself instead of the two rows of two this layout is meant to be
   // (verified: with the span left in, Queue measured 486px wide, alone, at
   // y=4619 while rosters spanned 988px full-width at y=3461 -- three rows,
-  // not two). Removing it is the one-line fix; xl:col-span-1 stays because
-  // at xl the grid is three explicitly-sized tracks, four at 3xl and every panel
-  // occupies exactly one of them regardless.
+  // not two). Removing it was the one-line fix. xl:col-span-1 went with it:
+  // the grid is three tracks at every width from lg up now, and `span 1` is
+  // already the default, so it described a layout that no longer exists and
+  // did nothing in the one that replaced it.
   return (
-      <div data-testid="panel-rosters" className="min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] xl:col-span-1">
+      <div data-testid="panel-rosters" className="min-h-0 min-w-0 flex flex-col rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">Team Rosters</h2>
           <div className="text-xs text-zinc-400">Live</div>
