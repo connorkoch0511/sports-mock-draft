@@ -407,6 +407,22 @@ Resources:
             Method: POST
             Auth:
               Authorizer: CognitoAuth
+        ShareDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/share
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
+        UnshareDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/share
+            Method: DELETE
+            Auth:
+              Authorizer: CognitoAuth
         SeatQueue:
           Type: HttpApi
           Properties:

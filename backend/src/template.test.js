@@ -122,6 +122,7 @@ test("the expected mutating routes are all present", () => {
   assert.deepStrictEqual(found, [
     "DELETE /boards/{boardId}",
     "DELETE /drafts/{draftId}",
+    "DELETE /drafts/{draftId}/share",
     "DELETE /push/subscribe",
     "POST /boards",
     "POST /drafts",
@@ -132,6 +133,7 @@ test("the expected mutating routes are all present", () => {
     "POST /drafts/{draftId}/pick",
     "POST /drafts/{draftId}/queue",
     "POST /drafts/{draftId}/seat-board",
+    "POST /drafts/{draftId}/share",
     "POST /drafts/{draftId}/sim-to-end",
     "POST /push/subscribe",
     "POST /yahoo/leagues",

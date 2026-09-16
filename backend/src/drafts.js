@@ -666,6 +666,57 @@ exports.handler = async (event) => {
       return json(200, { ok: true, boardId });
     }
 
+    // POST /drafts/{draftId}/share  -- mint a read-only share token.
+    // DELETE /drafts/{draftId}/share -- revoke it.
+    //
+    // shareToken is deliberately NOT inviteToken. One grants reading a finished
+    // draft; the other grants a SEAT. Reusing inviteToken here would turn every
+    // share link into an invitation to join.
+    //
+    // Must be dispatched before the generic "DELETE /drafts/{draftId}" clause
+    // below, which matches on method + draftId alone with no path-suffix
+    // check -- ordered after it, DELETE .../share would delete the entire
+    // draft instead of just revoking the token.
+    if (draftId && path.endsWith("/share") && (method === "POST" || method === "DELETE")) {
+      if (!sub) return needsAuth();
+
+      const res = await ddb.send(
+        new GetCommand({ TableName: draftsTable, Key: { draftId } })
+      );
+      const d = res.Item;
+      // Not the owner reads the same as not there, matching DELETE /drafts.
+      if (!d || !canMutate(d, sub)) return notFound();
+      if (d.completed !== true) {
+        return json(409, { error: "Only a finished draft can be shared" });
+      }
+
+      if (method === "DELETE") {
+        await ddb.send(
+          new UpdateCommand({
+            TableName: draftsTable,
+            Key: { draftId },
+            UpdateExpression: "REMOVE shareToken",
+          })
+        );
+        return json(200, { ok: true });
+      }
+
+      // Idempotent: a second click returns the token already in play rather
+      // than rotating it and breaking a link that has been sent.
+      const shareToken = d.shareToken || randomUUID();
+      if (!d.shareToken) {
+        await ddb.send(
+          new UpdateCommand({
+            TableName: draftsTable,
+            Key: { draftId },
+            UpdateExpression: "SET shareToken = :t",
+            ExpressionAttributeValues: { ":t": shareToken },
+          })
+        );
+      }
+      return json(200, { shareToken });
+    }
+
     // POST /drafts/{draftId}/queue
     //
     // The shortlist the clock drafts from when it picks for you. Per-seat and

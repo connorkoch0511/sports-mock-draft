@@ -2523,7 +2523,10 @@ function sharedDraft(extra = {}) {
     shareToken: "share-abc",
     inviteToken: "invite-xyz",
     pausedBy: "cognito-sub-of-someone",
-    ownerSub: "alice",
+    // The real ownership field canMutate() reads. Tests below also pass an
+    // `ownerSub` override for readability at the call site; it lands as an
+    // extra, unread key alongside this one and changes nothing.
+    ownerId: "alice",
     format: "ppr",
     teams: 12,
     rounds: 15,
@@ -2601,4 +2604,85 @@ test("shared results: the shared path never falls through to the authenticated h
   assert.strictEqual(body.inviteToken, undefined, "an anonymous caller must never receive the invite token");
   assert.strictEqual(body.seats, undefined);
   assert.strictEqual(body.pausedBy, undefined);
+});
+
+const SHARE = "/drafts/d1/share";
+
+test("share: only the owner can mint a token", async () => {
+  stubSend({ Item: sharedDraft({ ownerSub: "alice" }) });
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "mallory" } })
+  );
+  // 404, not 403 -- same rule as delete: a non-owner learns nothing.
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("share: an unfinished draft cannot be shared", async () => {
+  stubSend({ Item: sharedDraft({ completed: false, shareToken: undefined }) });
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 409);
+});
+
+test("share: minting twice returns the SAME token, it does not rotate", async () => {
+  // A second click must not silently break a link already sent.
+  stubSend({ Item: sharedDraft({ shareToken: "already-minted" }) });
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).shareToken, "already-minted");
+});
+
+test("share: an anonymous caller cannot mint", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("POST", SHARE, { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 401);
+});
+
+test("revoke: only the owner can revoke", async () => {
+  stubSend({ Item: sharedDraft({ ownerSub: "alice" }) });
+  const res = await handler(
+    evt("DELETE", SHARE, { draftId: "d1", claims: { sub: "mallory" } })
+  );
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("revoke: the owner removes the token", async () => {
+  stubSend({ Item: sharedDraft({ ownerSub: "alice" }) });
+  const res = await handler(
+    evt("DELETE", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+});
+
+// The pair of revoke tests above both accept a 200-ish/404-ish status, which
+// is exactly what the pre-existing "DELETE /drafts/{draftId}" clause also
+// hands back for a signed-in caller under this file's `send` mock (it never
+// simulates a ConditionalCheckFailedException, so it "succeeds" for anyone).
+// If DELETE /drafts/{draftId}/share were ever dispatched to that clause
+// instead of the /share handler, "the owner removes the token" would still
+// read 200 and stay green -- only the non-owner test would catch the
+// misrouting, and only by coincidence of what status codes happen to match.
+// This nails down the mechanism directly: it must be an UpdateCommand
+// removing shareToken, never a DeleteCommand, which would destroy the whole
+// draft instead of just the share link.
+test("revoke: removes only the shareToken, never the whole draft", async () => {
+  const commands = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    commands.push(cmd);
+    return { Item: sharedDraft({ ownerSub: "alice" }) };
+  });
+  const res = await handler(
+    evt("DELETE", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.ok(
+    !commands.some((c) => c.constructor.name === "DeleteCommand"),
+    "revoking a share token must never issue a DeleteCommand"
+  );
+  const update = commands.find((c) => c.constructor.name === "UpdateCommand");
+  assert.ok(update, "revoking a share token must issue an UpdateCommand");
+  assert.match(update.input.UpdateExpression, /REMOVE shareToken/);
 });
