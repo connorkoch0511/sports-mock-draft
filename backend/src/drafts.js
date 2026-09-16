@@ -192,6 +192,35 @@ exports.handler = async (event) => {
       return json(200, { draftId: id });
     }
 
+    // GET /drafts/{draftId}/shared?t=<token>  -- PUBLIC, no authorizer.
+    //
+    // MUST be ordered before `GET /drafts/{draftId}`: pathParameters.draftId is
+    // set for this path too, so that clause would otherwise match and hand an
+    // anonymous caller the full projection, inviteToken included.
+    //
+    // The projection below is built UP from what the results page reads, never
+    // subtracted down from the authenticated one -- subtraction is how the next
+    // field added upstream leaks.
+    if (method === "GET" && draftId && path.endsWith("/shared")) {
+      const token = (event.queryStringParameters || {}).t;
+      const res = await ddb.send(
+        new GetCommand({ TableName: draftsTable, Key: { draftId } })
+      );
+      const d = res.Item;
+      // Four ways to be wrong, one answer: no draft, never shared, no token,
+      // wrong token. A 403 on a real-but-wrong token would confirm the draft
+      // exists, which is exactly what /join's comment refuses to do.
+      if (!d || !d.shareToken || !token || d.shareToken !== token) return notFound();
+
+      return json(200, {
+        format: d.format || "standard",
+        teams: d.teams,
+        rounds: d.rounds,
+        rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
+        picks: d.picks || [],
+      });
+    }
+
     // GET /drafts/{draftId}
     if (method === "GET" && draftId) {
       if (!sub) return needsAuth();

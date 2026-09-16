@@ -12,7 +12,7 @@ process.env.PUSH_SUBS_TABLE = "push-subs-test";
 // `claims` is exactly the shape API Gateway's JWT authorizer puts on the
 // event, which is the boundary this code actually depends on -- Cognito
 // itself cannot run locally.
-function evt(method, path, { draftId, body, claims } = {}) {
+function evt(method, path, { draftId, body, claims, query } = {}) {
   return {
     requestContext: {
       http: { method },
@@ -20,6 +20,7 @@ function evt(method, path, { draftId, body, claims } = {}) {
     },
     rawPath: path,
     pathParameters: draftId ? { draftId } : undefined,
+    queryStringParameters: query,
     body: body === undefined ? undefined : JSON.stringify(body),
   };
 }
@@ -2511,4 +2512,81 @@ test("a subscription can be removed", async () => {
   );
   assert.equal(res.statusCode, 200);
   assert.deepEqual(deleted, { sub: ME.sub, endpoint: "https://push.example/abc" });
+});
+
+const SHARED = "/drafts/d1/shared";
+
+function sharedDraft(extra = {}) {
+  return {
+    draftId: "d1",
+    completed: true,
+    shareToken: "share-abc",
+    inviteToken: "invite-xyz",
+    pausedBy: "cognito-sub-of-someone",
+    ownerSub: "alice",
+    format: "ppr",
+    teams: 12,
+    rounds: 15,
+    rosterSlots: ["QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF"],
+    picks: [{ overall: 1, round: 1, team: 1, playerId: "p1", player: { id: "p1", name: "A", position: "RB" } }],
+    seats: [{ team: 1, sub: "alice", kind: "human" }],
+    ...extra,
+  };
+}
+
+test("shared results: a draft that does not exist is 404", async () => {
+  stubSend({ Item: undefined });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: a draft that was never shared is 404", async () => {
+  stubSend({ Item: sharedDraft({ shareToken: undefined }) });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: the wrong token is 404, not 403", async () => {
+  // 403 would confirm the draft exists. Guessing an id must learn nothing.
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "not-the-token" } }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: no token at all is 404", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: the right token returns the results", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  assert.strictEqual(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.strictEqual(body.teams, 12);
+  assert.strictEqual(body.picks.length, 1);
+});
+
+test("shared results: the payload is EXACTLY the five fields, and nothing else", async () => {
+  // A field-set assertion, not a spot check. Checking `!body.inviteToken`
+  // confirms today's known leak is absent; this fails when somebody adds a
+  // sixth field next year, which is the leak nobody is looking for.
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  const keys = Object.keys(JSON.parse(res.body)).sort();
+  assert.deepStrictEqual(keys, ["format", "picks", "rosterSlots", "rounds", "teams"]);
+});
+
+test("shared results: the shared path never falls through to the authenticated handler", async () => {
+  // GET /drafts/{draftId} matches `method === "GET" && draftId`, and
+  // pathParameters.draftId is set for /drafts/{id}/shared too. If the shared
+  // clause is ordered after it, this returns the FULL projection --
+  // inviteToken included -- to an anonymous caller.
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  const body = JSON.parse(res.body);
+  assert.strictEqual(body.inviteToken, undefined, "an anonymous caller must never receive the invite token");
+  assert.strictEqual(body.seats, undefined);
+  assert.strictEqual(body.pausedBy, undefined);
 });

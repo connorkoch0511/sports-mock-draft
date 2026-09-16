@@ -87,7 +87,14 @@ const GATED_READS = [
   "GET /me/boards",
   "GET /me/drafts",
 ];
-const PUBLIC_READS = ["GET /players", "GET /players/{playerId}"];
+// GET /drafts/{draftId}/shared is the app's first anonymous read path. It is
+// public on purpose and gated by an unguessable token rather than by the
+// authorizer; the payload is five fields with nothing caller-derived in it.
+const PUBLIC_READS = [
+  "GET /drafts/{draftId}/shared",
+  "GET /players",
+  "GET /players/{playerId}",
+];
 
 test("exactly the intended reads are gated", () => {
   const gated = httpRoutes(loadTemplate())

@@ -353,6 +353,12 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuth
+        SharedResults:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/shared
+            Method: GET
         JoinDraft:
           Type: HttpApi
           Properties:
