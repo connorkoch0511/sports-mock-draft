@@ -96,4 +96,27 @@ function humanSeatCount(draft) {
   return seats.filter((s) => s && s.kind === "human").length;
 }
 
-module.exports = { ANON, subOf, isUnowned, canMutate, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount };
+/**
+ * A draft is finished when every scheduled pick has been made. Computed --
+ * never stored -- because no write path in this application ever writes a
+ * `completed` field onto the item; drafts.js derived this same expression in
+ * five separate places (the GET projection, /pick, /auto-pick, /expire,
+ * /pause, /share and sim-to-end) before this was pulled out, and a sixth
+ * copy is exactly how one of them drifts.
+ */
+function isCompleted(draft) {
+  return draft.currentIndex >= draft.picks.length;
+}
+
+module.exports = {
+  ANON,
+  subOf,
+  isUnowned,
+  canMutate,
+  buildSeats,
+  isSeated,
+  seatOf,
+  teamOnClock,
+  humanSeatCount,
+  isCompleted,
+};

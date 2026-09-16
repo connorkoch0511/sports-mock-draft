@@ -9,7 +9,7 @@ const {
 const { randomUUID } = require("crypto");
 const { DEFAULT_ROSTER } = require("./lib/roster");
 const { responder } = require("./lib/http");
-const { subOf, ANON, canMutate, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount } = require("./lib/owner");
+const { subOf, ANON, canMutate, buildSeats, isSeated, seatOf, teamOnClock, humanSeatCount, isCompleted } = require("./lib/owner");
 const { addMember } = require("./lib/members");
 const { withAdpBySource } = require("./lib/adpBySource");
 const { advanceDraft, PICK_SECONDS } = require("./lib/advance");
@@ -221,12 +221,30 @@ exports.handler = async (event) => {
       // either" is the one that pins the pair.
       if (!d || !d.shareToken || !token || d.shareToken !== token) return notFound();
 
+      // A token cannot exist on an unfinished draft -- /share only mints one
+      // once isCompleted(d) is true, and nothing else ever writes shareToken.
+      // That invariant is exactly what the mint's ownership check turned out
+      // not to be safe alone, so this route no longer trusts it silently:
+      // check it here too, the same way the mutations do.
+      if (!isCompleted(d)) return notFound();
+
       return json(200, {
         format: d.format || "standard",
         teams: d.teams,
         rounds: d.rounds,
         rosterSlots: d.rosterSlots?.length ? d.rosterSlots : DEFAULT_ROSTER,
-        picks: d.picks || [],
+        // Mapped explicitly, exactly like the authenticated projection below
+        // -- never spread verbatim. A stored pick can carry fields the client
+        // never asked for (autoPick.js stamps `auto: true` on a clock-made
+        // pick), and an anonymous caller must never receive more than a
+        // signed-in seat does.
+        picks: (d.picks || []).map((p) => ({
+          overall: p.overall,
+          round: p.round,
+          team: p.team,
+          playerId: p.playerId || null,
+          player: p.player || null,
+        })),
       });
     }
 
@@ -286,7 +304,7 @@ exports.handler = async (event) => {
         currentRound: current?.round || d.rounds,
         currentPick: current ? (current.overall % (d.teams || 1)) || d.teams : d.teams,
         currentTeam: current?.team || null,
-        completed: d.currentIndex >= d.picks.length,
+        completed: isCompleted(d),
         picks: (d.picks || []).map((p) => ({
           overall: p.overall,
           round: p.round,
@@ -396,7 +414,7 @@ exports.handler = async (event) => {
       const d = res.Item;
 
       if ((d.picked || []).includes(playerId)) return json(409, { error: "Player already picked" });
-      if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+      if (isCompleted(d)) return json(409, { error: "Draft already completed" });
 
       // isSeated above answers "may you see this draft". This answers "is it
       // your turn", which with one human is the same question and with two is
@@ -456,7 +474,7 @@ exports.handler = async (event) => {
       if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
-      if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+      if (isCompleted(d)) return json(409, { error: "Draft already completed" });
 
       // Same position as the turn check in /pick, just above: after the
       // already-completed check, so a finished draft still says it is
@@ -500,7 +518,7 @@ exports.handler = async (event) => {
       // Before the two checks below, for the reason Phase 1 learned the hard
       // way: a guard ordered ahead of the completed check makes a finished
       // draft report the wrong thing about itself.
-      if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+      if (isCompleted(d)) return json(409, { error: "Draft already completed" });
 
       if (d.pausedAt) {
         return json(409, { error: "Draft is paused", currentIndex: d.currentIndex, version: d.version ?? 1 });
@@ -538,7 +556,7 @@ exports.handler = async (event) => {
       if (!res.Item || !isSeated(res.Item, sub)) return notFound();
 
       const d = res.Item;
-      if (d.currentIndex >= d.picks.length) return json(409, { error: "Draft already completed" });
+      if (isCompleted(d)) return json(409, { error: "Draft already completed" });
 
       const now = Date.now();
 
@@ -697,35 +715,69 @@ exports.handler = async (event) => {
       // -- undefined !== true -- while the suite stayed green, because the
       // test fixture invented the field. A fixture that invents a field tests
       // a schema the application does not have.
-      if (d.currentIndex < d.picks.length) {
+      if (!isCompleted(d)) {
         return json(409, { error: "Only a finished draft can be shared" });
       }
 
       if (method === "DELETE") {
-        await ddb.send(
-          new UpdateCommand({
-            TableName: draftsTable,
-            Key: { draftId },
-            UpdateExpression: "REMOVE shareToken",
-          })
-        );
-        return json(200, { ok: true });
+        try {
+          await ddb.send(
+            new UpdateCommand({
+              TableName: draftsTable,
+              Key: { draftId },
+              UpdateExpression: "SET version = if_not_exists(version, :z) + :one REMOVE shareToken",
+              // The read above already checked canMutate, but that check and
+              // this write are two separate round trips -- ownership is
+              // re-asserted here, as a ConditionExpression, so there is no
+              // window between the two where it could have changed. Matches
+              // DELETE /drafts/{draftId}'s pattern below.
+              ConditionExpression: "ownerId = :me",
+              ExpressionAttributeValues: { ":me": sub, ":z": 0, ":one": 1 },
+            })
+          );
+          return json(200, { ok: true });
+        } catch (e) {
+          if (e?.name !== "ConditionalCheckFailedException") throw e;
+          return notFound();
+        }
       }
 
-      // Idempotent: a second click returns the token already in play rather
-      // than rotating it and breaking a link that has been sent.
-      const shareToken = d.shareToken || randomUUID();
-      if (!d.shareToken) {
+      // Idempotent: a second click must return the token already in play,
+      // never rotate it -- rotating would silently break a link that has
+      // already been copied and sent. The read above is not enough to
+      // guarantee that alone: two concurrent clicks can both observe no
+      // token, both reach here, and both mint, with the second write
+      // clobbering the first. attribute_not_exists(shareToken) closes that
+      // window the same way DELETE /drafts/{draftId} closes its own -- the
+      // check and the act happen in the SAME conditional write, not two.
+      if (d.shareToken) return json(200, { shareToken: d.shareToken });
+
+      const shareToken = randomUUID();
+      try {
         await ddb.send(
           new UpdateCommand({
             TableName: draftsTable,
             Key: { draftId },
-            UpdateExpression: "SET shareToken = :t",
-            ExpressionAttributeValues: { ":t": shareToken },
+            UpdateExpression: "SET shareToken = :t, version = if_not_exists(version, :z) + :one",
+            ConditionExpression: "attribute_not_exists(shareToken) AND ownerId = :me",
+            ExpressionAttributeValues: { ":t": shareToken, ":me": sub, ":z": 0, ":one": 1 },
           })
         );
+        return json(200, { shareToken });
+      } catch (e) {
+        if (e?.name !== "ConditionalCheckFailedException") throw e;
+        // Lost the race: somebody else's mint landed first. ConsistentRead
+        // for the same reason /join and /pause need it above -- this GET
+        // exists specifically to observe the write that just beat us, and
+        // the default eventually-consistent read could still miss it.
+        const fresh = await ddb.send(
+          new GetCommand({ TableName: draftsTable, Key: { draftId }, ConsistentRead: true })
+        );
+        if (fresh.Item?.shareToken) return json(200, { shareToken: fresh.Item.shareToken });
+        // The condition can also fail on ownership, if it changed between
+        // our read and this write -- treat that the same as "not the owner".
+        return notFound();
       }
-      return json(200, { shareToken });
     }
 
     // POST /drafts/{draftId}/queue
@@ -831,7 +883,7 @@ exports.handler = async (event) => {
         throw e;
       }
 
-      return json(200, { ok: true, completed: d.currentIndex >= d.picks.length });
+      return json(200, { ok: true, completed: isCompleted(d) });
     }
 
     // POST /push/subscribe  { endpoint, keys: { p256dh, auth } }

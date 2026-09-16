@@ -1,6 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { fileURLToPath } from "url";
+import path from "path";
 import { DRAFT_ID, makeCompletedDraft } from "./fixtures.js";
 import { signIn } from "./auth.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SCREENSHOTS = path.resolve(__dirname, "../../screenshots");
 
 const API = "**/drafts/*/shared*";
 
@@ -54,6 +59,19 @@ test("a bad token shows a plain not-found, not a crash or a sign-in wall", async
   await expect(page).toHaveURL(/\/shared\/d1/);
 });
 
+test("a 500 shows a load-error state, not the not-available copy", async ({ page }) => {
+  // A server error, a CORS failure or a dropped connection all mean "the load
+  // broke", not "the link was revoked" -- these are different facts and the
+  // visitor should be told which one happened. Before this fix, every
+  // rejection -- 404 included -- was caught into the same "not available"
+  // state.
+  await page.route(API, (r) => r.fulfill({ status: 500, json: { error: "Server error" } }));
+  await page.goto("/shared/d1?t=share-abc");
+
+  await expect(page.getByTestId("shared-load-error")).toBeVisible();
+  await expect(page.getByTestId("shared-missing")).toHaveCount(0);
+});
+
 test("the shared view offers nothing that implies participation", async ({ page }) => {
   await page.route(API, (r) => r.fulfill({ json: SHARED_BODY }));
   await page.goto("/shared/d1?t=share-abc");
@@ -91,4 +109,14 @@ test("revoking removes the link from the page", async ({ page }) => {
 
   await page.getByRole("button", { name: /revoke/i }).click();
   await expect(page.getByTestId("share-link")).toHaveCount(0);
+});
+
+test("screenshot — shared results page", async ({ page }) => {
+  await page.route(API, (r) => r.fulfill({ json: SHARED_BODY }));
+  await page.goto("/shared/d1?t=share-abc");
+
+  await expect(page.getByRole("heading", { name: "Draft results" })).toBeVisible();
+  await expect(page.getByText("Ja'Marr Chase")).toBeVisible();
+
+  await page.screenshot({ path: `${SCREENSHOTS}/shared.png`, fullPage: false });
 });
