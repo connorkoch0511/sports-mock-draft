@@ -316,4 +316,96 @@ test.describe("Draft layout", () => {
       }
     });
   }
+
+  // The queue strip's cap used to be `xl:max-h-[132px]` -- a pixel cap around
+  // contents measured entirely in rem (p-4 padding, a text-lg heading, the
+  // chips). Raise the browser's default font and the cap did not move, so the
+  // box inside it was eaten from both ends: measured at 1440px wide, the
+  // scrolling area fell from 58px at a 16px root to 40px at 20 and 22px at
+  // 24, while its content still wanted 45 and 43. With xl:overflow-y-hidden
+  // on that box, that is not a scroll -- it is a clip, and the position line
+  // under each chip simply vanished for anyone using Large text.
+  //
+  // This is the same px-beside-rem drift the phone work went out of its way
+  // to avoid one file over, which is why it gets a test rather than a note.
+  for (const rootPx of [16, 20, 24]) {
+    test(`a queued chip is not clipped at a ${rootPx}px root font`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await openPausedDraft(page, { yourQueue: ["p1", "p2"] });
+      await page.evaluate((px) => {
+        document.documentElement.style.fontSize = `${px}px`;
+      }, rootPx);
+      // One frame for the new rem values to lay out before measuring.
+      await page.waitForTimeout(150);
+
+      const m = await page.getByTestId("scroll-queue").evaluate((box) => {
+        const chip = box.querySelector('[data-testid="queue-row"]');
+        const b = box.getBoundingClientRect();
+        const c = chip ? chip.getBoundingClientRect() : null;
+        return {
+          hasChip: !!chip,
+          clipped: box.scrollHeight - box.clientHeight,
+          chipOverflow: c ? Math.round(c.bottom - b.bottom) : null,
+        };
+      });
+
+      expect(m.hasChip, `a chip renders at ${rootPx}px root`).toBe(true);
+      // The box is overflow-y-hidden at this width, so anything the content
+      // wants beyond clientHeight is cut off with no way to reach it.
+      expect(m.clipped, `content clipped at ${rootPx}px root`).toBeLessThanOrEqual(1);
+      expect(m.chipOverflow, `chip past the box at ${rootPx}px root`).toBeLessThanOrEqual(1);
+    });
+  }
+
+  // The suggested-pick card yields height and scrolls when the panel is
+  // short, which is the right behaviour -- but macOS overlay scrollbars give
+  // it a 2px track that is invisible until you already know to look.
+  // Measured at 1280x720: the card showed 74px of the 268 it wanted, hiding
+  // 72% of itself and ALL FOUR reasons. The advice was there and
+  // unadvertised, which is the same as not being there.
+  test("a short advice card says how much of itself is hidden", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await openPausedDraft(page);
+
+    const hidden = await page
+      .getByTestId("advice-scroll")
+      .evaluate((el) => el.scrollHeight - el.clientHeight);
+    // The premise: at this size the card really is cut off. If a layout change
+    // ever makes it fit here, this test is measuring nothing and should be
+    // pointed at a shorter viewport rather than quietly passing.
+    expect(hidden, "the card is actually overflowing at 1280x720").toBeGreaterThan(20);
+
+    const cue = page.getByTestId("advice-more");
+    await expect(cue).toBeVisible();
+    // Not just "something is there": it names the count, because "there is
+    // more" and "you cannot see three of the four reasons" are different
+    // facts and only the second tells you whether to bother.
+    await expect(cue).toHaveText(/\d+ more reasons? ↓/);
+
+    // And it works: clicking moves the card's own scroll.
+    const before = await page.getByTestId("advice-scroll").evaluate((el) => el.scrollTop);
+    await cue.click();
+    await page.waitForTimeout(400);
+    const after = await page.getByTestId("advice-scroll").evaluate((el) => el.scrollTop);
+    expect(after, "clicking the cue scrolls the card").toBeGreaterThan(before);
+  });
+
+  // The other end: with room to show everything, there is no cue. A cue that
+  // is always on is not a cue, and this is what stops the assertion above
+  // from passing against an unconditional badge.
+  test("a card with room for all its reasons shows no cue", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1100 });
+    await openPausedDraft(page);
+
+    const reasons = await page.getByTestId("advice-reason").count();
+    expect(reasons, "reasons rendered").toBeGreaterThan(0);
+    const allInside = await page.getByTestId("advice-scroll").evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      return [...el.querySelectorAll('[data-testid="advice-reason"]')].every(
+        (r) => r.getBoundingClientRect().bottom <= b.bottom + 1
+      );
+    });
+    expect(allInside, "every reason fits at 1100px tall").toBe(true);
+    await expect(page.getByTestId("advice-more")).toHaveCount(0);
+  });
 });

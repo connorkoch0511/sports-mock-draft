@@ -387,3 +387,108 @@ test.describe("phone screenshot", () => {
     await page.screenshot({ path: `${SCREENSHOTS}/draft-phone.png` });
   });
 });
+
+// A phone turned sideways. 844x390 was measured as unusable and written down
+// rather than fixed: the Big Board's player list rendered 167px past its own
+// panel and 93px off the bottom of the screen, only 4 of 79 rows were
+// tappable, and nothing scrolled -- the page pins itself to the viewport
+// height, and 390px cannot hold the nav, the status strip, a panel header,
+// the suggested-pick card, a usable list AND the tab bar.
+//
+// The fix is to stop pinning the height below 35rem and let the page be
+// longer than the screen. Length is not the failure mode on a phone;
+// unreachable content is. These tests pin both halves of that: the rows
+// become reachable, and the two pieces of chrome that must not scroll away
+// with them do not.
+test.describe("the draft page in landscape", () => {
+  test.use({ viewport: { width: 844, height: 390 }, hasTouch: true, isMobile: true });
+
+  async function openLandscape(page) {
+    mockDraftApis(page, makeDraftState({ currentIndex: 0 }));
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await expect(page.getByTestId("panel-big-board")).toBeVisible();
+  }
+
+  // Finds the element the page actually scrolls. NOT documentElement: this
+  // app scrolls an inner wrapper, so document.scrollingElement's scrollHeight
+  // equals its clientHeight even with content overflowing inside it -- the
+  // same trap that makes "the document does not scroll" a vacuous assertion
+  // elsewhere in this suite.
+  const SCROLLER = `() => {
+    let el = document.querySelector('[data-testid="panel-big-board"]');
+    while (el) {
+      if (el.scrollHeight > el.clientHeight + 1 &&
+          /auto|scroll/.test(getComputedStyle(el).overflowY)) return el;
+      el = el.parentElement;
+    }
+    return document.scrollingElement;
+  }`;
+
+  test("the player list does not render outside its own panel", async ({ page }) => {
+    await openLandscape(page);
+
+    const spill = await page.evaluate(() => {
+      const panel = document.querySelector('[data-testid="panel-big-board"]').getBoundingClientRect();
+      const list = document.querySelector('[data-testid="scroll-big-board"]').getBoundingClientRect();
+      return Math.round(list.bottom - panel.bottom);
+    });
+    // Was +167. Negative means the list ends inside the panel that owns it.
+    expect(spill, "list spill past its panel").toBeLessThanOrEqual(0);
+  });
+
+  test("every player row can be reached by scrolling", async ({ page }) => {
+    await openLandscape(page);
+
+    const reached = await page.evaluate(async (src) => {
+      const scroller = eval("(" + src + ")")();
+      const rows = () => [...document.querySelectorAll('[data-testid="scroll-big-board"] button')];
+      const total = rows().length;
+      const seen = new Set();
+      // Walk the whole scroll range a screen at a time and record every row
+      // that is fully on screen at some point along the way.
+      for (let top = 0; top <= scroller.scrollHeight; top += Math.floor(window.innerHeight / 2)) {
+        scroller.scrollTop = top;
+        await new Promise((r) => requestAnimationFrame(r));
+        const vh = window.innerHeight;
+        rows().forEach((r, i) => {
+          const b = r.getBoundingClientRect();
+          if (b.top >= 0 && b.bottom <= vh && b.height > 0) seen.add(i);
+        });
+      }
+      return { total, seen: seen.size };
+    }, SCROLLER);
+
+    expect(reached.total, "rows rendered").toBeGreaterThan(20);
+    // Was 4 of 79, with no scroll to reach the rest.
+    expect(reached.seen, "rows reachable by scrolling").toBe(reached.total);
+  });
+
+  test("the clock and the tabs stay on screen while the list scrolls", async ({ page }) => {
+    await openLandscape(page);
+
+    const pinned = await page.evaluate(async (src) => {
+      const scroller = eval("(" + src + ")")();
+      scroller.scrollTop = scroller.scrollHeight;
+      await new Promise((r) => setTimeout(r, 120));
+      const vh = window.innerHeight;
+      const on = (id) => {
+        const b = document.querySelector(`[data-testid="${id}"]`).getBoundingClientRect();
+        return { top: Math.round(b.top), bottom: Math.round(b.bottom), onScreen: b.top >= -1 && b.bottom <= vh + 1 };
+      };
+      return { scrolled: Math.round(scroller.scrollTop), strip: on("status-strip"), tabs: on("tab-bar") };
+    }, SCROLLER);
+
+    // The assertion is only meaningful if the page actually scrolled a long
+    // way -- at scrollTop 0 everything is trivially on screen.
+    expect(pinned.scrolled, "scrolled far enough for this to mean anything").toBeGreaterThan(500);
+    expect(pinned.strip.onScreen, `status strip at ${pinned.strip.top}`).toBe(true);
+    expect(pinned.tabs.onScreen, `tab bar at ${pinned.tabs.top}`).toBe(true);
+    // And pinned to the edges rather than merely visible because we happened
+    // to stop somewhere they were: at the bottom of a 3,000px scroll a static
+    // tab bar also lands on screen, so "visible" alone proves nothing. The
+    // strip must ride the top third and the tabs the bottom third.
+    expect(pinned.strip.top, "strip is pinned near the top").toBeLessThan(390 / 3);
+    expect(pinned.tabs.bottom, "tabs are pinned near the bottom").toBeGreaterThan((390 * 2) / 3);
+  });
+});

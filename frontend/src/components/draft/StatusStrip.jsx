@@ -18,7 +18,18 @@ export default function StatusStrip({
     <div
       data-testid="status-strip"
       data-your-turn={isMyTurn ? "true" : "false"}
-      className={`xl:hidden shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur ${
+      // Sticky for the same reason the tab bar is: it carries the clock and
+      // whose turn it is, which is the one thing that must stay on screen
+      // while you scroll a long list during a timed pick.
+      //
+      // The `before` layer is what makes sticky legible. Both tints below are
+      // translucent -- the your-turn one is 10% -- which was invisible back
+      // when this strip never overlapped anything, and became player rows
+      // ghosting straight through it the moment the page was allowed to
+      // scroll under it. An opaque pane behind the tint keeps both states
+      // looking exactly as designed and composites them over the page colour
+      // instead of over whatever happens to be scrolling past.
+      className={`relative xl:hidden sticky top-0 z-20 shrink-0 flex items-center gap-2 rounded-2xl border px-3 py-2 before:absolute before:inset-0 before:-z-10 before:rounded-2xl before:bg-zinc-950 ${
         isMyTurn
           ? "border-cyan-300/60 bg-cyan-300/10"
           : "border-zinc-800/70 bg-zinc-950/80"

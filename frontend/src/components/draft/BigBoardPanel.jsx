@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { orderByBoard } from "../../lib/boardOrder";
 import { adpTrio, PLATFORM_WIDE_NOTE } from "../../lib/adpSources";
 import { adviseOnPick, NO_ADVICE } from "../../lib/pickAdvice";
@@ -8,6 +8,53 @@ import { StartingPoint } from "./StartingPoint";
 import { Pill } from "./Pill";
 
 const PAGE_SIZE = 25;
+
+/**
+ * How much of a scrolling element is still below the fold, and how many
+ * advice reasons that hides.
+ *
+ * The suggested-pick card yields height and scrolls when the panel is short,
+ * which is the right behaviour -- but under macOS overlay scrollbars a
+ * scrolled-away reason has no scrollbar to advertise it. Measured at
+ * 1280x720: the card showed 74px of 268, hiding 72% of itself and ALL FOUR
+ * reasons, behind a 2px scroll track that is invisible until you already
+ * know to look. The advice was there and unadvertised, which is the same as
+ * not being there.
+ *
+ * Returns the element setter so the caller can attach it as a ref.
+ */
+function useHiddenBelow() {
+  const [el, setEl] = useState(null);
+  const [hidden, setHidden] = useState({ px: 0, reasons: 0 });
+
+  useEffect(() => {
+    if (!el) return undefined;
+    const measure = () => {
+      const px = el.scrollHeight - el.clientHeight - el.scrollTop;
+      if (px <= 4) return setHidden((h) => (h.px === 0 ? h : { px: 0, reasons: 0 }));
+      const bottom = el.getBoundingClientRect().bottom;
+      const reasons = [...el.querySelectorAll('[data-testid="advice-reason"]')].filter(
+        (r) => r.getBoundingClientRect().bottom > bottom + 1
+      ).length;
+      setHidden((h) => (h.px === px && h.reasons === reasons ? h : { px, reasons }));
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    // The box can stay the same size while its CONTENT reflows taller -- a
+    // reason wrapping onto another line as the panel narrows is exactly the
+    // case that hides advice -- so every child is observed too, not just the
+    // box.
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    for (const child of el.children) ro.observe(child);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      ro.disconnect();
+    };
+  }, [el]);
+
+  return [setEl, hidden, el];
+}
 
 /**
  * The Big Board: who is left, in what order, and who to take.
@@ -30,6 +77,7 @@ export function BigBoardPanel({
   makePick,
   queuePlayer,
 }) {
+  const [adviceRef, adviceHidden, adviceEl] = useHiddenBelow();
   const [query, setQuery] = useState("");
   const [pos, setPos] = useState("");
   const [page, setPage] = useState(0);
@@ -204,29 +252,79 @@ export function BigBoardPanel({
         {isMyTurn && recommendation ? (
           <div
             data-testid="advice-card"
-            className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 space-y-2 min-h-0 overflow-auto"
+            className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 min-h-0 flex flex-col overflow-hidden"
           >
-            <div className="flex items-baseline justify-between gap-2">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
-                Suggested pick
-              </span>
-              <span className="text-[11px] text-zinc-400">
-                {recommendation.player.position} · {recommendation.player.team}
-              </span>
+            {/* The shell above does not scroll; this does. Keeping them
+                separate is what lets the cue below sit UNDER the content
+                rather than on top of it -- as a sticky footer inside the
+                scroller it covered the player's name, which at a 74px card
+                height is most of the card and the single line the whole
+                panel exists to show. */}
+            <div
+              ref={adviceRef}
+              data-testid="advice-scroll"
+              className="min-h-0 overflow-auto space-y-2"
+            >
+              {/* Label and name on ONE line, not two. When the panel is
+                  short this card is the first thing to give up height -- at
+                  1280x720 it gets about 74px -- and with the name on a second
+                  row that 74px bought the word "Suggested pick" and the top
+                  half of the answer, cut through the middle of the glyphs.
+                  The line that says WHO now survives the squeeze; everything
+                  under it is elaboration, and the cue below says how much of
+                  that is out of sight. */}
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
+                    Suggested pick
+                  </span>{" "}
+                  <span className="text-sm font-semibold text-zinc-100">
+                    {recommendation.player.name}
+                  </span>
+                </div>
+                <span className="shrink-0 text-[11px] text-zinc-400">
+                  {recommendation.player.position} · {recommendation.player.team}
+                </span>
+              </div>
+              <StartingPoint
+                startingPoint={{
+                  base: recommendation.base,
+                  position: 1 - recommendation.base,
+                  score: recommendation.score,
+                }}
+                onBoard={boardRows?.length > 0}
+              />
+              <ReasonList reasons={recommendation.reasons} />
+              <p className="text-[11px] leading-snug text-zinc-500">{ADVICE_BASIS}</p>
+
             </div>
-            <div className="text-sm font-semibold text-zinc-100">
-              {recommendation.player.name}
-            </div>
-            <StartingPoint
-              startingPoint={{
-                base: recommendation.base,
-                position: 1 - recommendation.base,
-                score: recommendation.score,
-              }}
-              onBoard={boardRows?.length > 0}
-            />
-            <ReasonList reasons={recommendation.reasons} />
-            <p className="text-[11px] leading-snug text-zinc-500">{ADVICE_BASIS}</p>
+
+            {/* The cue the overlay scrollbar does not give. It names the
+                count, because "there is more" and "you cannot see three of
+                the four reasons" are different facts and only the second
+                tells you whether to bother. Clicking scrolls rather than
+                expanding: the card is short because the panel is short, and
+                growing it back is exactly what pushed the player list off the
+                screen in the first place. */}
+            {adviceHidden.px > 0 && (
+              <button
+                type="button"
+                data-testid="advice-more"
+                onClick={() =>
+                  adviceEl?.scrollBy({
+                    top: Math.max(40, adviceEl.clientHeight * 0.8),
+                    behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+                      ? "auto"
+                      : "smooth",
+                  })
+                }
+                className="mt-1 shrink-0 self-end rounded-full border border-emerald-700/70 bg-emerald-950 px-2 py-0.5 text-[10px] font-medium text-emerald-200 hover:border-emerald-500"
+              >
+                {adviceHidden.reasons > 0
+                  ? `${adviceHidden.reasons} more ${adviceHidden.reasons === 1 ? "reason" : "reasons"} ↓`
+                  : "More ↓"}
+              </button>
+            )}
           </div>
         ) : null}
 

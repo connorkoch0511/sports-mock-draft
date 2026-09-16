@@ -151,7 +151,18 @@ export function QueuePanel({ queue, playersById, picked, onRemove, onReorder }) 
       // `xl:contents` above xl, so it has no box for a span to apply to. The
       // cap keeps this a strip -- the row is auto-height, so without it three
       // queued players take 296px and leave the three panels above 208.
-      className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col xl:col-span-3 xl:max-h-[132px]"
+      //
+      // 8.25rem, not the 132px it used to be. Everything the cap contains is
+      // sized in rem -- p-4 padding, a text-lg heading, the chips themselves --
+      // so a px cap stopped scaling the moment a reader raised their default
+      // font, and the box inside it was eaten from both ends. Measured at a
+      // 1440px viewport: at the browser's Large setting (20px root) the
+      // scrolling area fell from 58px to 40 while its content still wanted 45,
+      // and at 24px it fell to 22 against content wanting 43 -- with
+      // xl:overflow-y-hidden below, that is not a scroll, it is a clip, and
+      // the position line under each chip simply vanished. In rem the cap
+      // grows with the text it has to hold.
+      className="rounded-3xl border border-zinc-800/70 bg-zinc-950/60 p-4 backdrop-blur shadow-[0_0_0_1px_rgba(255,255,255,0.02)] min-h-0 min-w-0 flex flex-col xl:col-span-3 xl:max-h-[8.25rem]"
     >
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold">Queue</h2>

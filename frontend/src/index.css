@@ -14,6 +14,27 @@
   --breakpoint-3xl: 100rem;
 }
 
+/*
+  The draft page pins itself to the viewport height so the three panels and
+  the queue strip all fit without scrolling. That is right on a laptop and
+  wrong on a phone turned sideways: 390px of height cannot hold the nav, the
+  status strip, a panel header, the suggested-pick card, a usable player list
+  AND the tab bar, so the list rendered 167px past its own panel and 93px off
+  the bottom of the screen -- with only 4 of 79 rows tappable and no way to
+  scroll to the rest.
+
+  Measured at 844px wide: the list escapes the panel below 560px of height and
+  escapes the VIEWPORT below about 520. So the height pin applies from 35rem
+  up, and below it the page is allowed to be longer than the screen. Length is
+  not the failure mode on a phone -- unreachable content is.
+
+  In `rem`, not pixels, and that is the whole point: a reader who sets a large
+  default font needs MORE height for the same layout, so the threshold has to
+  move with the text. A px threshold beside rem contents is the exact drift
+  that made the queue strip clip its own chips.
+*/
+@custom-variant tall (@media (min-height: 35rem));
+
 :root {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;

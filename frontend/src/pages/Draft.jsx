@@ -518,10 +518,17 @@ export default function Draft() {
   // the viewport instead of letting that table scroll horizontally inside
   // its own already-overflow-auto panel (measured: 656px wrapper in a 390px
   // viewport).
+  // The three height classes here are gated on `tall:` (see index.css): they
+  // are what makes a panel fill the viewport exactly, and with min-h-0 beside
+  // flex-1 they also let it be squeezed to nothing. Below 35rem of height
+  // there is no height worth filling -- the panel takes its content size and
+  // the page scrolls. min-w-0 is NOT gated: the draft board's 620px table
+  // needs to be allowed to shrink at every height, and that has nothing to do
+  // with how tall the window is.
   const pane = (id) =>
     `xl:contents ${
       tab === id
-        ? "max-xl:flex max-xl:flex-col max-xl:min-h-0 max-xl:min-w-0 max-xl:flex-1 max-xl:[&>*]:flex-1"
+        ? "max-xl:flex max-xl:flex-col max-xl:min-w-0 tall:max-xl:min-h-0 tall:max-xl:flex-1 tall:max-xl:[&>*]:flex-1"
         : "max-xl:hidden"
     }`;
 
@@ -538,8 +545,18 @@ export default function Draft() {
           ? "Auto-picking…"
           : `Waiting on Team ${currentTeamOnClock}`;
 
+  // overflow-x-CLIP on the wrapper below, not hidden. `overflow-x: hidden`
+  // forces the computed overflow-y from visible to auto, which silently makes
+  // that div a scroll container -- and a sticky child scrolls within its
+  // nearest scroll container, not the window. That box grows to its content
+  // and never scrolls, so the phone's status strip and tab bar had a
+  // scrollport that never moved: measured at 844x390, the strip sat 2,964px
+  // above the top of the screen. It looked pinned in a screenshot taken at
+  // the bottom of the page, where everything is at the bottom anyway. `clip`
+  // suppresses the same horizontal overflow from the background gradients
+  // WITHOUT creating a scroll container.
   return (
-    <div className="relative min-h-full max-xl:h-full xl:h-full w-full overflow-x-hidden">
+    <div className="relative min-h-full tall:max-xl:h-full tall:xl:h-full w-full overflow-x-clip">
       {/* Background (same feel as Home) */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute inset-0 bg-[radial-gradient(1000px_500px_at_20%_10%,rgba(34,211,238,0.14),transparent_60%),radial-gradient(900px_500px_at_80%_20%,rgba(59,130,246,0.12),transparent_55%),radial-gradient(700px_500px_at_50%_85%,rgba(168,85,247,0.10),transparent_55%)]" />
@@ -557,7 +574,7 @@ export default function Draft() {
           precise about: the track RATIOS hold at every width from lg up, but
           their pixel widths still step here. One layout, two container sizes.
         */}
-      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full max-xl:h-full max-xl:px-3 max-xl:py-3 xl:h-full flex flex-col gap-4">
+      <div className="relative mx-auto max-w-7xl 3xl:max-w-[1600px] px-6 py-6 min-h-full tall:max-xl:h-full max-xl:px-3 max-xl:py-3 tall:xl:h-full flex flex-col gap-4">
         {err && (
           <div data-testid="draft-error" className="rounded-2xl border border-red-900/60 bg-red-950/40 p-4 text-sm text-red-200">
             {err}
@@ -942,7 +959,7 @@ export default function Draft() {
             There is no width at which the track or row count changes, which
             is the property that keeps the wrapped-row failure from
             recurring. */}
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_minmax(0,1fr)] xl:grid-rows-[minmax(0,1fr)_auto] flex-1 min-h-0 min-w-0">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1.5fr)_minmax(0,1fr)] xl:grid-rows-[minmax(0,1fr)_auto] tall:flex-1 tall:min-h-0 min-w-0">
             <div className={pane("board")}>
               <BigBoardPanel
                 draft={draft}

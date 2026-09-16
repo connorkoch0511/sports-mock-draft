@@ -19,7 +19,12 @@ export default function TabBar({ active, onChange }) {
     <nav
       data-testid="tab-bar"
       aria-label="Draft views"
-      className="xl:hidden shrink-0 grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/80 p-1 backdrop-blur"
+      // sticky, not static: below 35rem of height the page is allowed to
+      // scroll (see index.css), and a tab bar that scrolls away with the
+      // content is a tab bar you have to scroll 3,000px to reach. Above
+      // that threshold the page does not scroll at all, so this is inert
+      // there rather than a second layout to keep working.
+      className="xl:hidden sticky bottom-0 z-20 shrink-0 grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/95 p-1 backdrop-blur"
     >
       {TABS.map((t) => (
         <button
