@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
-import { apiGet } from "../lib/api";
+import { apiGet, apiPost, apiDelete } from "../lib/api";
 import { usePageTitle } from "../lib/usePageTitle";
 import { analyzeDraft } from "../lib/draftAnalysis";
 import { download } from "../lib/download";
@@ -10,6 +10,7 @@ export default function Results() {
   const [draft, setDraft] = useState(null);
   const [err, setErr] = useState("");
   const [copied, setCopied] = useState(false);
+  const [shareUrl, setShareUrl] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   // Anything unrecognised -- including an absent parameter -- is the pick log,
   // so an old link with no ?view keeps behaving exactly as it did.
@@ -31,6 +32,16 @@ export default function Results() {
   for (let t = 1; t <= draft.teams; t++) rosters[t] = [];
   for (const p of draft.picks) {
     if (p.player && rosters[p.team]) rosters[p.team].push(p);
+  }
+
+  async function makeShareLink() {
+    const { shareToken } = await apiPost(`/drafts/${draftId}/share`, {});
+    setShareUrl(`${window.location.origin}/shared/${draftId}?t=${encodeURIComponent(shareToken)}`);
+  }
+
+  async function revokeShareLink() {
+    await apiDelete(`/drafts/${draftId}/share`);
+    setShareUrl(null);
   }
 
   const copyLink = async () => {
@@ -96,6 +107,43 @@ export default function Results() {
               Export JSON
             </button>
           </div>
+          {draft.completed && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              {shareUrl ? (
+                <>
+                  <input
+                    data-testid="share-link"
+                    readOnly
+                    value={shareUrl}
+                    className="w-72 rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 text-xs"
+                    onFocus={(e) => e.target.select()}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(shareUrl)}
+                    className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
+                  >
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={revokeShareLink}
+                    className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
+                  >
+                    Revoke
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={makeShareLink}
+                  className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
+                >
+                  Share results
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
           <Link
