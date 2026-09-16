@@ -1245,9 +1245,11 @@ test("signing out unsubscribes this browser from push before the session ends", 
 // Playwright's public API exposes, and is not attempted here.
 test("the real service worker installs and activates without error", async ({ page }) => {
   await page.goto("/");
+  // The app registers on load now, so this waits for that registration rather
+  // than creating a second one -- a bare /sw.js register() here has the same
+  // scope and would REPLACE the app's, dropping the apiBase query.
   const scriptURL = await page.evaluate(async () => {
-    const reg = await navigator.serviceWorker.register("/sw.js");
-    await navigator.serviceWorker.ready;
+    const reg = await navigator.serviceWorker.ready;
     return reg.active?.scriptURL;
   });
   expect(scriptURL).toMatch(/\/sw\.js/);

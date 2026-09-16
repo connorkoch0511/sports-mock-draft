@@ -1,0 +1,20 @@
+{
+  "name": "PerfectPick",
+  "short_name": "PerfectPick",
+  "description": "Fantasy football mock drafts with a big board you control.",
+  "start_url": "/drafts",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#070A0F",
+  "theme_color": "#070A0F",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    {
+      "src": "/icon-512-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

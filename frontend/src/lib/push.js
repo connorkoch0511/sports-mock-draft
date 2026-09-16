@@ -16,6 +16,41 @@ const VAPID_PUBLIC_KEY = env.VITE_VAPID_PUBLIC_KEY;
 // self.location to know where to re-POST a rotated subscription.
 const API_BASE = (env.VITE_API_BASE_URL || "").replace(/\/+$/, "");
 
+/**
+ * The service worker's registration URL, in ONE place.
+ *
+ * The query string is load-bearing: sw.js reads `apiBase` back out of its own
+ * self.location to re-subscribe on pushsubscriptionchange. Two call sites
+ * writing this string separately is how one of them ends up registering a bare
+ * /sw.js -- which replaces the other registration, since the scope is the same,
+ * and silently drops the API base.
+ */
+export const SW_URL = `/sw.js?apiBase=${encodeURIComponent(API_BASE)}`;
+
+/**
+ * Register the worker at app start, so every visitor has an active one.
+ *
+ * It used to register only inside subscribe(), which runs after the user grants
+ * notification permission -- so anyone who never opted in had no worker at all,
+ * and Chrome will not offer to install an app without one.
+ *
+ * Registering does NOT prompt for notification permission. They are separate
+ * APIs, and nothing here asks for anything.
+ */
+export async function registerServiceWorker({
+  register = typeof navigator !== "undefined" && navigator.serviceWorker
+    ? (url) => navigator.serviceWorker.register(url)
+    : null,
+} = {}) {
+  if (!register) return undefined;
+  try {
+    return await register(SW_URL);
+  } catch {
+    // A failed registration must never stop the app from starting.
+    return undefined;
+  }
+}
+
 /** Whether this browser can do any of this at all. */
 export function pushSupported() {
   return (
@@ -81,8 +116,7 @@ async function defaultDelete(path, body) {
 export async function subscribe({
   vapidKey = VAPID_PUBLIC_KEY,
   requestPermission = () => Notification.requestPermission(),
-  registerServiceWorker = () =>
-    navigator.serviceWorker.register(`/sw.js?apiBase=${encodeURIComponent(API_BASE)}`),
+  registerServiceWorker: registerSW = () => registerServiceWorker(),
   waitUntilActive = () => navigator.serviceWorker.ready,
   post = defaultPost,
 } = {}) {
@@ -91,7 +125,18 @@ export async function subscribe({
   const permission = await requestPermission();
   if (permission !== "granted") return permission;
 
-  const reg = await registerServiceWorker();
+  const reg = await registerSW();
+  // registerServiceWorker() swallows a failed registration and resolves
+  // undefined -- correct at app start, where a failure must never stop the
+  // app from rendering. Here, though, `undefined` would otherwise flow
+  // straight into `navigator.serviceWorker.ready` below, which never settles
+  // for a scope with no registration: the caller's await hangs forever
+  // instead of landing on the failure state it renders. Fail loudly instead.
+  if (!reg) {
+    throw new Error(
+      "Notifications need an active service worker, and none could be registered."
+    );
+  }
   // register() resolves as soon as the registration record exists -- the
   // worker itself is typically still installing, and reg.active is null
   // until it finishes activating. PushManager.subscribe() throws
