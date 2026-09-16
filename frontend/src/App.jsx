@@ -11,6 +11,7 @@ import Player from "./pages/Player.jsx";
 import AuthCallback from "./pages/AuthCallback.jsx";
 import YahooCallback from "./pages/YahooCallback.jsx";
 import { Privacy, Terms } from "./pages/Legal.jsx";
+import SharedResults from "./pages/SharedResults.jsx";
 import { AuthProvider } from "./lib/AuthProvider.jsx";
 import NavBar from "./components/NavBar.jsx";
 import RequireAuth from "./components/RequireAuth.jsx";
@@ -50,6 +51,14 @@ export default function App() {
               */}
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
+              {/*
+                Also public, and deliberately outside RequireAuth: this is
+                the one link in the app meant for someone with no account at
+                all. It calls the anonymous /shared endpoint directly and
+                never touches auth state, so a signed-out visitor is never
+                bounced to sign-in.
+              */}
+              <Route path="/shared/:draftId" element={<SharedResults />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
               <Route path="/yahoo/callback" element={<RequireAuth><YahooCallback /></RequireAuth>} />
             </Routes>
