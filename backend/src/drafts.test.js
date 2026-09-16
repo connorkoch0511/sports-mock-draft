@@ -12,7 +12,7 @@ process.env.PUSH_SUBS_TABLE = "push-subs-test";
 // `claims` is exactly the shape API Gateway's JWT authorizer puts on the
 // event, which is the boundary this code actually depends on -- Cognito
 // itself cannot run locally.
-function evt(method, path, { draftId, body, claims } = {}) {
+function evt(method, path, { draftId, body, claims, query } = {}) {
   return {
     requestContext: {
       http: { method },
@@ -20,6 +20,7 @@ function evt(method, path, { draftId, body, claims } = {}) {
     },
     rawPath: path,
     pathParameters: draftId ? { draftId } : undefined,
+    queryStringParameters: query,
     body: body === undefined ? undefined : JSON.stringify(body),
   };
 }
@@ -2511,4 +2512,319 @@ test("a subscription can be removed", async () => {
   );
   assert.equal(res.statusCode, 200);
   assert.deepEqual(deleted, { sub: ME.sub, endpoint: "https://push.example/abc" });
+});
+
+const SHARED = "/drafts/d1/shared";
+
+function sharedDraft(extra = {}) {
+  return {
+    draftId: "d1",
+    // Completion is expressed the way the database actually expresses it --
+    // every pick made -- not by injecting a `completed` field that no write
+    // path in the application ever creates. Setting one here is what hid a
+    // guard that rejected every real share request.
+    currentIndex: 1,
+    shareToken: "share-abc",
+    inviteToken: "invite-xyz",
+    pausedBy: "cognito-sub-of-someone",
+    // The real -- and only -- ownership field canMutate() reads. Nothing here
+    // spells it a second way: an `ownerSub` that reads like ownership at a
+    // call site but is never looked up is the same trick the `completed`
+    // field above played, and it cost this branch a shipped 409.
+    ownerId: "alice",
+    format: "ppr",
+    teams: 12,
+    rounds: 15,
+    rosterSlots: ["QB", "RB", "RB", "WR", "WR", "TE", "K", "DEF"],
+    // The extra fields below (`auto`, `internalNote`) are never asked for by
+    // the client and must never reach an anonymous caller. A stored pick
+    // really can carry them: autoPick.js stamps `auto: true` on a clock-made
+    // pick. Spreading the stored pick verbatim into the shared projection
+    // would ship both; the five-field key assertion on the OBJECT can't see
+    // it, because it only checks the top-level keys, not a pick's.
+    picks: [{
+      overall: 1, round: 1, team: 1, playerId: "p1",
+      player: { id: "p1", name: "A", position: "RB" },
+      auto: true, internalNote: "x",
+    }],
+    // bob is seated but is not the owner -- alice is. Without a seated
+    // non-owner in this fixture, a share clause that checked isSeated
+    // instead of canMutate would still refuse every caller this file tries
+    // (mallory is seated nowhere), and the owner-only rule would be
+    // untested.
+    seats: [
+      { team: 1, sub: "alice", kind: "human" },
+      { team: 2, sub: "bob", kind: "human" },
+    ],
+    ...extra,
+  };
+}
+
+test("shared results: a draft that does not exist is 404", async () => {
+  stubSend({ Item: undefined });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: a draft that was never shared is 404", async () => {
+  stubSend({ Item: sharedDraft({ shareToken: undefined }) });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: the wrong token is 404, not 403", async () => {
+  // 403 would confirm the draft exists. Guessing an id must learn nothing.
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "not-the-token" } }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: no token at all is 404", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: never shared, and no token either, is still 404", async () => {
+  // The case neither sibling test covers, and the only one that pins the pair
+  // of guards. A draft with no shareToken, asked for with no token, compares
+  // `undefined !== undefined` -- which is FALSE. Remove both `!d.shareToken`
+  // and `!token` and this returns 200 with the results of a draft nobody ever
+  // shared. Dropping either guard alone changes nothing, because the other
+  // still fires, so the one-at-a-time mutations look reassuring and are not.
+  stubSend({ Item: sharedDraft({ shareToken: undefined }) });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: the right token returns the results", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  assert.strictEqual(res.statusCode, 200);
+  const body = JSON.parse(res.body);
+  assert.strictEqual(body.teams, 12);
+  assert.strictEqual(body.picks.length, 1);
+});
+
+test("shared results: the payload is EXACTLY the five fields, and nothing else", async () => {
+  // A field-set assertion, not a spot check. Checking `!body.inviteToken`
+  // confirms today's known leak is absent; this fails when somebody adds a
+  // sixth field next year, which is the leak nobody is looking for.
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  const keys = Object.keys(JSON.parse(res.body)).sort();
+  assert.deepStrictEqual(keys, ["format", "picks", "rosterSlots", "rounds", "teams"]);
+});
+
+test("shared results: a pick carries exactly five fields, never the stored extras", async () => {
+  // The object-shape sibling of the five-field body assertion above: that one
+  // only sees TOP-LEVEL keys, so `picks: d.picks || []` shipping a pick's
+  // `auto` and `internalNote` verbatim would sail right through it. Build the
+  // fixture's pick with those two junk fields (see sharedDraft() above) so
+  // this fails without the same explicit map the authenticated GET already
+  // uses.
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  const body = JSON.parse(res.body);
+  const keys = Object.keys(body.picks[0]).sort();
+  assert.deepStrictEqual(keys, ["overall", "player", "playerId", "round", "team"]);
+});
+
+test("shared results: an unfinished draft is 404 even with a valid token", async () => {
+  // This token cannot exist on a real unfinished draft today -- /share only
+  // mints one once isCompleted(d) is true -- but the read must not lean on
+  // that invariant alone. It is the same guard the mutations already have,
+  // now on the one route that used to trust them to have enforced it.
+  stubSend({
+    Item: sharedDraft({ currentIndex: 0, picks: [{ overall: 1 }, { overall: 2 }] }),
+  });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("shared results: the shared path never falls through to the authenticated handler", async () => {
+  // GET /drafts/{draftId} matches `method === "GET" && draftId`, and
+  // pathParameters.draftId is set for /drafts/{id}/shared too. If the shared
+  // clause is ordered after it, this returns the FULL projection --
+  // inviteToken included -- to an anonymous caller.
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
+  const body = JSON.parse(res.body);
+  assert.strictEqual(body.inviteToken, undefined, "an anonymous caller must never receive the invite token");
+  assert.strictEqual(body.seats, undefined);
+  assert.strictEqual(body.pausedBy, undefined);
+});
+
+const SHARE = "/drafts/d1/share";
+
+test("share: only the owner can mint a token", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "mallory" } })
+  );
+  // 404, not 403 -- same rule as delete: a non-owner learns nothing.
+  assert.strictEqual(res.statusCode, 404);
+});
+
+// bob is SEATED (see sharedDraft()) but is not the owner -- alice is. This is
+// the test that distinguishes "owner-only" from "seated-only": mallory, above,
+// fails BOTH canMutate and isSeated, so a share clause that was quietly
+// swapped from canMutate(d, sub) to isSeated(d, sub) would still pass every
+// test in this file except this one and its DELETE sibling below. Verified by
+// mutation: making that swap reddens exactly these two tests.
+test("share: a seated non-owner cannot mint -- being seated is not enough", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "bob" } })
+  );
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("share: an unfinished draft cannot be shared", async () => {
+  // Unfinished the way the database says it: picks still to make. NOT
+  // `completed: false`, which is a field the application never writes and
+  // therefore never reads.
+  stubSend({
+    Item: sharedDraft({
+      currentIndex: 0,
+      picks: [{ overall: 1 }, { overall: 2 }],
+      shareToken: undefined,
+    }),
+  });
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 409);
+});
+
+test("share: a finished draft with no `completed` field can still be shared", async () => {
+  // THE REGRESSION TEST. `completed` is not a stored field -- nothing in the
+  // application ever writes one -- so a real draft item does not have the key
+  // at all. The guard once read `d.completed !== true`, which is true of every
+  // real draft, and rejected EVERY share request in production while the suite
+  // stayed green because the fixture invented the field.
+  //
+  // This item is shaped like what DynamoDB actually holds: finished by virtue
+  // of currentIndex reaching picks.length, with no `completed` anywhere.
+  const realistic = sharedDraft({ shareToken: undefined });
+  delete realistic.completed;
+  assert.strictEqual(realistic.completed, undefined, "the fixture must not invent the field");
+  stubSend({ Item: realistic });
+
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.ok(JSON.parse(res.body).shareToken, "a finished draft must mint a token");
+});
+
+test("share: minting twice returns the SAME token, it does not rotate", async () => {
+  // A second click must not silently break a link already sent.
+  stubSend({ Item: sharedDraft({ shareToken: "already-minted" }) });
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).shareToken, "already-minted");
+});
+
+test("share: a mint racing an existing mint returns the WINNER's token, not a new one", async () => {
+  // Two concurrent clicks both read the draft with no shareToken, both reach
+  // the mint branch, and both try to write. Without
+  // attribute_not_exists(shareToken) on that write, the second one to land
+  // overwrites the first -- silently breaking a link that may already have
+  // been copied. This simulates losing that race: the initial read sees no
+  // token, the conditional write fails because a sibling request's write beat
+  // it there, and the re-read (ConsistentRead, same as /join and /pause) sees
+  // that sibling's token. The response must carry THAT token, never a freshly
+  // generated one that gets thrown away.
+  let getCount = 0;
+  let mintUpdate = null;
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    if (cmd.constructor.name === "GetCommand") {
+      getCount += 1;
+      if (getCount === 1) return { Item: sharedDraft({ shareToken: undefined }) };
+      return { Item: sharedDraft({ shareToken: "winner-token" }) };
+    }
+    if (cmd.constructor.name === "UpdateCommand") {
+      mintUpdate = cmd;
+      const e = new Error("The conditional request failed");
+      e.name = "ConditionalCheckFailedException";
+      throw e;
+    }
+    throw new Error(`unexpected command ${cmd.constructor.name}`);
+  });
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.strictEqual(JSON.parse(res.body).shareToken, "winner-token");
+  // Pins the mechanism, not just the recovery: the mint write itself must
+  // have carried the guard, or there was never a race to lose in the first
+  // place -- an unconditional SET would simply have overwritten the winner.
+  assert.match(mintUpdate.input.ConditionExpression, /attribute_not_exists\(shareToken\)/);
+  assert.match(mintUpdate.input.ConditionExpression, /ownerId = :me/);
+});
+
+test("share: an anonymous caller cannot mint", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(evt("POST", SHARE, { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 401);
+});
+
+test("revoke: only the owner can revoke", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(
+    evt("DELETE", SHARE, { draftId: "d1", claims: { sub: "mallory" } })
+  );
+  assert.strictEqual(res.statusCode, 404);
+});
+
+// The DELETE sibling of the mint test above: bob is seated but not the
+// owner. Verified by mutation the same way -- swapping canMutate for
+// isSeated in the share clause reddens this test too.
+test("revoke: a seated non-owner cannot revoke -- being seated is not enough", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(
+    evt("DELETE", SHARE, { draftId: "d1", claims: { sub: "bob" } })
+  );
+  assert.strictEqual(res.statusCode, 404);
+});
+
+test("revoke: the owner removes the token", async () => {
+  stubSend({ Item: sharedDraft() });
+  const res = await handler(
+    evt("DELETE", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+});
+
+// The pair of revoke tests above both accept a 200-ish/404-ish status, which
+// is exactly what the pre-existing "DELETE /drafts/{draftId}" clause also
+// hands back for a signed-in caller under this file's `send` mock (it never
+// simulates a ConditionalCheckFailedException, so it "succeeds" for anyone).
+// If DELETE /drafts/{draftId}/share were ever dispatched to that clause
+// instead of the /share handler, "the owner removes the token" would still
+// read 200 and stay green -- only the non-owner test would catch the
+// misrouting, and only by coincidence of what status codes happen to match.
+// This nails down the mechanism directly: it must be an UpdateCommand
+// removing shareToken, never a DeleteCommand, which would destroy the whole
+// draft instead of just the share link.
+test("revoke: removes only the shareToken, never the whole draft", async () => {
+  const commands = [];
+  mock.method(DynamoDBDocumentClient.prototype, "send", async (cmd) => {
+    commands.push(cmd);
+    return { Item: sharedDraft() };
+  });
+  const res = await handler(
+    evt("DELETE", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.ok(
+    !commands.some((c) => c.constructor.name === "DeleteCommand"),
+    "revoking a share token must never issue a DeleteCommand"
+  );
+  const update = commands.find((c) => c.constructor.name === "UpdateCommand");
+  assert.ok(update, "revoking a share token must issue an UpdateCommand");
+  assert.match(update.input.UpdateExpression, /REMOVE shareToken/);
 });

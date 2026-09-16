@@ -353,6 +353,12 @@ Resources:
             Method: GET
             Auth:
               Authorizer: CognitoAuth
+        SharedResults:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/shared
+            Method: GET
         JoinDraft:
           Type: HttpApi
           Properties:
@@ -399,6 +405,22 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /drafts/{draftId}/seat-board
             Method: POST
+            Auth:
+              Authorizer: CognitoAuth
+        ShareDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/share
+            Method: POST
+            Auth:
+              Authorizer: CognitoAuth
+        UnshareDraft:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Path: /drafts/{draftId}/share
+            Method: DELETE
             Auth:
               Authorizer: CognitoAuth
         SeatQueue:

@@ -49,6 +49,15 @@ a particular pick, and a standalone page has no pick to advise on.
 ### Draft Results
 ![Results](screenshots/results.png)
 
+### Shared Results
+
+A finished draft's results, read by whoever holds the link -- no account, no
+sign-in wall. This is the app's only anonymous read: the owner mints the link
+from the results page above, and it shows exactly the picks made, nothing
+that implies the visitor could join or act on the draft.
+
+![Shared results](screenshots/shared.png)
+
 ### Draft Analysis
 ![Analysis](screenshots/analysis.png)
 
