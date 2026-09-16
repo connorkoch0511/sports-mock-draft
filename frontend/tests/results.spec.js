@@ -57,7 +57,7 @@ test.describe("Results page", () => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto(`/draft/${DRAFT_ID}/results`);
 
-    await page.getByRole("button", { name: "Copy link" }).click();
+    await page.getByRole("button", { name: "Copy private link" }).click();
 
     await expect(page.getByRole("button", { name: /Copied/i })).toBeVisible();
   });

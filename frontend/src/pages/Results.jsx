@@ -80,18 +80,22 @@ export default function Results() {
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {/*
-              "Share" is no longer what this does. The link opens for people
-              seated in the draft, which today means you -- on any device you
-              sign in from. Send it to anybody else and they get a sign-in
-              prompt and then a 404. Invitations will widen that; the label
-              should not promise it early.
+              This one is the PRIVATE link -- it opens only for people seated
+              in the draft. It used to be called "Copy link", back when there
+              was nothing else it could be confused with and a comment here
+              noted that "Share" was not what it did.
+              "Share results" beside it now IS that, so the old label had
+              become the dangerous one: send it to a friend and they get a
+              sign-in prompt and then a 404, with nothing telling the sender
+              it failed. The audience is in the label now rather than in a
+              title= tooltip, which a phone never shows.
             */}
             <button
               onClick={copyLink}
-              title="Opens for anyone seated in this draft"
+              title="Only opens for people seated in this draft"
               className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
               >
-              {copied ? "Copied ✅" : "Copy link"}
+              {copied ? "Copied ✅" : "Copy private link"}
             </button>
             <button
               onClick={() => download(`perfectpick_${draftId}.csv`, picksToCsv(draft), "text/csv")}
@@ -106,44 +110,44 @@ export default function Results() {
               >
               Export JSON
             </button>
+            {draft.completed && (
+              <>
+                {shareUrl ? (
+                  <>
+                    <input
+                      data-testid="share-link"
+                      readOnly
+                      value={shareUrl}
+                      className="w-72 rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 text-xs"
+                      onFocus={(e) => e.target.select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => navigator.clipboard.writeText(shareUrl)}
+                      className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
+                    >
+                      Copy
+                    </button>
+                    <button
+                      type="button"
+                      onClick={revokeShareLink}
+                      className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
+                    >
+                      Revoke
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={makeShareLink}
+                    className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
+                  >
+                    Share results
+                  </button>
+                )}
+              </>
+            )}
           </div>
-          {draft.completed && (
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {shareUrl ? (
-                <>
-                  <input
-                    data-testid="share-link"
-                    readOnly
-                    value={shareUrl}
-                    className="w-72 rounded-xl border border-zinc-800 bg-zinc-950/70 px-2 py-1 text-xs"
-                    onFocus={(e) => e.target.select()}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => navigator.clipboard.writeText(shareUrl)}
-                    className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
-                  >
-                    Copy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={revokeShareLink}
-                    className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
-                  >
-                    Revoke
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={makeShareLink}
-                  className="rounded-xl border border-zinc-700 px-4 py-2 text-sm hover:border-zinc-500"
-                >
-                  Share results
-                </button>
-              )}
-            </div>
-          )}
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
           <Link
