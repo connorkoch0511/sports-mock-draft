@@ -19,30 +19,46 @@ const PUBLIC = resolve(dirname(fileURLToPath(import.meta.url)), "../public");
 
 const GROUND = "#070A0F"; // index.css's own background
 const ACCENT = "#67E8F9"; // the app's cyan
+const PANEL = "#1E2A38"; // the unlit cells, the panel colour the UI already uses
 
 /**
- * The mark: a cyan chevron over the app's own ground, echoing the live-draft
- * dot the header already uses. `inset` is the maskable safe zone -- Android
- * crops to whatever shape the launcher wants, so a maskable icon must keep its
- * content inside the inner 80% circle or lose its edges.
+ * The mark: the Draft Board itself — a grid of picks with one of them lit.
+ *
+ * Nine rounded cells in the dim panel colour, the centre one in the accent.
+ * That is the app's main surface reduced to its smallest honest form: a board
+ * of picks, and yours. It says "mock draft" rather than "sports app", which is
+ * the part that is actually distinctive.
+ *
+ * `span` is the grid's width as a fraction of the canvas, and it is the whole
+ * maskable story. Android crops to whatever shape the launcher uses, and the
+ * guaranteed-safe region is the INNER 80% CIRCLE — radius 0.4 * size. A square
+ * grid's corners sit at (span/2) * sqrt(2) * size from the centre, so the
+ * maskable variant uses a smaller span to keep those corners inside that
+ * radius. Fitting the inner 80% *square* is not the same thing and is the easy
+ * mistake: at span 0.8 the corners land at 0.566 * size, well outside.
  */
-function svg({ inset = 0, rounded = true } = {}) {
+function svg({ span = 0.56, rounded = true } = {}) {
   const s = 512;
-  const pad = s * inset;
   const r = rounded ? 96 : 0;
-  // Chevron geometry, scaled into the safe area.
-  const box = s - pad * 2;
-  const cx = pad + box / 2;
-  const top = pad + box * 0.26;
-  const bot = pad + box * 0.74;
-  const half = box * 0.22;
-  const w = box * 0.115;
+  const n = 3;
+  const width = s * span;
+  const gap = width * 0.085;
+  const cell = (width - gap * (n - 1)) / n;
+  const originX = (s - width) / 2;
+  const originY = (s - width) / 2;
+
+  let cells = "";
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      const mine = row === 1 && col === 1;
+      const x = originX + col * (cell + gap);
+      const y = originY + row * (cell + gap);
+      cells += `\n  <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${cell.toFixed(1)}" height="${cell.toFixed(1)}" rx="${(cell * 0.22).toFixed(1)}" fill="${mine ? ACCENT : PANEL}"/>`;
+    }
+  }
+
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${s}" height="${s}" viewBox="0 0 ${s} ${s}">
-  <rect width="${s}" height="${s}" rx="${r}" fill="${GROUND}"/>
-  <path d="M ${cx - half} ${top} L ${cx} ${top + (bot - top) * 0.5} L ${cx - half} ${bot}"
-        fill="none" stroke="${ACCENT}" stroke-width="${w}"
-        stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="${cx + half * 0.72}" cy="${(top + bot) / 2}" r="${w * 0.62}" fill="${ACCENT}"/>
+  <rect width="${s}" height="${s}" rx="${r}" fill="${GROUND}"/>${cells}
 </svg>`;
 }
 
@@ -64,7 +80,7 @@ async function render(browser, svgText, size, out) {
 
 const browser = await chromium.launch();
 
-const plain = svg({ inset: 0, rounded: true });
+const plain = svg({ span: 0.56, rounded: true });
 writeFileSync(resolve(PUBLIC, "icon.svg"), plain);
 console.log(`wrote ${resolve(PUBLIC, "icon.svg")}`);
 
@@ -76,7 +92,9 @@ await render(browser, plain, 180, resolve(PUBLIC, "apple-touch-icon.png"));
 // into the inner 80%.
 await render(
   browser,
-  svg({ inset: 0.1, rounded: false }),
+  // Smaller span so the grid's CORNERS clear the inner-80% circle, not
+  // merely the inner-80% square.
+  svg({ span: 0.48, rounded: false }),
   512,
   resolve(PUBLIC, "icon-512-maskable.png")
 );
