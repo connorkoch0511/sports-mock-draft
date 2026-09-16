@@ -214,6 +214,82 @@ test("subscribe waits for the registration to become active before opening a Pus
   assert.deepStrictEqual(calls, ["register", "ready", "subscribe"]);
 });
 
+test(
+  "subscribe fails fast when registerServiceWorker resolves no registration, instead of hanging on serviceWorker.ready",
+  { timeout: 2000 },
+  async () => {
+    // registerServiceWorker() (the app-start path) swallows a failed
+    // registration and resolves undefined -- correct there, since a failure
+    // must never stop the app from rendering. subscribe() must not reuse
+    // that undefined as a registration: without an explicit guard, it flows
+    // straight into waitUntilActive() (navigator.serviceWorker.ready in the
+    // real browser), which never settles for a scope with no registration.
+    // The button that calls subscribe() would then read "Notify" forever
+    // instead of landing on its error state. waitUntilActive here would hang
+    // forever if ever reached -- the surrounding { timeout: 2000 } is what
+    // turns a reintroduced version of that bug into a fast failure instead
+    // of a stalled suite.
+    withBrowserGlobals();
+    let waitCalled = false;
+    await assert.rejects(
+      () =>
+        subscribe({
+          vapidKey: "key",
+          requestPermission: () => Promise.resolve("granted"),
+          registerServiceWorker: () => Promise.resolve(undefined),
+          waitUntilActive: () => {
+            waitCalled = true;
+            return new Promise(() => {});
+          },
+        }),
+      /service worker|registration|registered/i
+    );
+    assert.strictEqual(
+      waitCalled,
+      false,
+      "must fail before ever awaiting serviceWorker.ready"
+    );
+  }
+);
+
+test(
+  "subscribe(), called with no registerServiceWorker override, drives the module's own default arrow",
+  { timeout: 2000 },
+  async () => {
+    // Every other subscribe() test injects registerServiceWorker explicitly,
+    // so none of them ever runs subscribe's default
+    // `registerServiceWorker: registerSW = () => registerServiceWorker()`.
+    // That default calls the *imported* registerServiceWorker function --
+    // if a future edit renamed it to call itself instead, this would recurse
+    // until the stack overflows or (behind a promise) hang forever. This
+    // test is the only thing that actually executes that arrow, so it is
+    // the only thing standing between a reverted rename and a 10-minute wait
+    // for the Playwright suite to notice. Other dependencies are injected,
+    // same as every other test here -- only registerServiceWorker is left
+    // to its default, which is the whole point.
+    withBrowserGlobals();
+    let registerCalled = false;
+    const fakeSub = {
+      toJSON: () => ({ endpoint: "https://push.example/default", keys: {} }),
+    };
+    const reg = { pushManager: { subscribe: () => Promise.resolve(fakeSub) } };
+    globalThis.navigator.serviceWorker.register = async () => {
+      registerCalled = true;
+      return reg;
+    };
+
+    const result = await subscribe({
+      vapidKey: toBase64Url([1, 2, 3, 4]),
+      requestPermission: () => Promise.resolve("granted"),
+      waitUntilActive: () => Promise.resolve(),
+      post: () => Promise.resolve({ ok: true }),
+    });
+
+    assert.strictEqual(registerCalled, true);
+    assert.strictEqual(result, "granted");
+  }
+);
+
 test("subscribe propagates a rejection from waitUntilActive without calling pushManager.subscribe", async () => {
   withBrowserGlobals();
   let subscribeCalled = false;

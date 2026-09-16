@@ -52,7 +52,7 @@ async function render(browser, svgText, size, out) {
     deviceScaleFactor: 1,
   });
   await page.setContent(
-    `<body style="margin:0">${svgText.replace(
+    `<body style="margin:0;background:${GROUND}">${svgText.replace(
       /width="512" height="512"/,
       `width="${size}" height="${size}"`
     )}</body>`

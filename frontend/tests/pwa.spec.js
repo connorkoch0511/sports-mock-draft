@@ -60,7 +60,9 @@ test("a visitor who never asked for notifications still gets a service worker", 
   let permissionAsked = false;
   await page.addInitScript(() => {
     window.__notifAsked = false;
+    window.__notifSpyInstalled = false;
     if (window.Notification) {
+      window.__notifSpyInstalled = true;
       const real = window.Notification.requestPermission;
       window.Notification.requestPermission = (...a) => {
         window.__notifAsked = true;
@@ -78,6 +80,16 @@ test("a visitor who never asked for notifications still gets a service worker", 
   expect(scriptURL, "the registered worker must keep its apiBase query").toMatch(
     /\/sw\.js\?apiBase=/
   );
+
+  // Without this, window.__notifAsked === false proves nothing: it reads
+  // the same whether requestPermission was never called, or the spy that
+  // watches for it was never installed because window.Notification didn't
+  // exist in this browser context.
+  const spyInstalled = await page.evaluate(() => window.__notifSpyInstalled);
+  expect(
+    spyInstalled,
+    "window.Notification must exist for the spy below to mean anything"
+  ).toBe(true);
 
   permissionAsked = await page.evaluate(() => window.__notifAsked);
   expect(

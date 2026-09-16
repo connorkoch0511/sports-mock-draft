@@ -5,7 +5,6 @@
   "start_url": "/drafts",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
   "background_color": "#070A0F",
   "theme_color": "#070A0F",
   "icons": [

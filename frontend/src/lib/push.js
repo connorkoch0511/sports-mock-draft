@@ -126,6 +126,17 @@ export async function subscribe({
   if (permission !== "granted") return permission;
 
   const reg = await registerSW();
+  // registerServiceWorker() swallows a failed registration and resolves
+  // undefined -- correct at app start, where a failure must never stop the
+  // app from rendering. Here, though, `undefined` would otherwise flow
+  // straight into `navigator.serviceWorker.ready` below, which never settles
+  // for a scope with no registration: the caller's await hangs forever
+  // instead of landing on the failure state it renders. Fail loudly instead.
+  if (!reg) {
+    throw new Error(
+      "Notifications need an active service worker, and none could be registered."
+    );
+  }
   // register() resolves as soon as the registration record exists -- the
   // worker itself is typically still installing, and reg.active is null
   // until it finishes activating. PushManager.subscribe() throws
