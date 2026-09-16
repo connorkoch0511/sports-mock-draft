@@ -6,6 +6,8 @@ import {
   urlBase64ToUint8Array,
   subscribe,
   unsubscribe,
+  registerServiceWorker,
+  SW_URL,
 } from "./push.js";
 
 /**
@@ -276,4 +278,30 @@ test("unsubscribe unsubscribes the browser subscription and deletes it by endpoi
 
   assert.strictEqual(unsubscribed, true);
   assert.deepStrictEqual(deletedWith, { path: "/push/subscribe", body: { endpoint: "https://push.example/xyz" } });
+});
+
+// --- registerServiceWorker -----------------------------------------------
+
+test("registerServiceWorker uses the same URL subscribe() does, query string included", async () => {
+  const seen = [];
+  await registerServiceWorker({
+    register: async (url) => {
+      seen.push(url);
+      return {};
+    },
+  });
+
+  assert.strictEqual(seen.length, 1);
+  // sw.js reads apiBase back out of its own location to re-subscribe on
+  // pushsubscriptionchange. A bare /sw.js registration silently loses it.
+  assert.match(seen[0], /^\/sw\.js\?apiBase=/);
+  assert.strictEqual(seen[0], SW_URL);
+});
+
+test("registerServiceWorker resolves rather than throwing where there is no serviceWorker", async () => {
+  // Desktop Safari in a private window, old browsers, and any test environment
+  // without the API. Registration is a progressive enhancement: the app must
+  // not fail to start because it is unavailable.
+  const result = await registerServiceWorker({ register: null });
+  assert.strictEqual(result, undefined);
 });

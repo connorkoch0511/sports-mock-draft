@@ -52,3 +52,36 @@ test("the iOS fallbacks are present, since Safari ignores most of the manifest",
     page.locator('meta[name="apple-mobile-web-app-capable"]')
   ).toHaveCount(1);
 });
+
+test("a visitor who never asked for notifications still gets a service worker", async ({ page }) => {
+  // The whole point: Chrome will not offer to install an app with no active
+  // worker, and registration used to happen only behind the notification
+  // opt-in.
+  let permissionAsked = false;
+  await page.addInitScript(() => {
+    window.__notifAsked = false;
+    if (window.Notification) {
+      const real = window.Notification.requestPermission;
+      window.Notification.requestPermission = (...a) => {
+        window.__notifAsked = true;
+        return real.apply(window.Notification, a);
+      };
+    }
+  });
+
+  await page.goto("/");
+  const scriptURL = await page.evaluate(async () => {
+    const reg = await navigator.serviceWorker.ready;
+    return reg.active?.scriptURL || "";
+  });
+
+  expect(scriptURL, "the registered worker must keep its apiBase query").toMatch(
+    /\/sw\.js\?apiBase=/
+  );
+
+  permissionAsked = await page.evaluate(() => window.__notifAsked);
+  expect(
+    permissionAsked,
+    "registering must never prompt for notification permission"
+  ).toBe(false);
+});
