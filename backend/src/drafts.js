@@ -686,7 +686,18 @@ exports.handler = async (event) => {
       const d = res.Item;
       // Not the owner reads the same as not there, matching DELETE /drafts.
       if (!d || !canMutate(d, sub)) return notFound();
-      if (d.completed !== true) {
+      // COMPUTED, never read from the item. `completed` is not a stored field:
+      // draft creation writes picked/currentIndex/createdAt/pickDeadline/
+      // clockRunning/version/inviteToken and nothing else, and no write path
+      // adds one. It is derived for the GET response (see the projection
+      // above) and every other completion guard in this file computes it the
+      // same way.
+      //
+      // Reading `d.completed` here rejected EVERY share request in production
+      // -- undefined !== true -- while the suite stayed green, because the
+      // test fixture invented the field. A fixture that invents a field tests
+      // a schema the application does not have.
+      if (d.currentIndex < d.picks.length) {
         return json(409, { error: "Only a finished draft can be shared" });
       }
 

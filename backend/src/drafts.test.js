@@ -2519,7 +2519,11 @@ const SHARED = "/drafts/d1/shared";
 function sharedDraft(extra = {}) {
   return {
     draftId: "d1",
-    completed: true,
+    // Completion is expressed the way the database actually expresses it --
+    // every pick made -- not by injecting a `completed` field that no write
+    // path in the application ever creates. Setting one here is what hid a
+    // guard that rejected every real share request.
+    currentIndex: 1,
     shareToken: "share-abc",
     inviteToken: "invite-xyz",
     pausedBy: "cognito-sub-of-someone",
@@ -2618,11 +2622,41 @@ test("share: only the owner can mint a token", async () => {
 });
 
 test("share: an unfinished draft cannot be shared", async () => {
-  stubSend({ Item: sharedDraft({ completed: false, shareToken: undefined }) });
+  // Unfinished the way the database says it: picks still to make. NOT
+  // `completed: false`, which is a field the application never writes and
+  // therefore never reads.
+  stubSend({
+    Item: sharedDraft({
+      currentIndex: 0,
+      picks: [{ overall: 1 }, { overall: 2 }],
+      shareToken: undefined,
+    }),
+  });
   const res = await handler(
     evt("POST", SHARE, { draftId: "d1", claims: { sub: "alice" } })
   );
   assert.strictEqual(res.statusCode, 409);
+});
+
+test("share: a finished draft with no `completed` field can still be shared", async () => {
+  // THE REGRESSION TEST. `completed` is not a stored field -- nothing in the
+  // application ever writes one -- so a real draft item does not have the key
+  // at all. The guard once read `d.completed !== true`, which is true of every
+  // real draft, and rejected EVERY share request in production while the suite
+  // stayed green because the fixture invented the field.
+  //
+  // This item is shaped like what DynamoDB actually holds: finished by virtue
+  // of currentIndex reaching picks.length, with no `completed` anywhere.
+  const realistic = sharedDraft({ shareToken: undefined });
+  delete realistic.completed;
+  assert.strictEqual(realistic.completed, undefined, "the fixture must not invent the field");
+  stubSend({ Item: realistic });
+
+  const res = await handler(
+    evt("POST", SHARE, { draftId: "d1", claims: { sub: "alice" } })
+  );
+  assert.strictEqual(res.statusCode, 200);
+  assert.ok(JSON.parse(res.body).shareToken, "a finished draft must mint a token");
 });
 
 test("share: minting twice returns the SAME token, it does not rotate", async () => {
