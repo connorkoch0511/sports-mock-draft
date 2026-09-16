@@ -210,6 +210,15 @@ exports.handler = async (event) => {
       // Four ways to be wrong, one answer: no draft, never shared, no token,
       // wrong token. A 403 on a real-but-wrong token would confirm the draft
       // exists, which is exactly what /join's comment refuses to do.
+      //
+      // `!d.shareToken` and `!token` are each REDUNDANT ALONE and load-bearing
+      // TOGETHER, which is not obvious and is why neither may be removed:
+      // when a draft was never shared AND the caller sends no token, the
+      // comparison is `undefined !== undefined`, which is FALSE -- so with
+      // both dropped this returns 200 and the results of a draft nobody ever
+      // shared. Mutation-checking them one at a time shows nothing, because
+      // each masks the other. The test named "never shared, and no token
+      // either" is the one that pins the pair.
       if (!d || !d.shareToken || !token || d.shareToken !== token) return notFound();
 
       return json(200, {

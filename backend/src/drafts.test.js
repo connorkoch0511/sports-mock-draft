@@ -2559,6 +2559,18 @@ test("shared results: no token at all is 404", async () => {
   assert.strictEqual(res.statusCode, 404);
 });
 
+test("shared results: never shared, and no token either, is still 404", async () => {
+  // The case neither sibling test covers, and the only one that pins the pair
+  // of guards. A draft with no shareToken, asked for with no token, compares
+  // `undefined !== undefined` -- which is FALSE. Remove both `!d.shareToken`
+  // and `!token` and this returns 200 with the results of a draft nobody ever
+  // shared. Dropping either guard alone changes nothing, because the other
+  // still fires, so the one-at-a-time mutations look reassuring and are not.
+  stubSend({ Item: sharedDraft({ shareToken: undefined }) });
+  const res = await handler(evt("GET", SHARED, { draftId: "d1" }));
+  assert.strictEqual(res.statusCode, 404);
+});
+
 test("shared results: the right token returns the results", async () => {
   stubSend({ Item: sharedDraft() });
   const res = await handler(evt("GET", SHARED, { draftId: "d1", query: { t: "share-abc" } }));
