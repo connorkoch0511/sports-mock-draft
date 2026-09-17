@@ -81,6 +81,24 @@ export function PlayerDetail({
   const cols = columnsFor(p.position);
   const kpis = computeKpis(detail, format);
 
+  // An em dash is a claim -- "we know, and there is none" -- and before the
+  // fetch lands we do not know. `computeKpis` cannot tell the two apart: it is
+  // handed `detail` and returns null both for "not fetched" and "fetched, no
+  // stats", which is right for a pure function and wrong for a row of numbers
+  // somebody is reading. So the distinction is drawn here, from the same
+  // condition the game log's own "Loading…" already uses below.
+  //
+  // This is the rule gameLog.js states twice for itself -- statOrNull exists
+  // because a zero is a mark claiming he scored nothing, and snapShare returns
+  // null because "played no snaps" and "we do not know" are different facts.
+  // The KPI row sits one layer above those and now honours it too.
+  const loading = !detail && !failed;
+  // Not an em dash, and not a spinner: three spinners in adjacent boxes are
+  // noise for a fetch this short, and both they and a wider glyph would move
+  // the row's geometry while it settles.
+  const NOT_YET = "·";
+  const kpi = (value) => (loading ? NOT_YET : value);
+
   // Every season this player has a log for, newest first.
   const seasons = Object.keys(detail?.gameLogs ?? {}).sort((a, b) => b - a);
   // The current calendar season, deliberately -- it is what Yahoo and
@@ -172,13 +190,13 @@ export function PlayerDetail({
       <Stat
         label="FPTS/GAME"
         testId="kpi-fpts"
-        value={kpis.fptsPerGame != null ? kpis.fptsPerGame.toFixed(1) : "—"}
+        value={kpi(kpis.fptsPerGame != null ? kpis.fptsPerGame.toFixed(1) : "—")}
       />
-      <Stat label="POS RANK" testId="kpi-posrank" value={kpis.posRank ?? "—"} />
+      <Stat label="POS RANK" testId="kpi-posrank" value={kpi(kpis.posRank ?? "—")} />
       <Stat
         label="SNAP SHARE"
         testId="kpi-snapshare"
-        value={kpis.snapShare != null ? `${Math.round(kpis.snapShare * 100)}%` : "—"}
+        value={kpi(kpis.snapShare != null ? `${Math.round(kpis.snapShare * 100)}%` : "—")}
       />
     </div>
 

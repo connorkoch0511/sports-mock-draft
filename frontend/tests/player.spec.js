@@ -127,11 +127,24 @@ test.describe("the player page", () => {
   // inside one of them -- Yahoo and Sleeper both pin their equivalent there.
   // Without this assertion the row can drift back inside Summary and every
   // other test still passes, which is exactly what happened once.
+  //
+  // Both reads are taken after the fetch has landed, and the fixture carries
+  // stats so that "landed" is a value this test can wait for. It used to read
+  // the row immediately after `goto` and compare that against a post-fetch
+  // read -- two em dashes that matched only because the row rendered the same
+  // glyph for "not fetched yet" as for "he has no stats". Once those two
+  // states were told apart the race surfaced: the first read was catching the
+  // loading placeholder. Comparing two real numbers is also a stronger form of
+  // the assertion this test exists to make.
   test("the KPI row stays put when you change tabs", async ({ page }) => {
-    await mockPlayer(page);
+    await mockPlayer(page, {
+      statsSeason: 2025,
+      stats: { gp: 3, pts_std: 58.7, off_snp: 117, tm_off_snp: 186 },
+    });
     await page.goto(`/player/${PLAYER.id}`);
 
     await expect(page.getByTestId("player-kpis")).toBeVisible();
+    await expect(page.getByTestId("kpi-fpts")).toContainText("19.6");
     const onSummary = await page.getByTestId("kpi-fpts").textContent();
 
     await page.getByTestId("tab-gamelog").click();
@@ -226,6 +239,73 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("kpi-fpts")).toHaveText("FPTS/GAME—");
     await expect(page.getByTestId("kpi-posrank")).toHaveText("POS RANK—");
     await expect(page.getByTestId("kpi-snapshare")).toHaveText("SNAP SHARE—");
+  });
+
+  // The same em dash cannot carry both facts. The test above is "loaded, and he
+  // has none"; this is "not fetched yet", and rendering a dash there claims we
+  // looked. `detail` starts null, so computeKpis returns three nulls before the
+  // request has even left the browser -- the row states an absence it cannot
+  // possibly know. Its own `kpi-season` line is already honest about this: it
+  // is absent until the fetch lands.
+  //
+  // The second half of the assertion is not decoration. Without it this test
+  // passes on a row that never rendered at all.
+  test("the KPI row does not claim an absence while the fetch is in flight", async ({ page }) => {
+    // The response is held open by a gate this test owns, not by a sleep.
+    //
+    // A `setTimeout` delay plus `expect(locator).not.toContainText("—")` is a
+    // test that cannot fail: web-first assertions RETRY for seconds, so the
+    // negative one simply waits out the delay, sees the resolved value, and
+    // passes against the broken page as happily as the fixed one. The first
+    // version of this test did exactly that. The gate makes "in flight" a
+    // state the test controls, and the three values are read with
+    // `textContent()` -- one instant, no retry -- then asserted as plain
+    // strings.
+    let release;
+    const held = new Promise((res) => { release = res; });
+
+    await page.route(`${API}/players/*`, async (r) => {
+      await held;
+      await r.fulfill({
+        json: {
+          player: {
+            ...PLAYER,
+            statsSeason: 2025,
+            stats: {
+              gp: 3, pts_ppr: 67.7, pos_rank_ppr: 1,
+              off_snp: 117, tm_off_snp: 186,
+            },
+            gameLogs: { 2025: MOCK_GAME_LOG },
+            gameLogThrough: { 2025: 18 },
+          },
+        },
+      });
+    });
+
+    await page.goto(`/player/${PLAYER.id}?format=ppr`, { waitUntil: "commit" });
+
+    // Present immediately: the row renders from the caller's copy, which is
+    // why it is able to state an absence this early.
+    await page.getByTestId("player-kpis").waitFor();
+
+    const inFlight = {};
+    for (const id of ["kpi-fpts", "kpi-posrank", "kpi-snapshare"]) {
+      inFlight[id] = await page.getByTestId(id).textContent();
+    }
+
+    // Its own season line is the honest comparison: absent until the fetch
+    // lands. If this row can stay quiet, so can the three values beside it.
+    expect(await page.getByTestId("kpi-season").count()).toBe(0);
+
+    for (const [id, text] of Object.entries(inFlight)) {
+      expect(text, `${id} while the fetch was still in flight`).not.toContain("—");
+    }
+
+    // And it really was in flight: releasing the gate produces the values.
+    release();
+    await expect(page.getByTestId("kpi-fpts")).toContainText("22.6");
+    await expect(page.getByTestId("kpi-posrank")).toContainText("1");
+    await expect(page.getByTestId("kpi-snapshare")).toContainText("63%");
   });
 
   // The drill-down used to be one long scroll -- KPIs, draft numbers, an
