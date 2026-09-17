@@ -321,6 +321,47 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("player-modal-log")).toHaveCount(0);
   });
 
+  // Measured at 390x844 before this was fixed: the table is 393px wide inside
+  // a 266px wrapper, and FOUR columns sat past its right edge -- YDS 9px, TD
+  // 42px, SNP 84px and PTS 126px. The status page had recorded two.
+  //
+  // The two furthest off screen were the two the table is read for: points
+  // scored, and the snap share that predicts opportunity. Nothing is hidden to
+  // fix it -- the order puts those first and the position detail is what you
+  // swipe to.
+  //
+  // The column count is asserted as well as the geometry, because dropping
+  // columns would satisfy the edge assertion while destroying the table.
+  test("the two columns worth reading are on screen at phone width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockPlayer(page);
+    await page.goto(`/player/${PLAYER.id}`);
+
+    await page.getByTestId("tab-gamelog").click();
+    await expect(page.getByTestId("player-modal-log")).toBeVisible();
+
+    const m = await page.evaluate(() => {
+      const table = document.querySelector('[data-testid="player-modal-log"]');
+      const wrapRight = table.parentElement.getBoundingClientRect().right;
+      const heads = [...table.querySelectorAll("thead th")];
+      const rightOf = (label) => {
+        const th = heads.find((h) => h.textContent.trim() === label);
+        return th ? Math.round(th.getBoundingClientRect().right) : null;
+      };
+      return {
+        count: heads.length,
+        wrapRight: Math.round(wrapRight),
+        snp: rightOf("SNP"),
+        pts: rightOf("PTS"),
+      };
+    });
+
+    // An RB's log: WK, three rushing, four receiving, SNP, PTS.
+    expect(m.count).toBe(10);
+    expect(m.snp, "SNP right edge vs the visible right edge").toBeLessThanOrEqual(m.wrapRight);
+    expect(m.pts, "PTS right edge vs the visible right edge").toBeLessThanOrEqual(m.wrapRight);
+  });
+
   test("the game log tab holds the table", async ({ page }) => {
     await mockPlayer(page);
     await page.goto(`/player/${PLAYER.id}`);

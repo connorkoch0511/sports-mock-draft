@@ -96,7 +96,13 @@ export function PlayerDetail({
   // Not an em dash, and not a spinner: three spinners in adjacent boxes are
   // noise for a fetch this short, and both they and a wider glyph would move
   // the row's geometry while it settles.
-  const NOT_YET = "·";
+  //
+  // An ellipsis rather than a middle dot, decided by rendering it. A `·` came
+  // out as three near-invisible specks at the bottom of the boxes, and this
+  // page opens cold from a link with only an id -- so `{p.position} · {p.team}`
+  // is already drawing a naked separator dot a few pixels above. Four stray
+  // dots read as debris on the screen, not as "not yet".
+  const NOT_YET = "…";
   const kpi = (value) => (loading ? NOT_YET : value);
 
   // Every season this player has a log for, newest first.
@@ -334,13 +340,28 @@ export function PlayerDetail({
           <div className="mt-2 overflow-x-auto rounded-2xl border border-zinc-900">
             <table data-testid="player-modal-log" className="w-full text-xs">
               <thead className="bg-black/70">
+                {/*
+                  PTS and SNP come straight after WK, at every width.
+
+                  Ten columns (WK, the position set, SNP, PTS) need 393px and
+                  the wrapper is 266 on a 390px phone, so four of them sat past
+                  its right edge -- and the two furthest out were these two:
+                  what he scored, and the usage that predicts opportunity. The
+                  swipe now reveals detail rather than the headline.
+
+                  One order everywhere rather than a phone-only reorder: all
+                  ten fit on a desktop either way, so this is a convention, and
+                  a second order behind a breakpoint is another per-width
+                  configuration nobody verifies. This page had none; the draft
+                  page's four bands are why that matters.
+                */}
                 <tr className="text-left">
                   <th className="px-2 py-1.5 text-zinc-400">WK</th>
+                  <th className="px-2 py-1.5 text-right text-zinc-400">PTS</th>
+                  <th className="px-2 py-1.5 text-right text-zinc-400">SNP</th>
                   {cols.map((c) => (
                     <th key={c.key} className="px-2 py-1.5 text-right text-zinc-400">{c.label}</th>
                   ))}
-                  <th className="px-2 py-1.5 text-right text-zinc-400">SNP</th>
-                  <th className="px-2 py-1.5 text-right text-zinc-400">PTS</th>
                 </tr>
               </thead>
               <tbody>
@@ -359,17 +380,23 @@ export function PlayerDetail({
                   return (
                     <tr key={wk} data-testid="game-log-week" data-week={wk} className="border-t border-zinc-900">
                       <td className="px-2 py-1.5 text-zinc-300 tabular-nums">{wk}</td>
+                      <td className="px-2 py-1.5 text-right text-zinc-100 tabular-nums">
+                        {statValue(row, "pts_ppr").toFixed(1)}
+                      </td>
+                      {/*
+                        This em dash is NOT the one the KPI row stopped using.
+                        There it meant "not fetched yet"; here the week is
+                        loaded and the snap data for it is genuinely unknown,
+                        which is exactly what snapShare returns null to say.
+                      */}
+                      <td className="px-2 py-1.5 text-right text-zinc-400 tabular-nums">
+                        {share == null ? "—" : `${share}%`}
+                      </td>
                       {cols.map((c) => (
                         <td key={c.key} className="px-2 py-1.5 text-right text-zinc-300 tabular-nums">
                           {statValue(row, c.key)}
                         </td>
                       ))}
-                      <td className="px-2 py-1.5 text-right text-zinc-400 tabular-nums">
-                        {share == null ? "—" : `${share}%`}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-zinc-100 tabular-nums">
-                        {statValue(row, "pts_ppr").toFixed(1)}
-                      </td>
                     </tr>
                   );
                 })}
