@@ -131,5 +131,20 @@ is zero-risk and belongs in its own change, not this one.
 identically in two files". It is three: `boards.js:18`, `drafts.js:26` and
 `lib/autoPick.js:14`.
 
+**The game log table appears in no committed screenshot.** `player.png` is the
+only shot that renders `PlayerDetail`, and `drilldown.spec.js:273` deliberately
+stays on Summary — its comment records why: an earlier version clicked through
+to Game Log, so the README advertised a table while the charts appeared in no
+committed screenshot at all. The consequence is that the column order fixed here
+is invisible in the repo, and any future change to that table ships unseen.
+Recorded rather than fixed: a second screenshot is a second thing to maintain,
+and the Summary tab is the right thing to advertise.
+
+**The drill-down shows a naked separator on a cold load.** Opened straight from
+a link, `PlayerDetail` has only an id, so the heading renders empty and
+`{p.position} · {p.team}` renders a lone `·` beneath it. Visible in every
+render taken during the fetch. It is what ruled out a middle dot as the KPI
+placeholder; it is not fixed here.
+
 Neither of those is fixed here. Both are written down so that finding them later
 is a recollection rather than a discovery.
