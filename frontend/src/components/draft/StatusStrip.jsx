@@ -42,7 +42,7 @@ export default function StatusStrip({
       // so at a large font the strip becomes two legible rows instead of one
       // illegible one. At 16px the contents need 251 of 334px and nothing
       // wraps at all, so this is invisible at the default font.
-      className={`relative xl:hidden sticky top-0 z-20 shrink-0 flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-2 before:absolute before:inset-0 before:-z-10 before:rounded-2xl before:bg-zinc-950 ${
+      className={`relative xl:hidden sticky top-0 z-20 shrink-0 flex flex-wrap items-center gap-2 rounded-2xl border px-3 py-1 before:absolute before:inset-0 before:-z-10 before:rounded-2xl before:bg-zinc-950 ${
         isMyTurn
           ? "border-cyan-300/60 bg-cyan-300/10"
           : "border-zinc-800/70 bg-zinc-950/80"
@@ -61,11 +61,24 @@ export default function StatusStrip({
         what matters survives the squeeze, and everything else is elaboration.
         Here that line is the clock and whose turn it is.
       */}
+      {/*
+        `min-h-[44px]` is a fixed pixel floor, deliberately, and it is the one
+        measurement here that does NOT scale with the reader's font. Everything
+        else in this strip carries text and grows with it; a touch target
+        carries a thumb, and a thumb is the same size whatever font somebody
+        picks. A scaling 2.75rem version was tried and demanded 66px controls at
+        a 24px root, where 50px already exceeds any finger -- height spent on a
+        page with 0px of slack, for nothing.
+
+        This control was the worst offender and appears on no list: 20px tall at
+        the default font, and it is the tap target the README calls the shortest
+        way back to the board.
+      */}
       <button
         type="button"
         data-testid="strip-status"
         onClick={onTap}
-        className={`min-w-0 text-left text-sm whitespace-nowrap ${isMyTurn ? "text-cyan-200 font-semibold" : "text-zinc-100"}`}
+        className={`min-h-[44px] min-w-0 flex items-center text-left text-sm whitespace-nowrap ${isMyTurn ? "text-cyan-200 font-semibold" : "text-zinc-100"}`}
       >
         {statusLabel}
       </button>
@@ -93,7 +106,7 @@ export default function StatusStrip({
           type="button"
           onClick={onTogglePause}
           disabled={busy}
-          className="rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50"
+          className="min-h-[44px] rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-200 disabled:opacity-50"
         >
           {paused ? "Resume" : "Pause"}
         </button>
@@ -118,7 +131,7 @@ export default function StatusStrip({
           data-testid="open-controls"
           onClick={onOpenSheet}
           aria-label="Draft controls"
-          className="rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-200"
+          className="min-h-[44px] rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-200"
         >
           ⋯
         </button>

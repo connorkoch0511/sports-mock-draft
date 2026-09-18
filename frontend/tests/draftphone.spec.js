@@ -333,6 +333,64 @@ test.describe("the draft page on a phone", () => {
     ).toBeLessThan(m.dots * 3);
   });
 
+  // The 44px touch-target guideline, which the sheet's own rows were built to
+  // hit and the strip and tab bar never were.
+  //
+  // The accepted-list entry recorded "around 32px" for Pause and ⋯ and "around
+  // 36px" for the tabs. Measured: 34 and 36 -- and strip-status, the tap target
+  // the README calls the shortest way back to the board, at TWENTY pixels. That
+  // one is on no list at all, and it is under the guideline at every root:
+  // 20px at 16, 25px at 20, 30px at 24.
+  //
+  // The threshold is a FIXED 44px, and that is the one place in this file where
+  // a pixel constant is the honest unit.
+  //
+  // Everything else about this strip scales with the reader's font, because it
+  // carries text. A touch target carries a thumb, and a thumb is the same size
+  // whatever font somebody picks. A scaling 2.75rem threshold was written first
+  // and demanded 66px controls at a 24px root, where 50px already exceeds any
+  // finger -- height bought on a page measured at 0px of slack, for nothing.
+  //
+  // Run at three roots anyway: the floor bites at the default font, where the
+  // deficit actually is, and the 20px and 24px cases show natural growth
+  // carrying the controls past it without help.
+  for (const root of [16, 20, 24]) {
+    test(`the strip and tab bar controls are reachable targets at a ${root}px root`, async ({ page }) => {
+      await openDraft(page);
+      if (root !== 16) await setRootFontSize(page, root);
+
+      const m = await page.evaluate(() => {
+        const strip = document.querySelector('[data-testid="status-strip"]');
+        const h = (el) => (el ? Math.round(el.getBoundingClientRect().height) : null);
+        const named = (label, el) => ({ label, h: h(el) });
+        return {
+          root: parseFloat(getComputedStyle(document.documentElement).fontSize),
+          controls: [
+            named("clock", strip.querySelector('[data-testid="strip-status"]')),
+            named("Pause", [...strip.querySelectorAll("button")].find((b) => /Pause|Resume/.test(b.textContent))),
+            named("dots", strip.querySelector('[data-testid="open-controls"]')),
+            ...[...document.querySelectorAll('[data-testid="tab-bar"] button')].map((b) =>
+              ({ label: `tab ${b.textContent.trim()}`, h: Math.round(b.getBoundingClientRect().height) })
+            ),
+          ].filter((c) => c.h !== null),
+        };
+      });
+
+      expect(m.root, "root font size actually applied").toBe(root);
+
+      // A thumb, not a line of text: 44px at every root.
+      const MINIMUM = 44;
+      const undersized = m.controls
+        .filter((c) => c.h < MINIMUM - 1)
+        .map((c) => `${c.label} ${c.h}px`);
+
+      expect(
+        undersized,
+        `under ${MINIMUM}px at a ${m.root}px root: ${undersized.join(", ")}`
+      ).toEqual([]);
+    });
+  }
+
   test("the desktop header is not in the phone DOM at all", async ({ page }) => {
     await openDraft(page);
     await expect(page.getByTestId("desktop-header")).toHaveCount(0);
