@@ -199,6 +199,140 @@ test.describe("the draft page on a phone", () => {
   // The mirror of the desktop absence test. A header merely hidden on a phone
   // would leave every value the strip shows duplicated in the DOM -- the same
   // hazard, pointed the other way, and the strip gains more in Task 3.
+  // A reader on a large accessibility font. Measured at a 24px root before
+  // this was fixed: the strip was 176px tall -- a fifth of the screen -- and
+  // "⏱ 60s · your pick" had broken onto THREE lines, 46px wide, with the
+  // separator stranded alone on the middle one.
+  //
+  // Neither existing strip test can see that. One asserts the label CONTAINS
+  // "your pick"; the other that Pause is VISIBLE. Both are true of a strip
+  // with its clock in ribbons.
+  //
+  // The thresholds are computed from the font being tested rather than written
+  // as pixels. A test that hard-codes 44 or 52 while guarding against
+  // hard-coded sizes embodies the bug it exists to catch.
+  // Applied AFTER the draft has loaded, deliberately. An addInitScript version
+  // of this -- setting it at document-start and again on DOMContentLoaded --
+  // never landed at all: the root reported 16px with no inline style set,
+  // after signIn, after goto, and after the tab bar rendered. Nothing in the
+  // app overwrites it; the early write simply does not survive. Applied here it
+  // holds through a settle and through a clock tick, and body inherits it.
+  //
+  // The `expect(root).toBe(24)` in each test is what caught that. Without it
+  // both tests would have measured the 16px layout -- where the label does fit
+  // on one line -- and passed against the broken page.
+  async function setRootFontSize(page, px) {
+    await page.evaluate((size) => {
+      document.documentElement.style.fontSize = `${size}px`;
+    }, px);
+    // One frame for layout to settle at the new size before anything is read.
+    await page.waitForTimeout(150);
+  }
+
+  test("the clock stays on one line at a large accessibility font", async ({ page }) => {
+    await openDraft(page);
+    await setRootFontSize(page, 24);
+
+    const m = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="strip-status"]');
+      const cs = getComputedStyle(el);
+      const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.5;
+      return {
+        root: parseFloat(getComputedStyle(document.documentElement).fontSize),
+        height: Math.round(el.getBoundingClientRect().height),
+        width: Math.round(el.getBoundingClientRect().width),
+        line: Math.round(line),
+        text: el.textContent.trim(),
+      };
+    });
+
+    // The test must actually be testing a 24px page. Without this it would
+    // silently measure the 16px layout and pass against the broken code.
+    expect(m.root, "root font size actually applied").toBe(24);
+    expect(m.text).toContain("your pick");
+
+    // One line, with room for descenders -- not two, and certainly not the
+    // three it used to take.
+    expect(
+      m.height,
+      `clock label is ${m.height}px tall over a ${m.line}px line, ${m.width}px wide -- it has wrapped`
+    ).toBeLessThan(m.line * 2);
+  });
+
+  // The assertion that catches what the two height checks above cannot.
+  //
+  // `whitespace-nowrap` stopped the clock breaking onto three lines -- and at a
+  // 24px root it then OVERFLOWED its own 33px-wide button instead, painting
+  // "60s · your pick" straight through Team 1 and the Pause button. Measured
+  // height stayed healthy at 30px and both height tests passed while the strip
+  // was illegible. The failure had moved from the vertical axis to the
+  // horizontal one, and nothing was looking there.
+  //
+  // Controls in a row must not overlap. That is true at every font size, it is
+  // what a reader actually experiences, and it cannot be satisfied by text
+  // spilling out of its box.
+  test("the clock does not spill out of its own box at a large accessibility font", async ({ page }) => {
+    await openDraft(page);
+    await setRootFontSize(page, 24);
+
+    const m = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="strip-status"]');
+      return {
+        root: parseFloat(getComputedStyle(document.documentElement).fontSize),
+        scrollW: el.scrollWidth,
+        clientW: el.clientWidth,
+        text: el.textContent.trim(),
+      };
+    });
+
+    expect(m.root, "root font size actually applied").toBe(24);
+
+    // A box-intersection version of this test was written first and could not
+    // fail: with whitespace-nowrap the BOXES stay tidily side by side while the
+    // TEXT paints outside one of them. Measured at a 24px root, the clock's box
+    // was 33px wide holding 162px of content, and rect intersection reported no
+    // overlap at all -- while the render showed "60s · your pick" written
+    // straight across Team 1 and the Pause button.
+    //
+    // Content versus container is the axis that actually fails here.
+    expect(
+      m.scrollW,
+      `"${m.text}" needs ${m.scrollW}px in a ${m.clientW}px box -- it is painting over its neighbours`
+    ).toBeLessThanOrEqual(m.clientW + 1);
+  });
+
+  test("the strip stays proportionate at a large accessibility font", async ({ page }) => {
+    await openDraft(page);
+    await setRootFontSize(page, 24);
+
+    const m = await page.evaluate(() => ({
+      root: parseFloat(getComputedStyle(document.documentElement).fontSize),
+      strip: Math.round(document.querySelector('[data-testid="status-strip"]').getBoundingClientRect().height),
+      dots: Math.round(document.querySelector('[data-testid="open-controls"]').getBoundingClientRect().height),
+      viewport: window.innerHeight,
+    }));
+
+    expect(m.root, "root font size actually applied").toBe(24);
+
+    // Measured against its own contents, not against the screen.
+    //
+    // The first version of this assertion bounded the strip at a quarter of the
+    // viewport -- 211px of 844 -- and the broken strip is 176px, so it passed
+    // against the very defect it names. A threshold the bug already satisfies
+    // is not a test.
+    //
+    // The bound is ~three rows, not one, and that is deliberate. At a 24px root
+    // the strip's contents need 361px of a 306px row, so it WRAPS to two rows
+    // by design -- that is what keeps the clock whole and stops it painting
+    // over its neighbours. A one-row bound would now contradict the fix. What
+    // this still catches is the runaway it was written for: 176px of
+    // three-line wrapped label around a 50px control.
+    expect(
+      m.strip,
+      `strip is ${m.strip}px around a ${m.dots}px control, on a ${m.viewport}px screen -- that is more than it can need`
+    ).toBeLessThan(m.dots * 3);
+  });
+
   test("the desktop header is not in the phone DOM at all", async ({ page }) => {
     await openDraft(page);
     await expect(page.getByTestId("desktop-header")).toHaveCount(0);
