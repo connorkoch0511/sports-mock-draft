@@ -81,6 +81,30 @@ export function PlayerDetail({
   const cols = columnsFor(p.position);
   const kpis = computeKpis(detail, format);
 
+  // An em dash is a claim -- "we know, and there is none" -- and before the
+  // fetch lands we do not know. `computeKpis` cannot tell the two apart: it is
+  // handed `detail` and returns null both for "not fetched" and "fetched, no
+  // stats", which is right for a pure function and wrong for a row of numbers
+  // somebody is reading. So the distinction is drawn here, from the same
+  // condition the game log's own "Loading…" already uses below.
+  //
+  // This is the rule gameLog.js states twice for itself -- statOrNull exists
+  // because a zero is a mark claiming he scored nothing, and snapShare returns
+  // null because "played no snaps" and "we do not know" are different facts.
+  // The KPI row sits one layer above those and now honours it too.
+  const loading = !detail && !failed;
+  // Not an em dash, and not a spinner: three spinners in adjacent boxes are
+  // noise for a fetch this short, and both they and a wider glyph would move
+  // the row's geometry while it settles.
+  //
+  // An ellipsis rather than a middle dot, decided by rendering it. A `·` came
+  // out as three near-invisible specks at the bottom of the boxes, and this
+  // page opens cold from a link with only an id -- so `{p.position} · {p.team}`
+  // is already drawing a naked separator dot a few pixels above. Four stray
+  // dots read as debris on the screen, not as "not yet".
+  const NOT_YET = "…";
+  const kpi = (value) => (loading ? NOT_YET : value);
+
   // Every season this player has a log for, newest first.
   const seasons = Object.keys(detail?.gameLogs ?? {}).sort((a, b) => b - a);
   // The current calendar season, deliberately -- it is what Yahoo and
@@ -172,13 +196,13 @@ export function PlayerDetail({
       <Stat
         label="FPTS/GAME"
         testId="kpi-fpts"
-        value={kpis.fptsPerGame != null ? kpis.fptsPerGame.toFixed(1) : "—"}
+        value={kpi(kpis.fptsPerGame != null ? kpis.fptsPerGame.toFixed(1) : "—")}
       />
-      <Stat label="POS RANK" testId="kpi-posrank" value={kpis.posRank ?? "—"} />
+      <Stat label="POS RANK" testId="kpi-posrank" value={kpi(kpis.posRank ?? "—")} />
       <Stat
         label="SNAP SHARE"
         testId="kpi-snapshare"
-        value={kpis.snapShare != null ? `${Math.round(kpis.snapShare * 100)}%` : "—"}
+        value={kpi(kpis.snapShare != null ? `${Math.round(kpis.snapShare * 100)}%` : "—")}
       />
     </div>
 
@@ -316,13 +340,28 @@ export function PlayerDetail({
           <div className="mt-2 overflow-x-auto rounded-2xl border border-zinc-900">
             <table data-testid="player-modal-log" className="w-full text-xs">
               <thead className="bg-black/70">
+                {/*
+                  PTS and SNP come straight after WK, at every width.
+
+                  Ten columns (WK, the position set, SNP, PTS) need 393px and
+                  the wrapper is 266 on a 390px phone, so four of them sat past
+                  its right edge -- and the two furthest out were these two:
+                  what he scored, and the usage that predicts opportunity. The
+                  swipe now reveals detail rather than the headline.
+
+                  One order everywhere rather than a phone-only reorder: all
+                  ten fit on a desktop either way, so this is a convention, and
+                  a second order behind a breakpoint is another per-width
+                  configuration nobody verifies. This page had none; the draft
+                  page's four bands are why that matters.
+                */}
                 <tr className="text-left">
                   <th className="px-2 py-1.5 text-zinc-400">WK</th>
+                  <th className="px-2 py-1.5 text-right text-zinc-400">PTS</th>
+                  <th className="px-2 py-1.5 text-right text-zinc-400">SNP</th>
                   {cols.map((c) => (
                     <th key={c.key} className="px-2 py-1.5 text-right text-zinc-400">{c.label}</th>
                   ))}
-                  <th className="px-2 py-1.5 text-right text-zinc-400">SNP</th>
-                  <th className="px-2 py-1.5 text-right text-zinc-400">PTS</th>
                 </tr>
               </thead>
               <tbody>
@@ -341,17 +380,23 @@ export function PlayerDetail({
                   return (
                     <tr key={wk} data-testid="game-log-week" data-week={wk} className="border-t border-zinc-900">
                       <td className="px-2 py-1.5 text-zinc-300 tabular-nums">{wk}</td>
+                      <td className="px-2 py-1.5 text-right text-zinc-100 tabular-nums">
+                        {statValue(row, "pts_ppr").toFixed(1)}
+                      </td>
+                      {/*
+                        This em dash is NOT the one the KPI row stopped using.
+                        There it meant "not fetched yet"; here the week is
+                        loaded and the snap data for it is genuinely unknown,
+                        which is exactly what snapShare returns null to say.
+                      */}
+                      <td className="px-2 py-1.5 text-right text-zinc-400 tabular-nums">
+                        {share == null ? "—" : `${share}%`}
+                      </td>
                       {cols.map((c) => (
                         <td key={c.key} className="px-2 py-1.5 text-right text-zinc-300 tabular-nums">
                           {statValue(row, c.key)}
                         </td>
                       ))}
-                      <td className="px-2 py-1.5 text-right text-zinc-400 tabular-nums">
-                        {share == null ? "—" : `${share}%`}
-                      </td>
-                      <td className="px-2 py-1.5 text-right text-zinc-100 tabular-nums">
-                        {statValue(row, "pts_ppr").toFixed(1)}
-                      </td>
                     </tr>
                   );
                 })}

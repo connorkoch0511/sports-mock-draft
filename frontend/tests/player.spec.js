@@ -127,11 +127,24 @@ test.describe("the player page", () => {
   // inside one of them -- Yahoo and Sleeper both pin their equivalent there.
   // Without this assertion the row can drift back inside Summary and every
   // other test still passes, which is exactly what happened once.
+  //
+  // Both reads are taken after the fetch has landed, and the fixture carries
+  // stats so that "landed" is a value this test can wait for. It used to read
+  // the row immediately after `goto` and compare that against a post-fetch
+  // read -- two em dashes that matched only because the row rendered the same
+  // glyph for "not fetched yet" as for "he has no stats". Once those two
+  // states were told apart the race surfaced: the first read was catching the
+  // loading placeholder. Comparing two real numbers is also a stronger form of
+  // the assertion this test exists to make.
   test("the KPI row stays put when you change tabs", async ({ page }) => {
-    await mockPlayer(page);
+    await mockPlayer(page, {
+      statsSeason: 2025,
+      stats: { gp: 3, pts_std: 58.7, off_snp: 117, tm_off_snp: 186 },
+    });
     await page.goto(`/player/${PLAYER.id}`);
 
     await expect(page.getByTestId("player-kpis")).toBeVisible();
+    await expect(page.getByTestId("kpi-fpts")).toContainText("19.6");
     const onSummary = await page.getByTestId("kpi-fpts").textContent();
 
     await page.getByTestId("tab-gamelog").click();
@@ -228,6 +241,73 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("kpi-snapshare")).toHaveText("SNAP SHARE—");
   });
 
+  // The same em dash cannot carry both facts. The test above is "loaded, and he
+  // has none"; this is "not fetched yet", and rendering a dash there claims we
+  // looked. `detail` starts null, so computeKpis returns three nulls before the
+  // request has even left the browser -- the row states an absence it cannot
+  // possibly know. Its own `kpi-season` line is already honest about this: it
+  // is absent until the fetch lands.
+  //
+  // The second half of the assertion is not decoration. Without it this test
+  // passes on a row that never rendered at all.
+  test("the KPI row does not claim an absence while the fetch is in flight", async ({ page }) => {
+    // The response is held open by a gate this test owns, not by a sleep.
+    //
+    // A `setTimeout` delay plus `expect(locator).not.toContainText("—")` is a
+    // test that cannot fail: web-first assertions RETRY for seconds, so the
+    // negative one simply waits out the delay, sees the resolved value, and
+    // passes against the broken page as happily as the fixed one. The first
+    // version of this test did exactly that. The gate makes "in flight" a
+    // state the test controls, and the three values are read with
+    // `textContent()` -- one instant, no retry -- then asserted as plain
+    // strings.
+    let release;
+    const held = new Promise((res) => { release = res; });
+
+    await page.route(`${API}/players/*`, async (r) => {
+      await held;
+      await r.fulfill({
+        json: {
+          player: {
+            ...PLAYER,
+            statsSeason: 2025,
+            stats: {
+              gp: 3, pts_ppr: 67.7, pos_rank_ppr: 1,
+              off_snp: 117, tm_off_snp: 186,
+            },
+            gameLogs: { 2025: MOCK_GAME_LOG },
+            gameLogThrough: { 2025: 18 },
+          },
+        },
+      });
+    });
+
+    await page.goto(`/player/${PLAYER.id}?format=ppr`, { waitUntil: "commit" });
+
+    // Present immediately: the row renders from the caller's copy, which is
+    // why it is able to state an absence this early.
+    await page.getByTestId("player-kpis").waitFor();
+
+    const inFlight = {};
+    for (const id of ["kpi-fpts", "kpi-posrank", "kpi-snapshare"]) {
+      inFlight[id] = await page.getByTestId(id).textContent();
+    }
+
+    // Its own season line is the honest comparison: absent until the fetch
+    // lands. If this row can stay quiet, so can the three values beside it.
+    expect(await page.getByTestId("kpi-season").count()).toBe(0);
+
+    for (const [id, text] of Object.entries(inFlight)) {
+      expect(text, `${id} while the fetch was still in flight`).not.toContain("—");
+    }
+
+    // And it really was in flight: releasing the gate produces the values.
+    release();
+    await expect(page.getByTestId("kpi-fpts")).toContainText("22.6");
+    await expect(page.getByTestId("kpi-posrank")).toContainText("1");
+    await expect(page.getByTestId("kpi-snapshare")).toContainText("63%");
+  });
+
   // The drill-down used to be one long scroll -- KPIs, draft numbers, an
   // advice card, then the log. Summary now carries everything but the log,
   // and it is what a visitor sees first.
@@ -239,6 +319,47 @@ test.describe("the player page", () => {
     await expect(page.getByTestId("player-page")).toContainText("ADP");
     await expect(page.getByTestId("player-page")).toContainText("Tier");
     await expect(page.getByTestId("player-modal-log")).toHaveCount(0);
+  });
+
+  // Measured at 390x844 before this was fixed: the table is 393px wide inside
+  // a 266px wrapper, and FOUR columns sat past its right edge -- YDS 9px, TD
+  // 42px, SNP 84px and PTS 126px. The status page had recorded two.
+  //
+  // The two furthest off screen were the two the table is read for: points
+  // scored, and the snap share that predicts opportunity. Nothing is hidden to
+  // fix it -- the order puts those first and the position detail is what you
+  // swipe to.
+  //
+  // The column count is asserted as well as the geometry, because dropping
+  // columns would satisfy the edge assertion while destroying the table.
+  test("the two columns worth reading are on screen at phone width", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockPlayer(page);
+    await page.goto(`/player/${PLAYER.id}`);
+
+    await page.getByTestId("tab-gamelog").click();
+    await expect(page.getByTestId("player-modal-log")).toBeVisible();
+
+    const m = await page.evaluate(() => {
+      const table = document.querySelector('[data-testid="player-modal-log"]');
+      const wrapRight = table.parentElement.getBoundingClientRect().right;
+      const heads = [...table.querySelectorAll("thead th")];
+      const rightOf = (label) => {
+        const th = heads.find((h) => h.textContent.trim() === label);
+        return th ? Math.round(th.getBoundingClientRect().right) : null;
+      };
+      return {
+        count: heads.length,
+        wrapRight: Math.round(wrapRight),
+        snp: rightOf("SNP"),
+        pts: rightOf("PTS"),
+      };
+    });
+
+    // An RB's log: WK, three rushing, four receiving, SNP, PTS.
+    expect(m.count).toBe(10);
+    expect(m.snp, "SNP right edge vs the visible right edge").toBeLessThanOrEqual(m.wrapRight);
+    expect(m.pts, "PTS right edge vs the visible right edge").toBeLessThanOrEqual(m.wrapRight);
   });
 
   test("the game log tab holds the table", async ({ page }) => {
