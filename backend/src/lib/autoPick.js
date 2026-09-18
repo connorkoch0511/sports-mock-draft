@@ -10,8 +10,7 @@ const { withAdpBySource } = require("./adpBySource");
 const { advanceDraft } = require("./advance");
 const { consensusRank, loadBoardRank } = require("./boardRank");
 const { QueryCommand } = require("@aws-sdk/lib-dynamodb");
-
-const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
+const { ALLOWED_POS } = require("./positions");
 
 async function loadPlayersForSport({ ddb, table, sport, format }) {
   // A Query page tops out at 1MB; the players table (~3,900 items) is close

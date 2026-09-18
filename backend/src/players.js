@@ -35,10 +35,19 @@ function toDetail(p, format) {
     out.stats = p.stats;
     out.statsSeason = p.statsSeason ?? null;
   }
-  // Two shapes for one deploy's worth of time. The sync rewrites every item
-  // nightly, so the single-season keys vanish with the next run -- but a
-  // deploy can land before that run, and a game log blank for a day is a
-  // worse bug than a little tolerance here.
+  // One shape. A second branch here used to read the pre-migration
+  // `gameLog` + `gameLogSeason` pair, under a comment promising it was needed
+  // for "one deploy's worth of time" -- with no date and nothing to force its
+  // removal, so it outlived its reason by months.
+  //
+  // Removed on evidence rather than on the comment's say-so: `sync/gameLogs.js`
+  // writes only `gameLogs[season]` and `gameLogThrough[season]`, syncPlayers'
+  // own tests assert `gameLogSeason` comes back undefined, and a full scan of
+  // the live table found the old key on 0 of 898 rows against 639 carrying the
+  // new one. Nothing can write it and nothing still holds it.
+  //
+  // The empty-object check stays: a stored `{}` is not a game log, and a test
+  // pins that it is not served as one.
   if (p.gameLogs && typeof p.gameLogs === "object" && Object.keys(p.gameLogs).length > 0) {
     out.gameLogs = p.gameLogs;
     // How far each season had got when it was synced. The table renders gaps
@@ -46,9 +55,6 @@ function toDetail(p, format) {
     // nobody has played as games this player missed.
     out.gameLogThrough =
       p.gameLogThrough && typeof p.gameLogThrough === "object" ? p.gameLogThrough : {};
-  } else if (Array.isArray(p.gameLog) && p.gameLog.length > 0 && p.gameLogSeason) {
-    out.gameLogs = { [p.gameLogSeason]: p.gameLog };
-    out.gameLogThrough = { [p.gameLogSeason]: p.gameLogThrough ?? null };
   }
   if (p.injuryStatus) out.injuryStatus = p.injuryStatus;
   if (p.injuryBodyPart) out.injuryBodyPart = p.injuryBodyPart;

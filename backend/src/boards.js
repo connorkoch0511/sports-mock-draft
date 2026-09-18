@@ -12,10 +12,10 @@ const { json, responder } = require("./lib/http");
 const { reconcile } = require("./lib/reconcile");
 const { subOf, canMutate, ANON } = require("./lib/owner");
 const { withAdpBySource } = require("./lib/adpBySource");
+const { ALLOWED_POS } = require("./lib/positions");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
 const FORMATS = new Set(["standard", "half-ppr", "ppr"]);
 
 const DEFAULT_SEASON = 2026;
