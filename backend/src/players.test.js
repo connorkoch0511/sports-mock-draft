@@ -337,19 +337,6 @@ test("one player comes back with every stored season", async (t) => {
   assert.deepStrictEqual(keys[0], { sport: "nfl", playerId: "4034" });
 });
 
-// A deploy can land before the night's sync rewrites the table. Without this
-// the drill-down would show no game log at all until the next run -- a worse
-// bug than carrying a second read path for a day.
-test("an item still in the single-season shape is read as one season", async () => {
-  stubGet(player("4034", 7, { gameLog: GAME_LOG, gameLogSeason: 2025, gameLogThrough: 18 }));
-
-  const { body } = await getOne("4034", { format: "ppr" });
-
-  assert.deepStrictEqual(Object.keys(body.player.gameLogs), ["2025"]);
-  assert.deepStrictEqual(body.player.gameLogs["2025"], GAME_LOG);
-  assert.strictEqual(body.player.gameLogThrough["2025"], 18);
-});
-
 test("the single player uses the requested format's rank and adp", async () => {
   stubGet(player("4034", 7, {}));
   const { body } = await getOne("4034", { format: "ppr" });
@@ -372,7 +359,7 @@ test("a player with no game log simply omits it", async () => {
 });
 
 test("an empty stored game log is not served as a log", async () => {
-  stubGet(player("4034", 7, { gameLogs: {}, gameLogSeason: 2025 }));
+  stubGet(player("4034", 7, { gameLogs: {} }));
   const { body } = await getOne("4034");
   assert.ok(!("gameLogs" in body.player));
 });
@@ -397,11 +384,17 @@ test("availability comes back for an unranked player too", async () => {
 // The guard on the payload decision. Without it the list quietly regains the
 // game log the moment someone reuses the detail projection.
 test("GET /players never ships a game log", async () => {
-  stubPages([{ Items: [player("a", 1, { gameLog: GAME_LOG, gameLogSeason: 2025 })] }]);
+  // The stored row carries both a log and its coverage map; the list must
+  // project away every one of them. Asserting on keys the fixture actually
+  // supplies is the point -- an assertion against a key nothing stored would
+  // pass on an endpoint that shipped the whole item.
+  stubPages([
+    { Items: [player("a", 1, { gameLogs: { 2025: GAME_LOG }, gameLogThrough: { 2025: 18 } })] },
+  ]);
   const { body } = await get({ format: "standard" });
   assert.strictEqual(body.players.length, 1);
-  assert.ok(!("gameLog" in body.players[0]), "the list must stay lean");
-  assert.ok(!("gameLogSeason" in body.players[0]));
+  assert.ok(!("gameLogs" in body.players[0]), "the list must stay lean");
+  assert.ok(!("gameLogThrough" in body.players[0]));
 });
 
 test("gameLogThrough rides along with the log, per season", async () => {

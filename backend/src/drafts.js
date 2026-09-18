@@ -20,10 +20,9 @@ const {
   boardIdForTeam,
   autoPickAndAdvance,
 } = require("./lib/autoPick");
+const { ALLOWED_POS } = require("./lib/positions");
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
-
-const ALLOWED_POS = new Set(["QB", "RB", "WR", "TE", "K", "DEF"]);
 
 async function getPlayerSnapshot(playersTable, sport, format, playerId) {
   const res = await ddb.send(

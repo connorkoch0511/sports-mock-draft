@@ -11,7 +11,16 @@ export default defineConfig({
     baseURL: "http://localhost:5173",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
-    viewport: { width: 1440, height: 900 },
+    // No `viewport` here, deliberately. One used to say 1440x900 and had never
+    // applied: the chromium project below spreads `devices["Desktop Chrome"]`,
+    // which carries its own 1280x720 and wins. Every test that has ever run
+    // here ran at 1280x720 -- including the ones that measure layout -- while
+    // the config advertised a size nothing used. A spec comment
+    // (boarddraft.spec.js) had already written the discrepancy down.
+    //
+    // The default now comes from the project, which is where it was coming
+    // from all along. Tests that need another size call setViewportSize or
+    // test.use, and every one of them already does.
   },
   projects: [
     {
