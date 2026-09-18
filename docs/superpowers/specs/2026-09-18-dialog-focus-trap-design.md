@@ -31,11 +31,25 @@ modal was "the worse case" — desktop as well as phone, opened from a 25-row
 list. That was inference and it was wrong: the counts match exactly. What
 differs is only where focus lands.
 
-**Backward is the severe direction, and it was not predicted.** One press. Both
-dialogs place focus on their first focusable element on open — the panel for
-the sheet, the close button for the modal — so `Shift+Tab` steps immediately
-off the front. A trap that wraps only the *last* element leaves this untouched,
-which is the naive implementation and would have shipped here.
+**Backward is the severe direction, and it was not predicted.** One or two
+presses. Both dialogs place focus on their first focusable element on open —
+the panel for the sheet, the close button for the modal — so `Shift+Tab` steps
+immediately off the front. A trap that wraps only the *last* element leaves
+this untouched, which is the naive implementation and would have shipped here.
+
+*Corrected after the tests were written:* the sheet's backward escape is at
+press **2**, not 1. Press 1 lands on `close-controls`, which the first
+diagnostic counted as an escape because it measured against the *dialog*; under
+the overlay boundary chosen here that button is **inside**, and the leak begins
+at press 2 (`open-controls`, then the strip, the nav, `<body>`). The figure in
+the first table above is the dialog-boundary measurement and is kept because it
+is what was actually observed; this is what it means under the boundary that
+shipped.
+
+**The forward leak is worse than "focus goes somewhere odd."** Tabbing out of
+the sheet reaches `open-player` and `queue-add` — so a keyboard user can open a
+player, or **add one to their queue**, through a backdrop they cannot see
+past. The escape is not merely disorienting; it is actionable.
 
 **Where focus lands is worse than the counts suggest.** The sheet leaks into the
 Big Board's search input and its two filter selects. The modal leaks to `<body>`

@@ -412,6 +412,56 @@ test.describe("the draft page on a phone", () => {
     await expect(sheet).toHaveCount(0);
   });
 
+  // `aria-modal="true"` is a promise that the rest of the page is inert, and
+  // the sheet does not keep it. Measured with real key presses: focus escapes
+  // after THREE Tab presses, into the Big Board's search input and filter
+  // selects -- controls sitting behind a full-screen backdrop, invisible to
+  // whoever is tabbing.
+  //
+  // Containment is asserted after EVERY press, not as a count. "Three presses
+  // stays inside" would pass against a trap that leaks on the fourth.
+  //
+  // The boundary is the OVERLAY, not the dialog: `close-controls` is a sibling
+  // of `control-sheet` inside the fixed wrapper, and a keyboard should reach it
+  // the way a mouse already can. Asserting against the dialog alone would call
+  // that button an escape.
+  async function walkFocus(page, key, presses = 10) {
+    const trail = [];
+    for (let i = 1; i <= presses; i++) {
+      await page.keyboard.press(key);
+      trail.push(
+        await page.evaluate(() => {
+          const overlay = document.querySelector('[data-testid="control-sheet"]')?.closest("div.fixed");
+          const el = document.activeElement;
+          const id = el?.getAttribute?.("data-testid");
+          return {
+            inside: !!overlay && !!el && overlay.contains(el),
+            who: el === document.body ? "<body>" : `<${el?.tagName?.toLowerCase?.()}${id ? ` ${id}` : ""}>`,
+          };
+        })
+      );
+    }
+    return trail;
+  }
+
+  for (const [direction, key] of [["forwards", "Tab"], ["backwards", "Shift+Tab"]]) {
+    test(`the sheet keeps focus when tabbing ${direction}`, async ({ page }) => {
+      await openDraft(page);
+      // The countdown re-renders the page every second; a ten-press walk would
+      // churn underneath it.
+      await page.getByRole("button", { name: "Pause" }).click();
+      await page.getByTestId("open-controls").click();
+      await expect(page.getByTestId("control-sheet")).toBeVisible();
+
+      const trail = await walkFocus(page, key);
+      const escaped = trail
+        .map((t, i) => (t.inside ? null : `press ${i + 1} -> ${t.who}`))
+        .filter(Boolean);
+
+      expect(escaped, `focus left the sheet: ${escaped.join("; ")}`).toEqual([]);
+    });
+  }
+
   // The sheet's own controls have to stay usable for longer than one tick. The
   // focus effect used to take `onClose` -- an inline arrow recreated on every
   // render -- so the 1s countdown re-ran it every second, restoring focus and

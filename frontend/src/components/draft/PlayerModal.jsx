@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { PlayerDetail } from "./PlayerDetail";
+import { useFocusTrap } from "../../lib/useFocusTrap";
 
 /**
  * The drill-down as a dialog, opened from a Big Board row or a board row.
@@ -22,6 +23,12 @@ export function PlayerModal({
   onClose,
 }) {
   const closeRef = useRef(null);
+  // Here the dialog is nested inside the backdrop, so the overlay and the
+  // dialog's containing element coincide -- the same hook, the same boundary.
+  const overlay = useRef(null);
+
+  // Always on: this component only mounts while the modal is open.
+  useFocusTrap(overlay, true);
 
   // Focus moves into the dialog on open and back to whatever opened it on
   // close. Without the restore, closing drops focus to the top of the page and
@@ -51,6 +58,7 @@ export function PlayerModal({
   // 1280x720 viewport -- a dialog trapped in the left third of the page.
   return createPortal(
     <div
+      ref={overlay}
       data-testid="player-modal-backdrop"
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
       onClick={(e) => {

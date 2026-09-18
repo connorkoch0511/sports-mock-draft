@@ -1,10 +1,16 @@
 import { useEffect, useRef } from "react";
+import { useFocusTrap } from "../../lib/useFocusTrap";
 
 // A sheet rather than a dropdown: it rises near the thumb and gives each row a
 // real touch target, where a menu dropping from the top of a tall phone is a
 // mis-tap generator.
 export default function ControlSheet({ open, onClose, children }) {
   const panel = useRef(null);
+  // The overlay, not the panel: `close-controls` is a sibling of the dialog,
+  // and a keyboard should reach it the way a mouse already can.
+  const overlay = useRef(null);
+
+  useFocusTrap(overlay, open);
 
   // Keyed on `open` ALONE, deliberately. `onClose` is an inline arrow recreated
   // on every render of Draft, and a live draft re-renders once a second from
@@ -34,7 +40,7 @@ export default function ControlSheet({ open, onClose, children }) {
 
   if (!open) return null;
   return (
-    <div className="xl:hidden fixed inset-0 z-40 flex flex-col justify-end">
+    <div ref={overlay} className="xl:hidden fixed inset-0 z-40 flex flex-col justify-end">
       <button
         type="button"
         aria-label="Close controls"
