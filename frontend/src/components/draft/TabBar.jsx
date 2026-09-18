@@ -24,7 +24,15 @@ export default function TabBar({ active, onChange }) {
       // content is a tab bar you have to scroll 3,000px to reach. Above
       // that threshold the page does not scroll at all, so this is inert
       // there rather than a second layout to keep working.
-      className="xl:hidden sticky bottom-0 z-20 shrink-0 grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/95 p-1 backdrop-blur"
+      // p-0.5, not p-1: the buttons now carry their own 44px floor, so the
+      // bar's padding was wrapping air around targets that no longer need it.
+      // Measured at a 16px root, the floor grew this bar 46 -> 54px and the
+      // strip 52 -> 62 -- 18px that came straight out of the player list,
+      // because the scroller resizes with the chrome and reports 0px of slack
+      // either way. Nothing asserts that loss; it is simply content a thumb
+      // no longer reaches. Giving the padding back is the cheapest way to
+      // return it.
+      className="xl:hidden sticky bottom-0 z-20 shrink-0 grid grid-cols-4 gap-1 rounded-2xl border border-zinc-800/70 bg-zinc-950/95 p-0.5 backdrop-blur"
     >
       {TABS.map((t) => (
         <button
@@ -33,7 +41,11 @@ export default function TabBar({ active, onChange }) {
           data-testid={t.testid}
           aria-current={active === t.id ? "page" : undefined}
           onClick={() => onChange(t.id)}
-          className={`rounded-xl px-2 py-2.5 text-xs transition-colors ${
+          // 44px is a thumb, not a line of text, so this floor is in pixels
+          // and does not scale with the root font -- unlike everything else
+          // here. The buttons measured 36px, against the 44px the control
+          // sheet's own rows were built to hit.
+          className={`min-h-[44px] flex items-center justify-center rounded-xl px-2 py-2.5 text-xs transition-colors ${
             active === t.id
               ? "bg-zinc-800 text-zinc-100"
               : "text-zinc-400 hover:text-zinc-200"
