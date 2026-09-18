@@ -124,6 +124,50 @@ test.describe("player drill-down", () => {
     await expect(opener).toBeFocused();
   });
 
+  // The modal declares `aria-modal="true"` and does not contain focus either.
+  // Measured with real key presses: it escapes after THREE Tab presses to
+  // <body> and then the site nav, and after ONE Shift+Tab onto the panels'
+  // scroll containers -- `scroll-rosters` and `scroll-draft-board`, which
+  // Chromium makes focusable so a keyboard can scroll them. All of it sits
+  // behind an opaque backdrop.
+  //
+  // Backward is the severe direction and it was not predicted: focus opens on
+  // the close button, the FIRST focusable element, so one press steps off the
+  // front. A trap that wraps only the last element leaves this untouched.
+  //
+  // Containment is asserted after every press. Here the overlay and the dialog
+  // differ too -- `player-modal` is nested inside `player-modal-backdrop` --
+  // so the check uses the backdrop, matching the sheet's boundary.
+  for (const [direction, key] of [["forwards", "Tab"], ["backwards", "Shift+Tab"]]) {
+    test(`the modal keeps focus when tabbing ${direction}`, async ({ page }) => {
+      await openDraft(page);
+      await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
+      await expect(page.getByTestId("player-modal")).toBeVisible();
+
+      const trail = [];
+      for (let i = 1; i <= 10; i++) {
+        await page.keyboard.press(key);
+        trail.push(
+          await page.evaluate(() => {
+            const overlay = document.querySelector('[data-testid="player-modal-backdrop"]');
+            const el = document.activeElement;
+            const id = el?.getAttribute?.("data-testid");
+            return {
+              inside: !!overlay && !!el && overlay.contains(el),
+              who: el === document.body ? "<body>" : `<${el?.tagName?.toLowerCase?.()}${id ? ` ${id}` : ""}>`,
+            };
+          })
+        );
+      }
+
+      const escaped = trail
+        .map((t, i) => (t.inside ? null : `press ${i + 1} -> ${t.who}`))
+        .filter(Boolean);
+
+      expect(escaped, `focus left the modal: ${escaped.join("; ")}`).toEqual([]);
+    });
+  }
+
   test("clicking the backdrop closes it, clicking inside does not", async ({ page }) => {
     await openDraft(page);
     await rowFor(page, MCCAFFREY).getByTestId("open-player").click();
