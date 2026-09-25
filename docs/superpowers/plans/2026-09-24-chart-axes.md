@@ -192,10 +192,10 @@ export function xTicks(totalWeeks) {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npx node --test src/components/draft/weeklyChartScale.test.js`
-Expected: PASS, 10 tests.
+Expected: PASS, 11 tests.
 
 Then the whole unit suite: `cd frontend && npm run test:unit`
-Expected: `pass 296` (286 baseline + 10), `fail 0`.
+Expected: `pass 297` (286 baseline + 11), `fail 0`.
 
 - [ ] **Step 5: Commit**
 
@@ -504,7 +504,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - [ ] **Step 1: Run the full unit suite**
 
 Run: `cd frontend && npm run test:unit`
-Expected: `pass 296`, `fail 0`.
+Expected: `pass 297`, `fail 0`.
 
 - [ ] **Step 2: Run the full Playwright suite**
 
