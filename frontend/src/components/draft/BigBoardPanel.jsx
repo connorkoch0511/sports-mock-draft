@@ -226,21 +226,42 @@ export function BigBoardPanel({
           the worst possible moment to delete the answer. It prints the
           position and team, so it is never pointing at nothing.
         */}
-        {/* A flex child defaults to min-height:auto, so this card refused to
-            shrink and pushed the player list past the panel's bottom edge,
-            where it painted over the queue strip. min-h-0 lets it yield, and
-            it scrolls rather than clipping. (overflow-auto alone would do the
-            same job -- a scroll container's automatic minimum size is already
-            zero -- so either class is sufficient and both are here on
-            purpose; removing BOTH is what turns the bug back on.)
+        {/* A flex child defaults to min-height:auto, so this card once refused
+            to shrink and pushed the player list past the panel's bottom edge,
+            where it painted over the queue strip (744295a). min-h-0 fixed that
+            by letting the card yield without limit -- and yielding without
+            limit is what this floor replaces.
 
-            Two honest limits. It yields by height, not by width, so how much
-            it gives up depends on both: at 1024 wide the reasons wrap taller
-            and the card hides about 38% of itself even at 900 tall, which is
-            not the "only below 900" story it would be nice to tell. And a
-            scrolled-away reason has no scrollbar under macOS overlay
-            scrollbars, so at the shortest viewports the advice is there but
-            unadvertised.
+            min-h-[4.5rem], not min-h-0: the card's inner scroller already
+            absorbs every pixel of shrink, so min-h-0 let the SHELL collapse
+            too. Measured at 1280 and 1512 (identical geometry -- width does
+            not enter into it): the card was handed 18px against 73px of
+            shell content at both 640 and 660, clipping the suggested-pick
+            line 16px through its own glyphs. 4.5rem is that shell content --
+            name line, cue, padding -- and nothing more, so the card can still
+            give up everything below it. In rem beside rem contents, per the
+            note on the `tall` variant in index.css.
+
+            What the floor costs, measured, with the queue panel on screen:
+            nothing at 700 and up (0px of spill at 700, 720, 800, 900). Below
+            that it spends 40px at 660 and 60px at 640, which paints past the
+            panel's own bottom edge and is not clipped there -- the panel lets
+            content paint past its border on purpose, for the reason spelled
+            out in the next paragraph. It lands in dead space rather than on
+            anything: the queue panel starts 16px lower at every height and
+            the two boxes were verified not to intersect at 640, 660, 700, 720
+            or 800. A readable answer beats 40px of paint in a gap, and the
+            player list keeps its own 160px floor throughout either way.
+
+            Two honest limits remain. The card yields by height, not by width,
+            so how much it gives up depends on both: at 1024 wide the reasons
+            wrap taller and the card hides about 38% of itself even at 900
+            tall, which is not the "only below 900" story it would be nice to
+            tell. And a scrolled-away reason has no scrollbar under macOS
+            overlay scrollbars -- which is what the cue below is for; it was
+            verified to still count honestly after the name line moved out of
+            the scroller (6 hidden of 6 at 640-740, 5 of 5 at 800, 2 of 2 at
+            900).
 
             NOT clipped at the panel: overflow-hidden here was measured at
             1024x650 to cut reachable player-row buttons from five to three
@@ -252,8 +273,39 @@ export function BigBoardPanel({
         {isMyTurn && recommendation ? (
           <div
             data-testid="advice-card"
-            className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 min-h-0 flex flex-col overflow-hidden"
+            className="rounded-2xl border border-emerald-900/50 bg-emerald-950/20 px-3 py-2 min-h-[4.5rem] flex flex-col overflow-hidden"
           >
+            {/* Label and name on ONE line, not two. When the panel is
+                short this card is the first thing to give up height -- at
+                1280x720 it gets about 74px -- and with the name on a second
+                row that 74px bought the word "Suggested pick" and the top
+                half of the answer, cut through the middle of the glyphs.
+
+                OUTSIDE the scroller, and shrink-0, which is the whole point.
+                Inside it this line was the first thing the squeeze ate: the
+                scroller's own overflow-auto clipped it 11px at a 700px
+                viewport and 24px at 660, leaving "Suggested pick" and the top
+                of the answer sliced through the glyphs while the cue below
+                went on advertising six reasons nobody could reach. Scrollable
+                back into view is not the same as shown. The shell holds what
+                the card exists to say; the scroller holds elaboration. */}
+            <div
+              data-testid="advice-name"
+              className="mb-2 shrink-0 flex items-baseline justify-between gap-2"
+            >
+              <div className="min-w-0">
+                <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
+                  Suggested pick
+                </span>{" "}
+                <span className="text-sm font-semibold text-zinc-100">
+                  {recommendation.player.name}
+                </span>
+              </div>
+              <span className="shrink-0 text-[11px] text-zinc-400">
+                {recommendation.player.position} · {recommendation.player.team}
+              </span>
+            </div>
+
             {/* The shell above does not scroll; this does. Keeping them
                 separate is what lets the cue below sit UNDER the content
                 rather than on top of it -- as a sticky footer inside the
@@ -265,27 +317,6 @@ export function BigBoardPanel({
               data-testid="advice-scroll"
               className="min-h-0 overflow-auto space-y-2"
             >
-              {/* Label and name on ONE line, not two. When the panel is
-                  short this card is the first thing to give up height -- at
-                  1280x720 it gets about 74px -- and with the name on a second
-                  row that 74px bought the word "Suggested pick" and the top
-                  half of the answer, cut through the middle of the glyphs.
-                  The line that says WHO now survives the squeeze; everything
-                  under it is elaboration, and the cue below says how much of
-                  that is out of sight. */}
-              <div className="flex items-baseline justify-between gap-2">
-                <div className="min-w-0">
-                  <span className="text-[11px] font-semibold uppercase tracking-wide text-emerald-300">
-                    Suggested pick
-                  </span>{" "}
-                  <span className="text-sm font-semibold text-zinc-100">
-                    {recommendation.player.name}
-                  </span>
-                </div>
-                <span className="shrink-0 text-[11px] text-zinc-400">
-                  {recommendation.player.position} · {recommendation.player.team}
-                </span>
-              </div>
               <StartingPoint
                 startingPoint={{
                   base: recommendation.base,
