@@ -518,5 +518,71 @@ test.describe("the player page", () => {
       await expect(page.getByTestId("weekly-points-chart")).toContainText("2025");
       await expect(page.getByTestId("snap-share-chart")).toContainText("2025");
     });
+
+    // The reported defect: marks drawn against an unlabelled baseline. A line
+    // climbing gently left to right is equally consistent with 40% -> 45% and
+    // with 5% -> 90%, and the chart offered no way to tell which.
+    test("each chart names both axes and shows a scale", async ({ page }) => {
+      await mockPlayer(page);
+      await page.goto(`/player/${PLAYER.id}`);
+
+      const points = page.getByTestId("weekly-points-chart");
+      await expect(points.getByTestId("chart-axis-name-y")).toHaveText("Points");
+      await expect(points.getByTestId("chart-axis-name-x")).toHaveText("Week");
+      await expect(points.getByTestId("chart-tick-y")).not.toHaveCount(0);
+      await expect(points.getByTestId("chart-tick-x")).not.toHaveCount(0);
+
+      // Snap share is a percentage on a FIXED 0-100 domain -- the whole reason
+      // it does not auto-scale is that a 16% ceiling and a 96% ceiling drew
+      // the identical line touching the top of the box.
+      const snaps = page.getByTestId("snap-share-chart");
+      await expect(snaps.getByTestId("chart-axis-name-y")).toHaveText("Snap %");
+      await expect(snaps.getByTestId("chart-tick-y").first()).toHaveText("0");
+      await expect(snaps.getByTestId("chart-tick-y").last()).toHaveText("100");
+    });
+
+    // chart-axis is asserted toHaveCount(1) above -- it is what distinguishes
+    // "played and scored nothing" from "did not play". The y-axis is a second
+    // line and must not borrow that testid.
+    test("the y-axis is its own element, leaving the baseline assertion intact", async ({ page }) => {
+      await mockPlayer(page);
+      await page.goto(`/player/${PLAYER.id}`);
+
+      const chart = page.getByTestId("weekly-points-chart");
+      await expect(chart.getByTestId("chart-axis")).toHaveCount(1);
+      await expect(chart.getByTestId("chart-axis-y")).toHaveCount(1);
+    });
+
+    // At most four week labels, or they collide at 390px. The fixture runs an
+    // 18-week season, so this exercises the full-season tick path.
+    test("the week labels never crowd the phone width", async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await mockPlayer(page);
+      await page.goto(`/player/${PLAYER.id}`);
+
+      // Wait for the chart before any non-retrying read. count() and
+      // evaluate() do NOT retry, so without this they race the fetch that
+      // populates the game log -- and a chart that has not rendered yet
+      // reports zero ticks, which looks exactly like a chart that draws none.
+      await expect(page.getByTestId("weekly-points-chart")).toBeVisible();
+
+      const ticks = page.getByTestId("weekly-points-chart").getByTestId("chart-tick-x");
+      const count = await ticks.count();
+      // Both bounds. "At most four" alone is satisfied by ZERO ticks, so this
+      // test passed against the unlabelled chart it was written to reject --
+      // green for the wrong reason, which is worth less than red.
+      expect(count, "week labels are drawn at all").toBeGreaterThan(0);
+      expect(count, "and never more than four, or they collide at 390px").toBeLessThanOrEqual(4);
+
+      // And the drawing still fits its column. preserveAspectRatio is what
+      // makes that true, and a WIDER viewBox is exactly the change that could
+      // break it.
+      const fits = await page.evaluate(() => {
+        const svg = document.querySelector('[data-testid="weekly-points-chart"] svg');
+        const box = svg.parentElement.getBoundingClientRect();
+        return Math.round(svg.getBoundingClientRect().width) <= Math.round(box.width) + 1;
+      });
+      expect(fits, "the chart must not overflow its container at 390px").toBe(true);
+    });
   });
 });

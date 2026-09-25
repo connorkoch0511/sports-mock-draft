@@ -11,23 +11,12 @@
 // read (an unknown snap share, say) drops that one mark the same way -- never
 // a fabricated zero standing in for "we don't know".
 
-const WIDTH = 300;
-const HEIGHT = 100;
-const MARGIN = { top: 10, right: 10, bottom: 10, left: 10 };
-const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right;
-const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom;
-const BASELINE = HEIGHT - MARGIN.bottom;
+// The geometry and the tick maths live in weeklyChartScale.js so they can be
+// tested without a browser -- including the promise this file cannot make on
+// its own, that the plot area is unchanged by the gutters the axes needed.
+import { GEOM, xFor, yTicks, xTicks } from "./weeklyChartScale.js";
 
-// Position along the x-axis follows the real week number, not the mark's
-// index in the array. A three-game player in an 18-week season should show
-// three marks bunched wherever they actually fell, with the rest of the
-// season sitting empty -- not three marks stretched evenly across the full
-// width, which would erase the very gaps this component exists to preserve.
-function xFor(wk, totalWeeks) {
-  const span = Math.max(totalWeeks - 1, 1);
-  const t = totalWeeks > 1 ? (wk - 1) / span : 0.5;
-  return MARGIN.left + t * PLOT_WIDTH;
-}
+const { WIDTH, HEIGHT, MARGIN, PLOT_WIDTH, PLOT_HEIGHT, BASELINE } = GEOM;
 
 /**
  * `rows`: the season's played weeks (already gap-free -- one entry per week
@@ -43,7 +32,7 @@ function xFor(wk, totalWeeks) {
  * `label`: short caption, expected to name the season.
  * `testId`: data-testid on the chart's own container.
  */
-export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId, domainMax }) {
+export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId, domainMax, yLabel }) {
   const points = (rows || [])
     .map((row) => ({ wk: row.wk, value: valueOf(row) }))
     .filter((p) => typeof p.value === "number" && Number.isFinite(p.value));
@@ -83,10 +72,16 @@ export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId, do
     <div data-testid={testId} className="relative">
       {label ? <div className="mb-1 text-[11px] text-zinc-500">{label}</div> : null}
       {/*
-        preserveAspectRatio scales the fixed 300x100 drawing down to whatever
+        preserveAspectRatio scales the fixed 328x122 drawing down to whatever
         width the modal gives it -- as narrow as ~340px at 390px wide -- with
-        no horizontal overflow, and the viewBox's own margins leave room for
-        the outermost marks instead of clipping a bar sitting at week 1 or 18.
+        no horizontal overflow.
+
+        The margins are gutters now, not just clearance for the outermost
+        marks: 38 on the left carries the y scale and its name, 32 at the
+        bottom carries the week numbers and "Week". The plot inside them is
+        still exactly 280x80, and BASELINE is still 90, so every mark sits
+        where it always did -- see weeklyChartScale.js, where a test asserts
+        both rather than leaving it to this comment.
       */}
       {(allZero || noneRecorded) && (
         <div
@@ -121,6 +116,99 @@ export function WeeklyChart({ rows, valueOf, kind, weeks = 18, label, testId, do
           strokeWidth="1"
           fill="none"
         />
+
+        {/*
+          The vertical axis, under its OWN testid. chart-axis is asserted as
+          exactly one element -- it is the baseline, and the baseline is what
+          separates "played and scored nothing" from "did not play". Borrowing
+          that id for a second line would quietly break the claim it exists to
+          make.
+        */}
+        <line
+          data-testid="chart-axis-y"
+          x1={MARGIN.left}
+          y1={MARGIN.top}
+          x2={MARGIN.left}
+          y2={BASELINE}
+          stroke="#3f3f46"
+          strokeWidth="1"
+          fill="none"
+        />
+
+        {/*
+          Ticks and names are decoration layered over the svg's own role="img"
+          and aria-label: a reader hearing "0 50 100 Week" between the caption
+          and the data gets noise, not meaning -- hence aria-hidden on every
+          one of them.
+
+          9px in viewBox units, not 5: the drawing scales to ~340px at 390px
+          wide, where 9px renders 9.3px and 5px renders 5.2px. The readable
+          floor is about 9-10px, so 5px would have shipped a scale nobody on a
+          phone could read, which is the defect this whole change is about.
+
+          yTicks reads the domain's real floor rather than assuming zero,
+          because weekly points go negative and the bars already draw downward
+          from the zero line.
+        */}
+        {yTicks(minValue, maxValue).map((t) => (
+          <text
+            key={`y-${t}`}
+            data-testid="chart-tick-y"
+            aria-hidden="true"
+            x={MARGIN.left - 4}
+            y={yFor(t) + 3}
+            textAnchor="end"
+            fontSize="9"
+            fill="#71717a"
+          >
+            {t}
+          </text>
+        ))}
+
+        {xTicks(weeks).map((wk) => (
+          <text
+            key={`x-${wk}`}
+            data-testid="chart-tick-x"
+            aria-hidden="true"
+            x={xFor(wk, weeks)}
+            y={BASELINE + 12}
+            textAnchor="middle"
+            fontSize="9"
+            fill="#71717a"
+          >
+            {wk}
+          </text>
+        ))}
+
+        <text
+          data-testid="chart-axis-name-x"
+          aria-hidden="true"
+          x={MARGIN.left + PLOT_WIDTH / 2}
+          y={HEIGHT - 4}
+          textAnchor="middle"
+          fontSize="9"
+          fill="#a1a1aa"
+        >
+          Week
+        </text>
+
+        {/* Rotated up the left gutter. The caller names the unit because only
+            the caller knows it: the bars follow the league's own scoring, and
+            the line is a percentage from gameLog's snapShare. */}
+        {yLabel ? (
+          <text
+            data-testid="chart-axis-name-y"
+            aria-hidden="true"
+            transform={`rotate(-90 10 ${MARGIN.top + PLOT_HEIGHT / 2})`}
+            x={10}
+            y={MARGIN.top + PLOT_HEIGHT / 2}
+            textAnchor="middle"
+            fontSize="9"
+            fill="#a1a1aa"
+          >
+            {yLabel}
+          </text>
+        ) : null}
 
         {kind === "bars" ? (
           points.map((p) => {
