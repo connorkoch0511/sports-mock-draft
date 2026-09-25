@@ -265,6 +265,10 @@ export function PlayerDetail({
                 testId="weekly-points-chart"
                 label={`Weekly points — ${season}`}
                 kind="bars"
+                // "Points", not "PPR points": the bars follow the league's own
+                // scoring through POINTS_FIELD[format] below, and hard-coding
+                // PPR is the exact bug that already shipped here once.
+                yLabel="Points"
                 rows={log}
                 weeks={through}
                 // The league's own scoring, matching the KPI row above. The
@@ -279,6 +283,11 @@ export function PlayerDetail({
                 testId="snap-share-chart"
                 label={`Snap share — ${season}`}
                 kind="line"
+                // snapShare() from gameLog.js returns 0-100. The function of
+                // the SAME NAME in playerKpis.js returns a 0-1 fraction --
+                // naming this axis from that one would put a wrong scale
+                // under a right-looking line.
+                yLabel="Snap %"
                 rows={log}
                 weeks={through}
                 valueOf={snapShare}
