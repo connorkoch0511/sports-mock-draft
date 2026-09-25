@@ -276,3 +276,61 @@ test("a completed draft recommends nobody", async ({ page }) => {
   await expect(page.getByTestId("big-board-row").first()).toBeVisible();
   await expect(page.getByTestId("advice-card")).toHaveCount(0);
 });
+
+// The card gives up height before anything else in the panel, and the line
+// naming WHO to draft is the one thing it exists to say. Measured boardless at
+// 1280 and 1512 (identical geometry -- width does not enter into it): the inner
+// scroll region falls to 13px at a 700px viewport and cuts that line through
+// the glyphs, while the cue below still advertises "5 more reasons" nobody can
+// reach. A board attached costs another ~40px, so a real user meets this about
+// 40px earlier than these numbers do.
+//
+// Heights, not widths, and three of them: 660 and 700 are where the squeeze
+// bites, 740 passes today and is here to catch a fix that trades the short
+// viewports for the tall ones.
+for (const vh of [660, 700, 740]) {
+  test(`the suggested player's name survives a ${vh}px screen`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: vh });
+    mockPool(page, makeDraftState({ currentIndex: 0 }));
+
+    await signIn(page);
+    await page.goto(`/draft/${DRAFT_ID}`);
+    await page.getByRole("button", { name: "Pause" }).click();
+    await expect(page.getByTestId("advice-card")).toBeVisible();
+
+    // Not toBeVisible(): Playwright calls a box visible when any part of it is,
+    // and a name line cut through the middle is exactly that -- partly there.
+    //
+    // TWO clipping edges, and the tighter one governs. The card sets
+    // overflow-hidden, but the name line sits inside advice-scroll, which sets
+    // overflow-auto -- so the scroller clips it first. Measuring only the card
+    // reports a 700px viewport as fine while the scroller, 8px of padding
+    // higher, is cutting the name through the glyphs; "scrollable back into
+    // view" is not the same as shown, and this line is the one thing the card
+    // exists to say.
+    const cut = await page.evaluate(() => {
+      const card = document.querySelector('[data-testid="advice-card"]');
+      const scroll = document.querySelector('[data-testid="advice-scroll"]');
+      const name = document.querySelector('[data-testid="advice-name"]');
+      if (!card || !scroll || !name) return { missing: true };
+
+      const clipBottom = (el) => {
+        const r = el.getBoundingClientRect();
+        const border = (r.height - el.clientHeight) / 2;
+        return r.bottom - border;
+      };
+
+      const n = name.getBoundingClientRect();
+      const edge = Math.min(clipBottom(card), clipBottom(scroll));
+      return {
+        missing: false,
+        px: Math.max(0, Math.round(n.bottom - edge)),
+        nameH: Math.round(n.height),
+      };
+    });
+
+    expect(cut.missing, "advice card and name line both render").toBe(false);
+    expect(cut.nameH, "the name line has real height").toBeGreaterThan(0);
+    expect(cut.px, `the name line is cut off by ${cut.px}px at ${vh}px tall`).toBe(0);
+  });
+}
